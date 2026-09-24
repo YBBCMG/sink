@@ -175,6 +175,16 @@ python -m http.server 8080      # 或 npx serve .
 2. 把 `index.html`（单文件即可）打包成 zip 上传；勾选 *This file will be played in the browser*
 3. 建议视口：**960 × 600**（或勾选 “Mobile friendly” 后由页面自适应；本作竖屏会留黑边，已在画面里提示横屏）
 
+## 发布到 GitHub Pages
+
+```bash
+node tools/align-head.mjs      # 必跑：delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，
+                               # 改完 index.html 后 64KB 切线可能正好落在汉字中间 → 门禁判 FAIL
+node tools/publish-pages.mjs   # 走 Contents API 覆盖 index.html / README.md / .nojekyll
+```
+
+线上地址：<https://ybbcmg.github.io/sink/>（发布后轮询比对 md5sum，确认 CDN 真的换新了再说“完成”）。
+
 ## 自检与验收
 
 页面内置自检屏，直接在地址后加参数：
