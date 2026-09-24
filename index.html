@@ -3,7 +3,7 @@
 <head>
 <!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
-     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--> <!--/align-pad--><meta charset="utf-8" />
+     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad--><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#02060d" />
 <meta name="description" content="深潜 SINK —— 一盏会发光的灯，向深渊下潜。越贪越快，越快越瞎。" />
@@ -149,9 +149,9 @@ const SKILLS = [
    选路线只给「技能本身」；冷却 / 伤害 / 范围这些数值要靠之后的路线牌一级一级点出来。
    基础牌（没有 r 字段的那些）不锁路线，随便哪条路都能抽到。 */
 const ROUTES = [
-  { id: "mage",    n: "冲击波法师", k: "q", col: [255, 170, 240], d: "冷却降 · 伤害升 · 范围大",    s: "右键 = 冲击波" },
+  { id: "mage",    n: "法师",       k: "q", col: [255, 170, 240], d: "冷却降 · 伤害升 · 范围大",    s: "右键 = 冲击波" },
   { id: "lamp",    n: "照明使者",   k: "f", col: [210, 240, 255], d: "探照期间：灼伤 · 回氧 · 护盾", s: "右键 = 探照" },
-  { id: "warrior", n: "冲锋战士",   k: "e", col: [150, 255, 220], d: "氧气上限升 · 撞击升 · 吸血",   s: "右键 = 突进" }
+  { id: "warrior", n: "战士",       k: "e", col: [150, 255, 220], d: "氧气上限升 · 撞击升 · 吸血",   s: "右键 = 突进" }
 ];
 const ROUTE_MAP = {}; for (const r of ROUTES) ROUTE_MAP[r.id] = r;
 function routeNow() { return G.route ? ROUTE_MAP[G.route] : null; }
@@ -586,7 +586,7 @@ function killReward(e) {
   burst(e.x, e.y, 22, e.kind === "hunter" ? "255,150,120" : "170,220,255");
   SFX.kill();
 }
-/* 冲锋战士·噬血：突进撞碎 / 撞死 按氧气上限的百分比回氧 */
+/* 战士·噬血：突进撞碎 / 撞死 按氧气上限的百分比回氧 */
 function healVamp(x, y) {
   if (G.m.vamp <= 0) return;
   const gain = o2MaxNow() * G.m.vamp;
@@ -906,7 +906,7 @@ function stepPlay(dt) {
       /* 突进撞上去不算撞车，是撞碎：无敌期间给挡路的开个洞。
          dashS 是「哪一次突进已经打过它」的戳记 —— 不加就会每帧（120/s）扣一次 80 血。 */
       e.dashS = G.dashStamp;
-      /* 冲锋战士·猛撞：撞击伤害加成 */
+      /* 战士·猛撞：撞击伤害加成 */
       if (hurtEnt(i, e, CFG.dashDmg + G.m.ramDmg, "150,255,220") && G.m.vamp > 0) healVamp(e.x, e.y);
       continue;
     } else if (fx.dash > 0 && G.m.ramDmg > 0 && (e.kind === "hunter" || e.kind === "spitter")
@@ -1961,7 +1961,7 @@ function init() {
     fireAttack();
     freezeClean(); AUTO_FREEZE = true;
   } else if (q.get("scenario") === "active") {
-    /* 主动技能验收截图：选「冲击波法师」→ Q 放出去正在扩散、按钮转冷却；
+    /* 主动技能验收截图：选「法师」→ Q 放出去正在扩散、按钮转冷却；
        另外两个按钮没选，画虚线写「封」。摆一圈目标进去，一眼看出范围内被打掉了。 */
     startRun(q.get("seed") === null ? 7 : +q.get("seed"));
     G.route = "mage"; recalcMods();            // 技能得先选出来：没选路线 tryActive 一律拒绝
