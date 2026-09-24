@@ -109,11 +109,14 @@ const CFG = {
   killO2: 0.10,
   killComboMul: 0.50, killComboReset: 8.0,
   /* --- 主动技能（Q/E/F）：冷却制，要玩家自己按，绝不跟普攻一起自动放 --- */
-  shockCd: 7.0, shockR: 240, shockMob: 150, shockObst: 200,   // 冲击波：以本体为圆心的清场
+  /* 2026-09-25 玩家反馈：冷却太长了 → 7s 降到 4s（「凝神」每级 ×0.88，点满 5 级约 2.1s） */
+  shockCd: 4.0, shockR: 240, shockMob: 150, shockObst: 200,   // 冲击波：以本体为圆心的清场
   dashCd: 5.0, dashT: 1.1, dashMul: 2.4, dashDmg: 80,         // 突进：无敌 + 提速 + 撞碎挡路的
   flareCd: 10.0, flareT: 4.0, flareLight: 620,                // 探照：短时间内把黑暗推开
   /* --- 深渊馈赠（割草式三选一）：升到第 n+1 级所需深度 = lvBase + lvStep*(n-1) --- */
-  lvBase: 100, lvStep: 80
+  lvBase: 100, lvStep: 80,
+  /* 流派纯度：1000m 之前、选定流派之后，三选一只给自己的流派牌（基础牌一张不掺） */
+  routeOnlyUntil: 1000
 };
 
 /* 深渊压力 0→1：0m 是 0，越深越接近 1 但永远到不了顶 —— 慢，且不封顶 */
@@ -223,7 +226,15 @@ function rollChoices() {
   if (G.level === 2 && !G.route) return ROUTES.map((r) => ({ id: r.id, n: r.n, t: "路线", route: r, d: r.d, sub: r.s, max: 1, minD: 0, w: 0 }));
   const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761) >>> 0);
   /* 带 r 的是路线专属牌：选了哪条路，才抽得到哪条路的牌 */
-  const pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route));
+  let pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route));
+  /* 流派纯度（2026-09-25 玩家要求）：1km 之前、选定流派之后，三选一只给自己那条的牌，
+     基础牌一张都不掺。流派牌不足 3 张就先放宽深度门槛（宁可给早），再不够才退回混池 —— 不开天窗。 */
+  const routeOnly = !!G.route && G.depth < CFG.routeOnlyUntil;
+  if (routeOnly) {
+    let own = SKILLS.filter((s) => s.r === G.route && skLv(s.id) < s.max && G.depth >= s.minD);
+    if (own.length < 3) own = SKILLS.filter((s) => s.r === G.route && skLv(s.id) < s.max);
+    if (own.length) pool = own;
+  }
   const out = [];
   /* 保底：战斗牌总共不到 2 级时，每次普通三选一必带一张战斗牌 ——
      「特殊技能要找到才有用」，靠权重撞运气不够（实测原来整局只撞上 2/7 次）。
@@ -233,7 +244,8 @@ function rollChoices() {
      结果实战第一次拿到战斗牌被推到 540m（保底写了等于没写）。
      所以保底不认深度门槛：池里没有就把最早解锁的那张直接补进来。
      （只在战斗牌总等级 <2 时生效，不会长期改变卡池曲线。） */
-  if (combatOwned() < 2) {
+  /* 只在混池阶段生效：1km 前只给流派牌，而战斗牌全是基础牌，硬塞进来就破了流派纯度 */
+  if (!routeOnly && combatOwned() < 2) {
     let ci = pool.findIndex((s) => s.t === "战斗");
     if (ci < 0) {
       const early = SKILLS.filter((s) => s.t === "战斗" && skLv(s.id) < s.max).sort((a, b) => a.minD - b.minD)[0];
