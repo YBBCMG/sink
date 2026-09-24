@@ -131,16 +131,36 @@ const SKILLS = [
   { id: "crusher", n: "碎岩", t: "战斗", d: "普攻对障碍物 +50 伤害（一击碎泥鳅）",   max: 5, minD: 330, w: 2.2 },
   { id: "spread",  n: "散射", t: "战斗", d: "普攻光束 +16px 宽",                    max: 5, minD: 420, w: 2.2 },
   /* --- 主动技能强化：「主动」是独立一档（不稀释战斗牌保底），专管 Q/E/F 三个要自己按的技能 --- */
-  { id: "overload",  n: "过载", t: "主动", d: "冲击波 半径 +40 · 伤害 +30",        max: 5, minD: 300, w: 1.7 },
-  { id: "afterburn", n: "余燃", t: "主动", d: "突进 冷却 −1.0s · 无敌 +0.25s",     max: 5, minD: 360, w: 1.7 },
-  { id: "lumen",     n: "长明", t: "主动", d: "探照 持续 +2s · 半径 +120",         max: 5, minD: 480, w: 1.7 }
+  { id: "overload",  n: "过载", t: "主动", r: "mage", d: "冲击波 半径 +40 · 伤害 +30",        max: 5, minD: 300, w: 1.7 },
+  { id: "afterburn", n: "余燃", t: "主动", r: "warrior", d: "突进 冷却 −1.0s · 无敌 +0.25s",     max: 5, minD: 360, w: 1.7 },
+  { id: "lumen",     n: "长明", t: "主动", r: "lamp", d: "探照 持续 +2s · 半径 +120",         max: 5, minD: 480, w: 1.7 },
+  { id: "m_cd",     n: "凝神", t: "主动", r: "mage",    d: "冲击波 冷却 x0.88",          max: 5, minD: 300, w: 1.7 },
+  { id: "m_dmg",    n: "震荡", t: "主动", r: "mage",    d: "冲击波 伤害 +40",            max: 5, minD: 380, w: 1.7 },
+  { id: "m_rng",    n: "扩散", t: "主动", r: "mage",    d: "冲击波 半径 +45",            max: 5, minD: 460, w: 1.7 },
+  { id: "w_hp",     n: "铁躯", t: "主动", r: "warrior", d: "氧气上限 +22（立刻补上）",     max: 5, minD: 320, w: 1.7 },
+  { id: "w_ram",    n: "猛撞", t: "主动", r: "warrior", d: "突进撞击伤害 +50（怪也能撞）", max: 5, minD: 400, w: 1.7 },
+  { id: "w_vamp",   n: "噬血", t: "主动", r: "warrior", d: "突进撞碎 / 撞死 回氧 +2.5%",  max: 5, minD: 480, w: 1.7 },
+  { id: "l_dot",    n: "灼光", t: "主动", r: "lamp",    d: "探照期间 每秒灼伤 30",        max: 5, minD: 340, w: 1.7 },
+  { id: "l_heal",   n: "回春", t: "主动", r: "lamp",    d: "探照期间 每秒回氧 +1.0%",     max: 5, minD: 420, w: 1.7 },
+  { id: "l_shield", n: "光盾", t: "主动", r: "lamp",    d: "探照期间 受伤 -35%",          max: 5, minD: 500, w: 1.7 }
 ];
+
+/* ---------- 三条路线：第二次强化时三选一，选完另外两条永久关闭 ----------
+   选路线只给「技能本身」；冷却 / 伤害 / 范围这些数值要靠之后的路线牌一级一级点出来。
+   基础牌（没有 r 字段的那些）不锁路线，随便哪条路都能抽到。 */
+const ROUTES = [
+  { id: "mage",    n: "冲击波法师", k: "q", col: [255, 170, 240], d: "冷却降 · 伤害升 · 范围大",    s: "右键 = 冲击波" },
+  { id: "lamp",    n: "照明使者",   k: "f", col: [210, 240, 255], d: "探照期间：灼伤 · 回氧 · 护盾", s: "右键 = 探照" },
+  { id: "warrior", n: "冲锋战士",   k: "e", col: [150, 255, 220], d: "氧气上限升 · 撞击升 · 吸血",   s: "右键 = 突进" }
+];
+const ROUTE_MAP = {}; for (const r of ROUTES) ROUTE_MAP[r.id] = r;
+function routeNow() { return G.route ? ROUTE_MAP[G.route] : null; }
 const KIND_COL = { 收益: [255, 208, 120], 生存: [140, 255, 200], 机动: [140, 205, 255], 采集: [205, 165, 255], 战斗: [255, 150, 130], 主动: [255, 170, 240] };
 function lvNeed(l) { return CFG.lvBase + CFG.lvStep * (l - 1); }   // 升到第 l+1 级还需的深度
 let aiRng = mulberry32(1);                       // 脚本选牌用的独立随机流（自检/截图可复现）
 const aiRnd = () => aiRng();
 function skLv(id) { return G.sk[id] || 0; }
-function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal"); }
+function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal") + 22 * skLv("w_hp"); }
 function boostMulNow() { return CFG.boostMul + 0.30 * skLv("greed"); }
 /* 所有强化在这里汇总成一份系数表，玩法里只读 G.m —— 改数值不用翻遍 stepPlay */
 function recalcMods() {
@@ -166,8 +186,13 @@ function recalcMods() {
     atkHalfW: CFG.atkHalfW + 16 * skLv("spread"),
     /* 主动技能（Q/E/F）——冷却和强度都从这里读，激活时不直接看 CFG */
     killO2: CFG.killO2,
-    shockR: CFG.shockR + 40 * skLv("overload"),
-    shockD: CFG.shockMob + 30 * skLv("overload"),
+    shockCd: Math.max(1.5, CFG.shockCd * Math.pow(0.88, skLv("m_cd"))),
+    shockR: CFG.shockR + 40 * skLv("overload") + 45 * skLv("m_rng"),
+    shockD: CFG.shockMob + 30 * skLv("overload") + 40 * skLv("m_dmg"),
+    ramDmg: 50 * skLv("w_ram"), vamp: 0.025 * skLv("w_vamp"),
+    flareDot: 30 * skLv("l_dot"),
+    flareHeal: 1.0 * skLv("l_heal"),
+    flareShield: Math.min(0.75, 0.35 * skLv("l_shield")),
     dashCd: Math.max(1.8, CFG.dashCd - 1.0 * skLv("afterburn")),
     dashT: CFG.dashT + 0.25 * skLv("afterburn"),
     flareT: CFG.flareT + 2 * skLv("lumen"),
@@ -181,8 +206,11 @@ function combatOwned() {
   return n;
 }
 function rollChoices() {
+  /* 第二次强化：三条路线一起端上来，别的牌一律不给 */
+  if (G.level === 2 && !G.route) return ROUTES.map((r) => ({ id: r.id, n: r.n, t: "路线", route: r, d: r.d, sub: r.s, max: 1, minD: 0, w: 0 }));
   const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761) >>> 0);
-  const pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD);
+  /* 带 r 的是路线专属牌：选了哪条路，才抽得到哪条路的牌 */
+  const pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route));
   const out = [];
   /* 保底：战斗牌总共不到 2 级时，每次三选一必带一张战斗牌 ——
      「特殊技能要找到才有用」，靠权重撞运气不够（实测原来整局只撞上 2/7 次）。 */
@@ -213,6 +241,16 @@ function applyPick(i) {
   if (G.state !== "levelup" || !G.choices) return false;
   const s = G.choices[i];
   if (!s) return false;
+  if (s.route) {                        // 路线：选一条，另外两条从此不再出现
+    G.route = s.route.id;
+    recalcMods();
+    G.choices = null; G.state = "play";
+    G.flash = 0.7;
+    popup(p.x, p.y - 44, s.route.n, s.route.col.join(","));
+    burst(p.x, p.y, 28, s.route.col.join(","));
+    SFX.pick();
+    return true;
+  }
   G.sk[s.id] = skLv(s.id) + 1;
   recalcMods();
   G.choices = null; G.state = "play";
@@ -459,7 +497,7 @@ function startRun(seed) {
   G.state = "play"; G.t = 0; G.runTime = 0;
   G.depth = 0; G.bonus = 0; G.diff = 0; G.o2 = CFG.o2Max; G.lightBonus = 0; G.lightR = CFG.lightNear;
   /* 深渊馈赠：清空强化、重算系数表、把氧气上限按当前技能（此时为空）定死 */
-  G.level = 0; G.nextLv = lvNeed(1); G.sk = {}; G.choices = null; recalcMods(); G.o2 = o2MaxNow();
+  G.level = 0; G.nextLv = lvNeed(1); G.sk = {}; G.choices = null; G.route = null; recalcMods(); G.o2 = o2MaxNow();
   G.act.q = G.act.e = G.act.f = 0;
   G.actFx.dash = G.actFx.flare = G.actFx.shock = 0;
   G.actFx.sx = G.actFx.sy = 0;
@@ -548,6 +586,14 @@ function killReward(e) {
   burst(e.x, e.y, 22, e.kind === "hunter" ? "255,150,120" : "170,220,255");
   SFX.kill();
 }
+/* 冲锋战士·噬血：突进撞碎 / 撞死 按氧气上限的百分比回氧 */
+function healVamp(x, y) {
+  if (G.m.vamp <= 0) return;
+  const gain = o2MaxNow() * G.m.vamp;
+  G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+  G.o2Kill += gain;
+  popup(x, y - 30, "噬血 +" + gain.toFixed(1), "150,255,200");
+}
 function breakReward(e) {
   G.bonus += CFG.breakScore;
   burst(e.x, e.y, 14, "190,205,220");
@@ -584,7 +630,7 @@ function fireAttack() {
    冷却期间按不动。技能本身从开局就有，卡池里的「主动」牌只负责强化它们。 */
 const ACT_R = 30;
 const ACT_BTN = [
-  { k: "q", key: "Q", n: "冲击波", x: W0 - 66, y: H0 - 66, cd: () => CFG.shockCd },
+  { k: "q", key: "Q", n: "冲击波", x: W0 - 66, y: H0 - 66, cd: () => G.m.shockCd },
   { k: "e", key: "E", n: "突进", x: W0 - 140, y: H0 - 66, cd: () => G.m.dashCd },
   { k: "f", key: "F", n: "探照", x: W0 - 214, y: H0 - 66, cd: () => CFG.flareCd }
 ];
@@ -612,10 +658,23 @@ function shockwave() {
   SFX.zap();
   return n;
 }
+/* 照明路线·灼光：探照半径内的怪持续挨烧（0.25s 一跳，不然每帧刷飘字） */
+function flareBurn() {
+  const Rr = G.m.flare, D = G.m.flareDot;
+  let n = 0;
+  for (let i = ents.length - 1; i >= 0; i--) {
+    const e = ents[i];
+    if (e.kind !== "hunter" && e.kind !== "spitter") continue;
+    if (Math.hypot(e.x - p.x, e.y - p.y) > Rr + e.r) continue;
+    hurtEnt(i, e, Math.round(D / 4), "210,240,255");
+    n++;
+  }
+  return n;
+}
 function tryActive(k) {
   if (G.state !== "play") return false;
   if (G.act[k] > 0) return false;                        // 冷却中：按不动
-  if (k === "q") { G.act.q = CFG.shockCd; shockwave(); }
+  if (k === "q") { G.act.q = G.m.shockCd; shockwave(); }
   else if (k === "e") {
     G.act.e = G.m.dashCd;
     G.actFx.dash = G.m.dashT;
@@ -638,6 +697,12 @@ function spawnSpitter() {
 }
 function hurtPlayer(dmg, col) {
   if (p.invuln > 0) return false;
+  /* 照明路线·光盾：探照生效期间伤害打折 */
+  if (G.actFx.flare > 0 && G.m.flareShield > 0) {
+    const cut = Math.round(dmg * G.m.flareShield);
+    dmg = Math.max(1, dmg - cut);
+    popup(p.x, p.y - 46, "光盾 -" + cut, "210,240,255");
+  }
   G.o2 -= dmg;
   p.invuln = G.m.invuln; p.hurtT = 0.4; G.slowT = CFG.hitSlowTime;
   G.shakeT = 0.45; G.shakeMag = 13; G.redFlash = 0.9;
@@ -657,6 +722,15 @@ function stepPlay(dt) {
   if (fx.dash > 0) fx.dash = Math.max(0, fx.dash - dt);
   if (fx.flare > 0) fx.flare = Math.max(0, fx.flare - dt);
   if (fx.shock > 0) fx.shock = Math.max(0, fx.shock - dt);
+
+  /* --- 照明路线：探照生效期间 灼伤 + 回氧（护盾在 hurtPlayer 里结算） --- */
+  if (fx.flare > 0) {
+    if (G.m.flareDot > 0) {
+      G.dotT = (G.dotT || 0) + dt;
+      if (G.dotT >= 0.25) { G.dotT = 0; flareBurn(); }
+    }
+    if (G.m.flareHeal > 0) G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * G.m.flareHeal / 100 * dt);
+  } else G.dotT = 0;
 
   /* --- 加速：只有还有氧气才能踩 --- */
   G.boosting = I.boost && G.o2 > 0;
@@ -816,7 +890,14 @@ function stepPlay(dt) {
       /* 突进撞上去不算撞车，是撞碎：无敌期间给挡路的开个洞。
          dashS 是「哪一次突进已经打过它」的戳记 —— 不加就会每帧（120/s）扣一次 80 血。 */
       e.dashS = G.dashStamp;
-      hurtEnt(i, e, CFG.dashDmg, "150,255,220");
+      /* 冲锋战士·猛撞：撞击伤害加成 */
+      if (hurtEnt(i, e, CFG.dashDmg + G.m.ramDmg, "150,255,220") && G.m.vamp > 0) healVamp(e.x, e.y);
+      continue;
+    } else if (fx.dash > 0 && G.m.ramDmg > 0 && (e.kind === "hunter" || e.kind === "spitter")
+               && Math.hypot(e.x - p.x, e.y - p.y) < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
+      /* 基础突进只撞碎障碍物，点了猛撞才能把怪一起撞了 */
+      e.dashS = G.dashStamp;
+      if (hurtEnt(i, e, G.m.ramDmg, "150,255,220") && G.m.vamp > 0) healVamp(e.x, e.y);
       continue;
     } else if (d < rr2 && p.invuln <= 0 && !e.hit) {
       e.hit = true;
@@ -1077,7 +1158,7 @@ function drawHUD() {
   const lby = by - 30;
   rrRect(bx, lby, bw, 5, 2.5); ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fill();
   rrRect(bx, lby, lvP * bw, 5, 2.5); ctx.fillStyle = "rgba(255,215,150,0.85)"; ctx.fill();
-  text("强化 Lv " + G.level + "　·　距下次 " + Math.max(0, Math.ceil(G.nextLv - G.depth)) + " m", bx, lby - 7, 12, "rgba(255,225,170,0.78)", "left", 600);
+  text("强化 Lv " + G.level + "　·　距下次 " + Math.max(0, Math.ceil(G.nextLv - G.depth)) + " m" + (routeNow() ? "　·　" + routeNow().n : ""), bx, lby - 7, 12, "rgba(255,225,170,0.78)", "left", 600);
   /* 深度进度条（右侧，暗示 1000m 是传奇线） */
   const pbx = W0 - 26, pby = 120, pbh = 300;
   rrRect(pbx, pby, 4, pbh, 2); ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fill();
@@ -1360,7 +1441,7 @@ function drawTitle() {
   text("点击 / 按空格  开始下潜", W0 / 2, 448, 24, "#bfeaff", "center", 700);
   ctx.globalAlpha = 1;
   text("最佳深度 " + G.best + " m", W0 / 2, 480, 15, "rgba(255,225,150,0.9)", "center", 600);
-  text("A D / ← → 转向 · 鼠标瞄准 · 左键/空格加速 · Q E F 主动技能 · 1·2·3 选强化 · P 暂停 · M 静音", W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
+  text("A D / ← → 转向 · 鼠标瞄准 · 左键加速 · 右键放技能 · Q E F 也能放 · 1·2·3 选强化 · P 暂停", W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
 }
 
 function drawOver() {
@@ -1392,7 +1473,7 @@ function drawPause() {
   ctx.fillStyle = "rgba(2,10,20,0.6)"; ctx.fillRect(0, 0, W0, H0);
   text("已暂停", W0 / 2, H0 / 2 - 6, 40, "#dff4ff", "center", 700);
   text("P 继续　·　R 重开　·　Esc 回标题", W0 / 2, H0 / 2 + 34, 15, "rgba(150,200,230,0.85)", "center", 500);
-  text("鼠标移动瞄准 · 按住左键 / 空格 加速 · Q E F 主动技能", W0 / 2, H0 / 2 + 62, 13.5, "rgba(130,180,210,0.7)", "center", 500);
+  text("鼠标移动瞄准 · 按住左键 / 空格 加速 · 右键放技能", W0 / 2, H0 / 2 + 62, 13.5, "rgba(130,180,210,0.7)", "center", 500);
 }
 
 /* ---------- 深渊馈赠：已获得强化的角标（HUD / 结算共用） ---------- */
@@ -1425,16 +1506,18 @@ function cardHit(lx, ly) {
   return -1;
 }
 function drawLevelUp() {
+  const isRoute = !!(G.choices && G.choices[0] && G.choices[0].route);
   ctx.fillStyle = "rgba(2,10,20,0.74)"; ctx.fillRect(0, 0, W0, H0);
   ctx.save();
   ctx.shadowColor = "rgba(255,215,150,0.5)"; ctx.shadowBlur = 22;
   text("深 渊 馈 赠", W0 / 2, 116, 34, "#fff3d8", "center", 700);
   ctx.restore();
-  text("第 " + G.level + " 次强化　·　" + Math.floor(G.depth) + " m　·　选择一项（点击 / 按 1·2·3）",
+  text("第 " + G.level + " 次强化　·　" + Math.floor(G.depth) + " m" + (isRoute ? "　·　选一条路走到底，另外两条永久关闭" : "") + "　·　选择一项（点击 / 按 1·2·3）",
     W0 / 2, 148, 14, "rgba(200,225,245,0.8)", "center", 500);
   if (!G.choices) return;
   for (let i = 0; i < G.choices.length; i++) {
-    const s = G.choices[i], r = cardRect(i), col = (KIND_COL[s.t] || [190, 240, 255]).join(",");
+    const s = G.choices[i], r = cardRect(i);
+    const col = (s.route ? s.route.col : (KIND_COL[s.t] || [190, 240, 255])).join(",");
     const cur = skLv(s.id);
     const hot = cardHit(G.input.ptrX, G.input.ptrY) === i;
     ctx.save();
@@ -1454,7 +1537,8 @@ function drawLevelUp() {
     text(s.n, r.x + r.w / 2, r.y + 96, 38, "#f2fbff", "center", 700);
     /* 等级点：已满的实心，本次要加的那颗描边高亮 */
     const pn = Math.min(5, s.max), py = r.y + 132, pw = 16;
-    for (let k = 0; k < pn; k++) {
+    if (s.route) text(s.sub || "", r.x + r.w / 2, py + 7, 16, "rgba(" + col + ",0.95)", "center", 700);
+    else for (let k = 0; k < pn; k++) {
       const px2 = r.x + r.w / 2 + (k - (pn - 1) / 2) * pw;
       ctx.beginPath(); ctx.arc(px2, py, 4.6, 0, Math.PI * 2);
       if (k < cur) { ctx.fillStyle = "rgba(" + col + ",0.95)"; ctx.fill(); }
@@ -1463,7 +1547,7 @@ function drawLevelUp() {
     }
     /* 效果 */
     text(s.d, r.x + r.w / 2, r.y + 172, 13.5, "rgba(205,232,248,0.92)", "center", 500);
-    text("Lv " + cur + " → " + (cur + 1), r.x + r.w / 2, r.y + 198, 12.5, "rgba(" + col + ",0.85)", "center", 600);
+    if (!s.route) text("Lv " + cur + " → " + (cur + 1), r.x + r.w / 2, r.y + 198, 12.5, "rgba(" + col + ",0.85)", "center", 600);
     /* 数字键提示 */
     ctx.save();
     rrRect(r.x + r.w / 2 - 13, r.y + r.h - 34, 26, 22, 7);
@@ -1570,6 +1654,12 @@ canvas.addEventListener("pointerdown", (ev) => {
     return;
   }
   /* 主动技能按钮：点了就放技能，不能同时被算成「加速」或「开始一局」 */
+  /* 鼠标右键 = 放技能（路线技能；还没选路线时给冲击波）。左手要按住 A/D 转向，
+     Q/E/F 按起来别扭，所以技能搬到鼠标上来；Q/E/F 仍然可用。 */
+  if (ev.pointerType === "mouse" && ev.button === 2) {
+    tryActive(routeNow() ? routeNow().k : "q");
+    ev.preventDefault(); return;
+  }
   const ab = actBtnHit(q.x, q.y);
   if (ab) { tryActive(ab); ev.preventDefault(); return; }
   try { if (canvas.setPointerCapture) canvas.setPointerCapture(ev.pointerId); } catch (e) { /* 合成事件/无活动指针时会抛，不能让它挡住后面的输入登记 */ }
@@ -1594,6 +1684,7 @@ function endPointer(ev) {
   else G.input.mouseDown = false;
   syncPointerBoost();
 }
+canvas.addEventListener("contextmenu", (ev) => ev.preventDefault());   // 右键是技能，不弹菜单
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") { G.input.mouseDown = false; syncPointerBoost(); } });
@@ -1753,7 +1844,7 @@ function probePx(x, y) {
 window.__SINK__ = {
   version: SELFTEST.version, CFG, G, diffK, state: () => G.state,
   startRun, update, simulate, runSelfTest, autopilot,
-  SKILLS, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
+  SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
   ents: () => ents, p, probePx, lightR: () => G.lightR,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit,
@@ -1761,7 +1852,7 @@ window.__SINK__ = {
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
   setAutoPick: (m) => { AUTO_PICK = m; },
   setFreeze: (v) => { AUTO_FREEZE = !!v; },      // 探针用：关掉 rAF 自动步进，改成手动 S.update，量手感可复现
-  stats: () => ({ state: G.state, depth: Math.floor(G.depth), o2: +G.o2.toFixed(2), ents: ents.length, best: G.best, speed: +G.speed.toFixed(1), level: G.level, sk: Object.assign({}, G.sk), choices: G.choices ? G.choices.map((s) => s.id) : null,
+  stats: () => ({ state: G.state, depth: Math.floor(G.depth), o2: +G.o2.toFixed(2), ents: ents.length, best: G.best, speed: +G.speed.toFixed(1), level: G.level, route: G.route, sk: Object.assign({}, G.sk), choices: G.choices ? G.choices.map((s) => s.id) : null,
                    act: { q: +G.act.q.toFixed(2), e: +G.act.e.toFixed(2), f: +G.act.f.toFixed(2) },
                    actFx: { dash: +G.actFx.dash.toFixed(2), flare: +G.actFx.flare.toFixed(2), shock: +G.actFx.shock.toFixed(2) },
                    kills: G.kills, o2Kill: +G.o2Kill.toFixed(1), lightR: +G.lightR.toFixed(0), invuln: +p.invuln.toFixed(2) })
