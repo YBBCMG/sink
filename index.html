@@ -1135,6 +1135,211 @@ function panel(x, y, w, h) {
   ctx.strokeStyle = "rgba(120,190,230,0.26)"; ctx.lineWidth = 1.5; ctx.stroke();
 }
 
+/* ---------- 主角皮肤：里面那条鱼，换几条活法 ---------- */
+/* 画笔约定：坐标系已经 translate 到鱼心、rotate 过俯仰，鼻尖朝 +x；
+   s = 缩放（卡面小样用 0.6），t = 全局时间，wig = 摆尾相位（由速度驱动）。 */
+const SKINS = [
+  {
+    id: "moon", name: "银月鱼", desc: "原版那条",
+    paint(c, t, s, wig) {
+      c.beginPath();
+      c.moveTo(-8 * s, 0); c.lineTo(-24 * s, (-9 + wig * 8) * s);
+      c.lineTo(-20 * s, 0); c.lineTo(-24 * s, (9 + wig * 8) * s); c.closePath();
+      c.fillStyle = "rgba(120,205,245,0.75)"; c.fill();
+      c.beginPath(); c.ellipse(0, 0, 16 * s, 10 * s, 0, 0, Math.PI * 2);
+      c.fillStyle = "#d8f2ff"; c.fill();
+      c.beginPath(); c.ellipse(2 * s, -3 * s, 9 * s, 5 * s, 0, 0, Math.PI * 2);
+      c.fillStyle = "rgba(255,255,255,0.75)"; c.fill();
+      c.beginPath(); c.arc(9 * s, -1.5 * s, 2.3 * s, 0, Math.PI * 2);
+      c.fillStyle = "#06202f"; c.fill();
+    }
+  },
+  {
+    id: "fatfish", name: "蓝色大肥鱼", desc: "我本人",
+    paint(c, t, s, wig) {
+      c.beginPath();
+      c.moveTo(-11 * s, 0); c.lineTo(-31 * s, (-12 + wig * 7) * s);
+      c.lineTo(-24 * s, 0); c.lineTo(-31 * s, (12 + wig * 7) * s); c.closePath();
+      c.fillStyle = "#2c5cae"; c.fill();
+      c.beginPath(); c.moveTo(-5 * s, -12 * s);
+      c.quadraticCurveTo(1 * s, -25 * s, 11 * s, -13 * s); c.closePath();
+      c.fillStyle = "#3f77cf"; c.fill();
+      const bg = c.createLinearGradient(0, -16 * s, 0, 16 * s);
+      bg.addColorStop(0, "#9ccdff"); bg.addColorStop(0.45, "#4a86e0"); bg.addColorStop(1, "#274f9e");
+      c.beginPath(); c.ellipse(0, 0, 20 * s, 15 * s, 0, 0, Math.PI * 2);
+      c.fillStyle = bg; c.fill();
+      c.beginPath(); c.ellipse(3 * s, 6 * s, 13 * s, 7 * s, 0, 0, Math.PI * 2);
+      c.fillStyle = "rgba(242,251,255,0.93)"; c.fill();
+      c.beginPath(); c.moveTo(3 * s, 5 * s);
+      c.quadraticCurveTo(-1 * s, 15 * s, -9 * s, 10 * s); c.closePath();
+      c.fillStyle = "#2c5cae"; c.fill();
+      c.beginPath(); c.arc(11 * s, -4.5 * s, 4.4 * s, 0, Math.PI * 2);
+      c.fillStyle = "#f6fcff"; c.fill();
+      c.beginPath(); c.arc(12.2 * s, -4.5 * s, 2.7 * s, 0, Math.PI * 2);
+      c.fillStyle = "#0a1c33"; c.fill();
+      c.beginPath(); c.arc(11 * s, -5.8 * s, 1 * s, 0, Math.PI * 2);
+      c.fillStyle = "rgba(255,255,255,0.95)"; c.fill();
+      c.beginPath(); c.arc(17.5 * s, 2.5 * s, 1.7 * s, 0.15, Math.PI - 0.15);
+      c.strokeStyle = "rgba(10,28,51,0.8)"; c.lineWidth = 1.1 * s; c.stroke();
+      c.beginPath(); c.ellipse(22 * s, 4 * s, 2.6 * s, 1.5 * s, 0.45, 0, Math.PI * 2);
+      c.fillStyle = "#fffdf5"; c.fill();
+    }
+  },
+  {
+    id: "angler", name: "灯笼鱼", desc: "自带光源",
+    paint(c, t, s, wig) {
+      c.beginPath();
+      c.moveTo(-6 * s, 0); c.lineTo(-20 * s, (-10 + wig * 8) * s);
+      c.lineTo(-15 * s, 0); c.lineTo(-20 * s, (10 + wig * 8) * s); c.closePath();
+      c.fillStyle = "rgba(40,86,120,0.85)"; c.fill();
+      c.beginPath(); c.ellipse(0, 0, 17 * s, 12.5 * s, 0, 0, Math.PI * 2);
+      c.fillStyle = "#153347"; c.fill();
+      c.strokeStyle = "rgba(120,225,255,0.4)"; c.lineWidth = 1.3 * s; c.stroke();
+      c.beginPath(); c.moveTo(5 * s, 1.5 * s); c.lineTo(17 * s, 4 * s); c.lineTo(5 * s, 8.5 * s); c.closePath();
+      c.fillStyle = "#08151f"; c.fill();
+      c.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const x0 = (6 + i * 2.6) * s;
+        c.moveTo(x0, 2.4 * s); c.lineTo((x0 + 1.3) * s, 4.2 * s); c.lineTo((x0 + 2.6) * s, 2.9 * s);
+      }
+      c.fillStyle = "rgba(235,250,255,0.9)"; c.fill();
+      const lx = 20 * s, ly = (-19 + Math.sin(t * 2.4) * 1.6) * s;
+      c.beginPath(); c.moveTo(7 * s, -9 * s);
+      c.quadraticCurveTo((14 + Math.sin(t * 1.6) * 2) * s, -20 * s, lx, ly);
+      c.strokeStyle = "rgba(150,235,255,0.55)"; c.lineWidth = 1.3 * s; c.stroke();
+      c.save();
+      c.globalCompositeOperation = "lighter";
+      const lg = c.createRadialGradient(lx, ly, 0, lx, ly, 13 * s);
+      lg.addColorStop(0, "rgba(190,250,255,0.85)"); lg.addColorStop(1, "rgba(120,230,255,0)");
+      c.fillStyle = lg; c.beginPath(); c.arc(lx, ly, 13 * s, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(lx, ly, 3 * s, 0, Math.PI * 2); c.fillStyle = "#eafdff"; c.fill();
+      c.restore();
+      c.beginPath(); c.arc(9 * s, -3.5 * s, 2.6 * s, 0, Math.PI * 2);
+      c.fillStyle = "#cdefff"; c.fill();
+      c.beginPath(); c.arc(9.6 * s, -3.5 * s, 1.2 * s, 0, Math.PI * 2);
+      c.fillStyle = "#07202e"; c.fill();
+    }
+  },
+  {
+    id: "gold", name: "锦鲤", desc: "图个吉利",
+    paint(c, t, s, wig) {
+      c.fillStyle = "rgba(255,150,70,0.85)";
+      c.beginPath();
+      c.moveTo(-10 * s, 0);
+      c.quadraticCurveTo(-28 * s, (-16 + wig * 10) * s, -38 * s, (-6 + wig * 10) * s);
+      c.quadraticCurveTo(-26 * s, -1 * s, -22 * s, 0); c.closePath(); c.fill();
+      c.beginPath();
+      c.moveTo(-10 * s, 0);
+      c.quadraticCurveTo(-28 * s, (16 + wig * 10) * s, -38 * s, (6 + wig * 10) * s);
+      c.quadraticCurveTo(-26 * s, 1 * s, -22 * s, 0); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(-3 * s, -10 * s);
+      c.quadraticCurveTo(1 * s, -20 * s, 9 * s, -11 * s); c.closePath();
+      c.fillStyle = "rgba(255,140,60,0.9)"; c.fill();
+      const bg = c.createLinearGradient(0, -12 * s, 0, 12 * s);
+      bg.addColorStop(0, "#ffe0a8"); bg.addColorStop(0.5, "#ff9a3c"); bg.addColorStop(1, "#e8622a");
+      c.beginPath(); c.ellipse(0, 0, 17 * s, 11 * s, 0, 0, Math.PI * 2);
+      c.fillStyle = bg; c.fill();
+      c.beginPath(); c.ellipse(2 * s, -5 * s, 6 * s, 3 * s, -0.2, 0, Math.PI * 2);
+      c.fillStyle = "rgba(255,248,240,0.85)"; c.fill();
+      c.beginPath(); c.arc(9.5 * s, -2 * s, 2.6 * s, 0, Math.PI * 2);
+      c.fillStyle = "#fff4e6"; c.fill();
+      c.beginPath(); c.arc(10 * s, -2 * s, 1.3 * s, 0, Math.PI * 2);
+      c.fillStyle = "#26120a"; c.fill();
+    }
+  },
+  {
+    id: "ghost", name: "幽灵鱼", desc: "半透明",
+    paint(c, t, s, wig) {
+      c.save();
+      c.globalAlpha = c.globalAlpha * 0.72;
+      c.beginPath();
+      c.moveTo(-12 * s, 0);
+      c.quadraticCurveTo(-26 * s, (-14 + wig * 12) * s, -40 * s, (-2 + wig * 12) * s);
+      c.quadraticCurveTo(-30 * s, 0, -24 * s, 2 * s);
+      c.quadraticCurveTo(-30 * s, (10 + wig * 12) * s, -40 * s, (6 + wig * 12) * s);
+      c.quadraticCurveTo(-26 * s, 6 * s, -12 * s, 0);
+      c.closePath();
+      c.fillStyle = "rgba(150,240,255,0.5)"; c.fill();
+      const bg = c.createLinearGradient(0, -12 * s, 0, 12 * s);
+      bg.addColorStop(0, "rgba(220,255,255,0.95)"); bg.addColorStop(1, "rgba(110,205,240,0.55)");
+      c.beginPath(); c.ellipse(0, 0, 16 * s, 11 * s, 0, 0, Math.PI * 2);
+      c.fillStyle = bg; c.fill();
+      c.strokeStyle = "rgba(190,250,255,0.7)"; c.lineWidth = 1.2 * s; c.stroke();
+      c.beginPath(); c.arc(8 * s, -3 * s, 2 * s, 0, Math.PI * 2);
+      c.fillStyle = "rgba(10,30,45,0.85)"; c.fill();
+      c.beginPath(); c.arc(2 * s, -5 * s, 1.6 * s, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(11 * s, 3.5 * s, 1.6 * s, 0.2, 1.6);
+      c.strokeStyle = "rgba(180,240,255,0.6)"; c.lineWidth = 1 * s; c.stroke();
+      c.restore();
+      c.save();
+      c.globalCompositeOperation = "lighter";
+      const gg = c.createRadialGradient(0, 0, 2 * s, 0, 0, 26 * s);
+      gg.addColorStop(0, "rgba(160,240,255,0.28)"); gg.addColorStop(1, "rgba(120,220,255,0)");
+      c.fillStyle = gg; c.beginPath(); c.arc(0, 0, 26 * s, 0, Math.PI * 2); c.fill();
+      c.restore();
+    }
+  }
+];
+let SKIN_I = (() => {
+  const v = parseInt(store.get("sink.skin", "0"), 10);
+  return v >= 0 && v < SKINS.length ? v : 0;
+})();
+const skin = () => SKINS[SKIN_I];
+function setSkin(i) {
+  SKIN_I = ((i % SKINS.length) + SKINS.length) % SKINS.length;
+  store.set("sink.skin", String(SKIN_I));
+}
+/* 标题页的皮肤条：点一下就换（S 键循环）；小样用同一支画笔画的，所见即所得 */
+function skinChipRect(i) {
+  const n = SKINS.length;
+  /* 触屏按「屏幕上多少像素」算：手机竖屏缩到 0.4 倍时，逻辑 34px 只有 14px —— 手指点不着 */
+  const h = TOUCH ? clamp(cssPx(44), 46, 120) : 34;
+  const w = TOUCH ? Math.min(185, (W0 - 40) / n) : 132;
+  const gap = TOUCH ? 8 : 10;
+  const y = TOUCH ? H0 - h - 22 : 546;
+  return { x: W0 / 2 - (n * w + (n - 1) * gap) / 2 + i * (w + gap), y: y, w: w, h: h };
+}
+function skinHit(x, y) {
+  for (let i = 0; i < SKINS.length; i++) {
+    const r = skinChipRect(i);
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return i;
+  }
+  return -1;
+}
+function drawSkinPicker() {
+  const I = G.input;
+  const hot = skinHit(TOUCH ? I.ptrX : I.ax, TOUCH ? I.ptrY : I.ay);
+  const r0 = skinChipRect(0), rN = skinChipRect(SKINS.length - 1);
+  if (TOUCH) {                    // 触屏：整条垫一层底板，压在标题卡下沿也一眼看得出是工具栏
+    ctx.save(); rrRect(r0.x - 12, r0.y - 10, rN.x + rN.w - r0.x + 24, r0.h + 20, 18);
+    ctx.fillStyle = "rgba(4,14,26,0.92)"; ctx.fill();
+    ctx.strokeStyle = "rgba(120,190,230,0.28)"; ctx.lineWidth = 1.4; ctx.stroke(); ctx.restore();
+  }
+  const fs = TOUCH ? clamp(cssPx(13), 12, 40) : 12.5;          // 字也按屏幕像素，手机上才看得清
+  const pc = TOUCH ? clamp(cssPx(26), 22, 80) / 40 : 0.6;      // 小样固定「屏幕 26px 宽」
+  for (let i = 0; i < SKINS.length; i++) {
+    const r = skinChipRect(i), on = i === SKIN_I;
+    ctx.save(); rrRect(r.x, r.y, r.w, r.h, TOUCH ? 16 : 12);
+    ctx.fillStyle = on ? "rgba(28,72,108,0.95)" : (hot === i ? "rgba(16,46,70,0.92)" : "rgba(8,24,40,0.85)");
+    ctx.fill();
+    ctx.strokeStyle = on ? "rgba(170,240,255,0.95)" : "rgba(120,190,230,0.3)";
+    ctx.lineWidth = on ? 2 : 1.2; ctx.stroke(); ctx.restore();
+    /* 小样用的是同一支画笔 —— 所见即所得，不是另画的缩略图 */
+    ctx.save();
+    ctx.translate(TOUCH ? r.x + r.w / 2 : r.x + 23, TOUCH ? r.y + r.h * 0.3 : r.y + r.h / 2 + 1);
+    ctx.scale(pc, pc);
+    SKINS[i].paint(ctx, G.t, 1, Math.sin(G.t * 9 + i * 1.3) * 0.4);
+    ctx.restore();
+    if (TOUCH) text(SKINS[i].name, r.x + r.w / 2, r.y + r.h * 0.8, fs, on ? "#eafaff" : "rgba(205,232,250,0.88)", "center", on ? 700 : 500);
+    else {
+      text(SKINS[i].name, r.x + 44, r.y + 15, 12.5, on ? "#eafaff" : "rgba(205,232,250,0.88)", "left", on ? 700 : 500);
+      text(SKINS[i].desc, r.x + 44, r.y + 28, 10.5, on ? "rgba(170,225,250,0.9)" : "rgba(140,190,215,0.7)", "left", 500);
+    }
+  }
+  text(TOUCH ? "点一下换一条鱼 · 当前「" + skin().name + "」" : "皮肤：点一下换一条鱼 · S 键循环 · 当前「" + skin().name + "」",
+    W0 / 2, TOUCH ? H0 - 10 : 592, TOUCH ? clamp(cssPx(11), 10, 32) : 12, "rgba(130,180,210,0.78)", "center", 500);
+}
+
 function drawPlayer() {
   const bob = Math.sin(G.t * 2.2) * 3;
   const px = p.x, py = p.y + bob;
@@ -1153,23 +1358,12 @@ function drawPlayer() {
   ctx.save();
   ctx.translate(px, py);
   ctx.rotate(tilt * 0.6);
-  /* 尾鳍 */
+  /* 尾鳍摆动的相位（各皮肤共用） */
   const wig = Math.sin(G.t * 16) * 0.45;
-  ctx.beginPath();
-  ctx.moveTo(-8, 0);
-  ctx.lineTo(-24, -9 + wig * 8);
-  ctx.lineTo(-20, 0);
-  ctx.lineTo(-24, 9 + wig * 8);
-  ctx.closePath();
-  ctx.fillStyle = "rgba(120,205,245,0.75)"; ctx.fill();
-  /* 身体 */
-  ctx.beginPath(); ctx.ellipse(0, 0, 16, 10, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "#d8f2ff"; ctx.fill();
-  ctx.beginPath(); ctx.ellipse(2, -3, 9, 5, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.fill();
-  /* 眼 */
-  ctx.beginPath(); ctx.arc(9, -1.5, 2.3, 0, Math.PI * 2);
-  ctx.fillStyle = "#06202f"; ctx.fill();
+  /* 鱼身交给当前皮肤画：s=1 是正常大小，鼻尖朝 +x */
+  ctx.save();
+  skin().paint(ctx, G.t, 1, wig);
+  ctx.restore();
   ctx.restore();
   ctx.globalAlpha = 1;
 
@@ -1657,13 +1851,17 @@ function drawTitle() {
   text("击杀怪物回 " + Math.round(CFG.killO2 * 100) + "% 氧气（自带，不用选；连杀递减，停手重置）", W0 / 2, 414, 12.5, "rgba(150,255,210,0.8)", "center", 500);
   const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
   ctx.globalAlpha = pulse;
-  text("点击 / 按空格  开始下潜", W0 / 2, 448, 24, "#bfeaff", "center", 700);
+  /* 触屏把「最佳深度」并进这一行，给下面那条皮肤留出 44 屏幕像素的高度（手指按得着） */
+  text(TOUCH ? "点击开始下潜 · 最佳 " + G.best + " m" : "点击 / 按空格  开始下潜",
+    W0 / 2, 448, TOUCH ? clamp(cssPx(20), 19, 46) : 24, "#bfeaff", "center", 700);
   ctx.globalAlpha = 1;
-  text("最佳深度 " + G.best + " m", W0 / 2, 480, 15, "rgba(255,225,150,0.9)", "center", 600);
-  text(TOUCH
-    ? "拖动屏幕转向 · 按住左下「加速」冲刺 · 右下圆钮放技能 · 左上圆钮暂停"
-    : "A D / ← → 转向 · 鼠标瞄准 · 左键加速 · 右键放技能（只认你选的那条） · Q E F 同理 · 1·2·3 选强化 · P 暂停",
-    W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
+  if (!TOUCH) {
+    text("最佳深度 " + G.best + " m", W0 / 2, 480, 15, "rgba(255,225,150,0.9)", "center", 600);
+    text("A D / ← → 转向 · 鼠标瞄准 · 左键加速 · 右键放技能（只认你选的那条） · Q E F 同理 · 1·2·3 选强化 · P 暂停",
+      W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
+  }
+  /* 皮肤条画在标题面板下方 */
+  drawSkinPicker();
 }
 
 function drawOver() {
@@ -1934,6 +2132,10 @@ canvas.addEventListener("pointerdown", (ev) => {
   else { G.input.mouseDown = true; G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y; }
   syncPointerBoost();
   if (G.state === "over" && homeBtnHit(q.x, q.y)) { G.state = "title"; return; }
+  if (G.state === "title") {                       // 标题页先认皮肤条，再认「开始下潜」
+    const si = skinHit(q.x, q.y);
+    if (si >= 0) { setSkin(si); ev.preventDefault(); return; }
+  }
   if (G.state === "title" || G.state === "over") { startRun(); return; }
   if (G.state === "pause") {
     const pi = pauseMenuHit(q.x, q.y);          // 暂停菜单三颗按钮：继续 / 重开 / 回标题
@@ -1992,6 +2194,8 @@ window.addEventListener("keydown", (ev) => {
   else if (k === "KeyP" || k === "Escape") {
     if (k === "Escape" && G.state !== "play") { G.state = "title"; return; }
     if (G.state === "play") G.state = "pause"; else if (G.state === "pause") G.state = "play";
+  } else if (k === "KeyS") {                        // 换皮肤：标题页 / 暂停页循环
+    if (G.state === "title" || G.state === "pause") { setSkin(SKIN_I + 1); ev.preventDefault(); }
   } else if (k === "KeyM") { SFX.toggleMute(); }
   else if (k === "KeyR") { if (G.state !== "title") startRun(); }
 });
@@ -2123,6 +2327,7 @@ window.__SINK__ = {
   fireAttack, aimPoint, spawnHunter, spawnSpitter, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS,
+  SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, R,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
   setAutoPick: (m) => { AUTO_PICK = m; },
