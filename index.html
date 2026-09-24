@@ -113,8 +113,18 @@ const CFG = {
   shockCd: 4.0, shockR: 240, shockMob: 150, shockObst: 200,   // 冲击波：以本体为圆心的清场
   dashCd: 5.0, dashT: 1.1, dashMul: 2.4, dashDmg: 80,         // 突进：无敌 + 提速 + 撞碎挡路的
   flareCd: 10.0, flareT: 4.0, flareLight: 620,                // 探照：短时间内把黑暗推开
-  /* --- 深渊馈赠（割草式三选一）：升到第 n+1 级所需深度 = lvBase + lvStep*(n-1) --- */
-  lvBase: 100, lvStep: 80,
+  /* 深水斜坡（不封顶）：1.2km 以内完全不变 —— 前段手感是玩家点名要保的；
+     再深就按 deepSpan 线性加价。没有这一档，强化一多深水就成永动机，
+     实测 9 个种子里 4 个能一路顶到 300s 上限都不死。 */
+  deepFrom: 1100, deepSpan: 1400,
+  /* --- 深渊馈赠（割草式三选一）：每 CFG.lvEvery 米一次 ---
+     2026-09-25 玩家要求：原来 100/180/260… 越往后越稀，1km 才强化 4~5 次，深水压力直接糊脸。
+     现在恒定 100m 一次：到 1km 正好 10 次，前段攒得出东西，深水反而好玩。 */
+  lvEvery: 100,
+  /* 神器牌：稀有档 —— 每次三选一按这个概率「混进来一张」，整局每张只出一次（不按权重稀释） */
+  artChance: 0.22,
+  /* 刷新：每局可以重抽几次三选一（2026-09-25 玩家要求：两次，每次重抽都还是三张） */
+  rerollPerRun: 2,
   /* 流派纯度：1000m 之前、选定流派之后，三选一只给自己的流派牌（基础牌一张不掺） */
   routeOnlyUntil: 1000
 };
@@ -161,6 +171,18 @@ const SKILLS = [
   { id: "l_shield", n: "光盾", t: "主动", r: "lamp",    d: "探照期间 受伤 -35%",          max: 5, minD: 500, w: 1.7 }
 ];
 
+/* ---------- 神器牌：稀有档（2026-09-25 玩家要求）----------
+   和普通牌的「低概率」不是一个机制：普通牌每次都进池比权重，神器是**单独一次稀有判定**
+   （每次三选一 CFG.artChance 概率混进来一张，命中就占掉一个卡位），且每张整局只出一次。
+   选流派那次（Lv2）不给神器 —— 那一次是「定流派」，端上来的就是那三条路。 */
+const ARTIFACTS = [
+  { id: "a_core",  n: "✦ 永动核心", t: "神器", d: "耗氧 ×0.80（永久）",              max: 1, minD: 150, w: 1.0 },
+  { id: "a_heart", n: "✦ 鲸落之心", t: "神器", d: "氧气上限 +40（立刻补满）",          max: 1, minD: 150, w: 1.0 },
+  { id: "a_grav",  n: "✦ 深海引力", t: "神器", d: "气泡吸附半径 +140px",             max: 1, minD: 200, w: 1.0 },
+  { id: "a_clock", n: "✦ 时间之锚", t: "神器", d: "冲击波/突进/探照 冷却 ×0.72",       max: 1, minD: 250, w: 1.0 },
+  { id: "a_lens",  n: "✦ 聚光透镜", t: "神器", d: "普攻伤害 +40 · 光束 +8px",          max: 1, minD: 300, w: 1.0 }
+];
+
 /* ---------- 三条路线：第二次强化时三选一，选完另外两条永久关闭 ----------
    选路线只给「技能本身」；冷却 / 伤害 / 范围这些数值要靠之后的路线牌一级一级点出来。
    基础牌（没有 r 字段的那些）不锁路线，随便哪条路都能抽到。 */
@@ -171,48 +193,50 @@ const ROUTES = [
 ];
 const ROUTE_MAP = {}; for (const r of ROUTES) ROUTE_MAP[r.id] = r;
 function routeNow() { return G.route ? ROUTE_MAP[G.route] : null; }
-const KIND_COL = { 收益: [255, 208, 120], 生存: [140, 255, 200], 机动: [140, 205, 255], 采集: [205, 165, 255], 战斗: [255, 150, 130], 主动: [255, 170, 240] };
-function lvNeed(l) { return CFG.lvBase + CFG.lvStep * (l - 1); }   // 升到第 l+1 级还需的深度
+const KIND_COL = { 收益: [255, 208, 120], 生存: [140, 255, 200], 机动: [140, 205, 255], 采集: [205, 165, 255], 战斗: [255, 150, 130], 主动: [255, 170, 240], 神器: [255, 226, 130] };
+function lvNeed(_l) { return CFG.lvEvery; }   // 每 100m 一次（恒定；原来是 lvBase + lvStep*(l-1) 递增）
 let aiRng = mulberry32(1);                       // 脚本选牌用的独立随机流（自检/截图可复现）
 const aiRnd = () => aiRng();
 function skLv(id) { return G.sk[id] || 0; }
-function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal") + 22 * skLv("w_hp"); }
+function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal") + 22 * skLv("w_hp") + 40 * skLv("a_heart"); }
 function boostMulNow() { return CFG.boostMul + 0.30 * skLv("greed"); }
 /* 所有强化在这里汇总成一份系数表，玩法里只读 G.m —— 改数值不用翻遍 stepPlay */
 function recalcMods() {
   const rd = skLv("rudder");
+  const cdMul = Math.pow(0.72, skLv("a_clock"));      // 神器·时间之锚：三条技能冷却一起乘
   G.m = {
-    drain: Math.pow(0.90, skLv("eco")),
+    drain: Math.pow(0.90, skLv("eco")) * Math.pow(0.80, skLv("a_core")),
     dmg: Math.pow(0.85, skLv("plate")),
     invuln: CFG.invulnTime + 0.30 * skLv("shell"),
     base: CFG.baseSpeed * (1 + 0.08 * skLv("stream")),
     boost: CFG.boostSpeed * (1 + 0.08 * skLv("thrust")),
     steer: CFG.steerK * (1 + 0.22 * rd),
     accel: CFG.accelK * (1 + 0.22 * rd),
-    magnet: 55 * skLv("magnet"),
+    magnet: 55 * skLv("magnet") + 140 * skLv("a_grav"),
     bubble: CFG.bubbleO2 + 4 * skLv("haul"),
     nearBonus: CFG.nearMissBonus + 6 * skLv("edge"),
     nearPad: CFG.nearMissPad + 4 * skLv("edge"),
     jellyLight: CFG.jellyLight + 60 * skLv("bloom"),
     jellyFreq: Math.pow(0.85, skLv("bloom")),
     /* 战斗 */
-    atkDmg: CFG.atkDmg + 25 * skLv("power"),
+    atkDmg: CFG.atkDmg + 25 * skLv("power") + 40 * skLv("a_lens"),
     atkEvery: CFG.atkEvery * Math.pow(0.82, skLv("rapid")),
     atkObst: 50 * skLv("crusher"),          // 只对障碍物追加的伤害：Lv1 起 50+50=100 → 石头一发碎
-    atkHalfW: CFG.atkHalfW + 16 * skLv("spread"),
+    atkHalfW: CFG.atkHalfW + 16 * skLv("spread") + 8 * skLv("a_lens"),
     /* 主动技能（Q/E/F）——冷却和强度都从这里读，激活时不直接看 CFG */
     killO2: CFG.killO2,
-    shockCd: Math.max(1.5, CFG.shockCd * Math.pow(0.88, skLv("m_cd"))),
+    shockCd: Math.max(1.5, CFG.shockCd * Math.pow(0.88, skLv("m_cd")) * cdMul),
     shockR: CFG.shockR + 40 * skLv("overload") + 45 * skLv("m_rng"),
     shockD: CFG.shockMob + 30 * skLv("overload") + 40 * skLv("m_dmg"),
     ramDmg: 50 * skLv("w_ram"), vamp: 0.025 * skLv("w_vamp"),
     flareDot: 30 * skLv("l_dot"),
     flareHeal: 1.0 * skLv("l_heal"),
     flareShield: Math.min(0.75, 0.35 * skLv("l_shield")),
-    dashCd: Math.max(1.8, CFG.dashCd - 1.0 * skLv("afterburn")),
+    dashCd: Math.max(1.8, (CFG.dashCd - 1.0 * skLv("afterburn")) * cdMul),
     dashT: CFG.dashT + 0.25 * skLv("afterburn"),
     flareT: CFG.flareT + 2 * skLv("lumen"),
-    flare: CFG.flareLight + 120 * skLv("lumen")
+    flare: CFG.flareLight + 120 * skLv("lumen"),
+    flareCd: Math.max(3.0, CFG.flareCd * cdMul)     // 探照冷却也走系数表（神器要能改它）
   };
 }
 /* 三选一抽卡：独立 RNG（不动玩法随机流，同一 seed 的障碍布局不会因为抽卡而改变） */
@@ -224,7 +248,8 @@ function combatOwned() {
 function rollChoices() {
   /* 第二次强化：三条路线一起端上来，别的牌一律不给 */
   if (G.level === 2 && !G.route) return ROUTES.map((r) => ({ id: r.id, n: r.n, t: "路线", route: r, d: r.d, sub: r.s, max: 1, minD: 0, w: 0 }));
-  const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761) >>> 0);
+  /* 刷新必须换一批牌：种子带上 rerollN（否则重抽回来还是同样三张） */
+  const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761 + (G.rerollN | 0) * 0x9e3779b1) >>> 0);
   /* 带 r 的是路线专属牌：选了哪条路，才抽得到哪条路的牌 */
   let pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route));
   /* 流派纯度（2026-09-25 玩家要求）：1km 之前、选定流派之后，三选一只给自己那条的牌，
@@ -236,6 +261,18 @@ function rollChoices() {
     if (own.length) pool = own;
   }
   const out = [];
+  /* 神器：稀有档单独判一次（不跟普通牌比权重）。选流派那次（Lv2）不给 —— 见 ARTIFACTS 注释 */
+  let artifact = null;
+  {
+    const arts = ARTIFACTS.filter((s) => skLv(s.id) < 1 && G.depth >= s.minD);
+    if (arts.length && G.level !== 2 && rg() < CFG.artChance) {
+      let at = 0; for (const s of arts) at += s.w;
+      let ax = rg() * at, ak = 0;
+      for (; ak < arts.length - 1; ak++) { ax -= arts[ak].w; if (ax <= 0) break; }
+      artifact = arts[ak];
+      out.push(artifact);
+    }
+  }
   /* 保底：战斗牌总共不到 2 级时，每次普通三选一必带一张战斗牌 ——
      「特殊技能要找到才有用」，靠权重撞运气不够（实测原来整局只撞上 2/7 次）。
      坑（2026-09-25 修）：保底原来只在 pool 里找，而 pool 已经按 minD 过滤过 ——
@@ -253,6 +290,8 @@ function rollChoices() {
     }
     if (ci >= 0) out.push(pool.splice(ci, 1)[0]);
   }
+  /* 神器占的是「三张里的一个卡位」：照样凑满 3 张。
+     坑（本轮探针抓到）：原来写 artifact?2:3，结果神器一出现卡面只剩 2 张 —— 神器不是额外奖励位。 */
   while (out.length < 3 && pool.length) {
     let tot = 0;
     for (const s of pool) tot += s.w;
@@ -261,6 +300,21 @@ function rollChoices() {
     out.push(pool.splice(k, 1)[0]);
   }
   return out;
+}
+/* 刷新（reroll）：每局 CFG.rerollPerRun 次，重抽三张牌 ——
+   抽卡种子带上 rerollN，所以重抽一定换一批，不会原样端回来。
+   选流派那次不给刷：三张就是那三条路，刷了还是它们。 */
+function rerollChoices() {
+  if (G.state !== "levelup" || !G.choices) return false;
+  if (G.choices.some((s) => s.route)) return false;
+  if (G.rerolls <= 0) return false;
+  G.rerolls -= 1; G.rerollN += 1;
+  const c = rollChoices();
+  if (!c.length) return false;
+  G.choices = c;
+  G.flash = 0.5;
+  SFX.pick();
+  return true;
 }
 function levelUp() {
   G.level += 1;
@@ -291,6 +345,7 @@ function applyPick(i) {
   G.choices = null; G.state = "play";
   const col = KIND_COL[s.t] || [190, 240, 255];
   if (s.id === "seal") G.o2 = Math.min(o2MaxNow(), G.o2 + 18);
+  if (s.id === "a_heart") G.o2 = o2MaxNow();          // 神器·鲸落之心：上限 +40 且立刻补满
   popup(p.x, p.y - 48, s.n + " Lv" + G.sk[s.id], col.join(","));
   burst(p.x, p.y, 20, col.join(","));
   G.shakeT = 0.2; G.shakeMag = 5;
@@ -460,7 +515,7 @@ const G = {
   /* --- 战斗：准星（鼠标准心管打哪）+ 普攻冷却 --- */
   aim: { x: W0 / 2, y: CFG.playerY + CFG.atkReach, tx: W0 / 2, ty: CFG.playerY + CFG.atkReach, idle: 99, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0 },
   /* --- 深渊馈赠（割草式三选一） --- */
-  level: 0, nextLv: 0, sk: {}, choices: null, m: null,
+  level: 0, nextLv: 0, sk: {}, choices: null, m: null, rerolls: 2, rerollN: 0,
   /* --- 主动技能：act = 剩余冷却，actFx = 正在生效的持续时间；kills/o2Kill 供探针核对 --- */
   act: { q: 0, e: 0, f: 0 }, actFx: { dash: 0, flare: 0, shock: 0, sx: 0, sy: 0 },
   kills: 0, o2Kill: 0,
@@ -539,7 +594,9 @@ function startRun(seed) {
   G.state = "play"; G.t = 0; G.runTime = 0;
   G.depth = 0; G.bonus = 0; G.diff = 0; G.o2 = CFG.o2Max; G.lightBonus = 0; G.lightR = CFG.lightNear;
   /* 深渊馈赠：清空强化、重算系数表、把氧气上限按当前技能（此时为空）定死 */
-  G.level = 0; G.nextLv = lvNeed(1); G.sk = {}; G.choices = null; G.route = null; recalcMods(); G.o2 = o2MaxNow();
+  G.level = 0; G.nextLv = lvNeed(1); G.sk = {}; G.choices = null; G.route = null;
+  G.rerolls = CFG.rerollPerRun; G.rerollN = 0;                 // 刷新次数每局重置
+  recalcMods(); G.o2 = o2MaxNow();
   G.act.q = G.act.e = G.act.f = 0;
   G.actFx.dash = G.actFx.flare = G.actFx.shock = 0;
   G.actFx.sx = G.actFx.sy = 0;
@@ -690,7 +747,7 @@ let ACT_R = 30;
 const ACT_BTN = [
   { k: "q", key: "Q", n: "冲击波", x: W0 - 66, y: H0 - 66, cd: () => G.m.shockCd },
   { k: "e", key: "E", n: "突进", x: W0 - 140, y: H0 - 66, cd: () => G.m.dashCd },
-  { k: "f", key: "F", n: "探照", x: W0 - 214, y: H0 - 66, cd: () => CFG.flareCd }
+  { k: "f", key: "F", n: "探照", x: W0 - 214, y: H0 - 66, cd: () => (G.m ? G.m.flareCd : CFG.flareCd) }
 ];
 /* 触屏专用控件（桌面不画）：按住「加速」、点「暂停」—— 手机没键盘，这两个原本只能用键 */
 const BOOST_BTN = { x: W0 * 0.5, y: H0 - 66, r: 34, held: null };
@@ -795,7 +852,7 @@ function tryActive(k) {
     p.invuln = Math.max(p.invuln, G.m.dashT);            // 突进期间无敌（撞怪不挨咬）
     burst(p.x, p.y, 16, "150,255,220"); SFX.zap();
   } else if (k === "f") {
-    G.act.f = CFG.flareCd;
+    G.act.f = G.m.flareCd;
     G.actFx.flare = G.m.flareT;
     burst(p.x, p.y, 18, "210,240,255"); SFX.jelly();
   } else return false;
@@ -861,7 +918,8 @@ function stepPlay(dt) {
 
   /* --- 氧气（深渊压力：越深耗得越快）--- */
   const dk = G.diff = diffK(G.depth);
-  const drain = CFG.o2Drain * (G.boosting ? CFG.boostDrainMul : 1) * (1 + dk * CFG.drainGain) * G.m.drain;
+  const deepMul = 1 + Math.max(0, G.depth - CFG.deepFrom) / CFG.deepSpan;    // 深水不封顶斜坡
+  const drain = CFG.o2Drain * (G.boosting ? CFG.boostDrainMul : 1) * (1 + dk * CFG.drainGain) * G.m.drain * deepMul;
   G.o2 -= drain * dt;
 
   /* --- 视野 --- */
@@ -1683,6 +1741,15 @@ function cardHit(lx, ly) {
   }
   return -1;
 }
+/* 刷新按钮：卡面下方那颗。触屏上要够大（≥44 屏幕像素高），所以尺寸也走 cssPx */
+function rerollRect() {
+  const w = clamp(cssPx(150), 190, 340), h = clamp(cssPx(42), 46, 96);
+  return { x: (W0 - w) / 2, y: 484, w, h };
+}
+function rerollHit(lx, ly) {
+  const r = rerollRect();
+  return lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h;
+}
 function drawLevelUp() {
   const isRoute = !!(G.choices && G.choices[0] && G.choices[0].route);
   ctx.fillStyle = "rgba(2,10,20,0.74)"; ctx.fillRect(0, 0, W0, H0);
@@ -1690,7 +1757,7 @@ function drawLevelUp() {
   ctx.shadowColor = "rgba(255,215,150,0.5)"; ctx.shadowBlur = 22;
   text("深 渊 馈 赠", W0 / 2, 116, 34, "#fff3d8", "center", 700);
   ctx.restore();
-  text("第 " + G.level + " 次强化　·　" + Math.floor(G.depth) + " m" + (isRoute ? "　·　选一条路走到底，另外两条永久关闭" : "") + "　·　选择一项（点击 / 按 1·2·3）",
+  text("第 " + G.level + " 次强化　·　" + Math.floor(G.depth) + " m" + (isRoute ? "　·　选一条路走到底，另外两条永久关闭" : "") + "　·　选择一项（点击 / 按 1·2·3 · R 刷新）",
     W0 / 2, 148, 14, "rgba(200,225,245,0.8)", "center", 500);
   if (!G.choices) return;
   for (let i = 0; i < G.choices.length; i++) {
@@ -1735,6 +1802,15 @@ function drawLevelUp() {
     text(String(i + 1), r.x + r.w / 2, r.y + r.h - 18, 13, "rgba(215,240,255,0.9)", "center", 700);
   }
   text("深渊会等你 —— 卡面出现时下潜暂停", W0 / 2, 470, 12.5, "rgba(140,190,220,0.6)", "center", 500);
+  /* 刷新按钮：每局两次（选流派那次不给刷）—— 抽得不满意就重来一批 */
+  const rr = rerollRect(), rOn = G.rerolls > 0 && !isRoute, rHot = rOn && rerollHit(G.input.ptrX, G.input.ptrY);
+  ctx.save(); rrRect(rr.x, rr.y, rr.w, rr.h, 12);
+  ctx.fillStyle = rOn ? (rHot ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.92)") : "rgba(8,18,28,0.70)";
+  ctx.fill();
+  ctx.strokeStyle = rOn ? (rHot ? "rgba(160,235,255,0.95)" : "rgba(255,215,150,0.55)") : "rgba(110,140,160,0.30)";
+  ctx.lineWidth = rHot ? 2.2 : 1.4; ctx.stroke();
+  ctx.restore();
+  text(isRoute ? "选流派不给刷新" : "↻ 刷新 ×" + G.rerolls + "（按 R）", rr.x + rr.w / 2, rr.y + rr.h / 2 + 6, 16, rOn ? "rgba(255,238,205,0.95)" : "rgba(150,175,195,0.6)", "center", 700);
 }
 
 function drawSelfTest() {
@@ -1830,6 +1906,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (boostBtnHit(q.x, q.y)) { BOOST_BTN.held = ev.pointerId; syncPointerBoost(); ev.preventDefault(); return; }
   /* 选牌优先：这一下不能同时被算成「开始一局」或「加速」 */
   if (G.state === "levelup") {
+    if (rerollHit(q.x, q.y)) { rerollChoices(); ev.preventDefault(); return; }
     const i = cardHit(q.x, q.y);
     if (i >= 0) applyPick(i);
     ev.preventDefault();
@@ -1891,6 +1968,7 @@ window.addEventListener("keydown", (ev) => {
     const j = ["Numpad1", "Numpad2", "Numpad3"].indexOf(k);
     const pick = i >= 0 ? i : j;
     if (pick >= 0) { applyPick(pick); ev.preventDefault(); }
+    else if (k === "KeyR") { rerollChoices(); ev.preventDefault(); }     // 卡面状态下 R = 刷新（不是重开）
     else if (k === "Escape" || k === "KeyP") ev.preventDefault();
     return;
   }
@@ -2037,6 +2115,7 @@ window.__SINK__ = {
   ents: () => ents, p, probePx, lightR: () => G.lightR,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH,
+  rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
   setAutoPick: (m) => { AUTO_PICK = m; },
@@ -2074,6 +2153,7 @@ function init() {
     const want = parseFloat(q.get("depth") || "1100") || 1100;
     let guard = 0;
     while ((G.state === "play" || G.state === "levelup") && G.depth < want && guard++ < 120 * 200) { if (G.state === "levelup") aiPick(); autopilot(STEP); update(STEP); }
+    if (G.state === "levelup") aiPick();      // 走到目标深度那一步正好撞上三选一：先把卡面收掉
     freezeClean(); AUTO_FREEZE = true;
   } else if (q.get("scenario") === "build") {
     /* 跑一段并自动选牌，用来截「一身强化」的 HUD */
@@ -2081,6 +2161,7 @@ function init() {
     const want = parseFloat(q.get("depth") || "900") || 900;
     let guard = 0;
     while ((G.state === "play" || G.state === "levelup") && G.depth < want && guard++ < 120 * 400) { if (G.state === "levelup") aiPick(); autopilot(STEP); update(STEP); }
+    if (G.state === "levelup") aiPick();      // 同上：卡面不能进截图
     freezeClean(); AUTO_FREEZE = true;
   } else if (q.get("scenario") === "dark") {
     /* 黑暗验收：光照半径外必须纯黑（连气泡都看不见），水母必须在纯黑里亮着。
@@ -2089,6 +2170,7 @@ function init() {
     const want = parseFloat(q.get("depth") || "1200") || 1200;
     let guard = 0;
     while ((G.state === "play" || G.state === "levelup") && G.depth < want && guard++ < 120 * 200) { if (G.state === "levelup") aiPick(); autopilot(STEP); update(STEP); }
+    if (G.state === "levelup") aiPick();      // 1200m 正好是「每 100m 一次」的门槛，必撞 —— 先收卡面
     G.o2 = 80;
     ents.length = 0; G.particles.length = 0;
     /* 玩家停回正中：探针点按「正中心 ±330」摆，脚本 AI 最后停在哪不该影响测量 */
