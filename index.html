@@ -626,8 +626,9 @@ function fireAttack() {
 }
 
 /* ============================ 6c. 主动技能（Q/E/F）========================
-   和普攻的区别：普攻是自动连发，这三个要玩家自己按（键盘 Q/E/F，或点 HUD 右下角按钮），
-   冷却期间按不动。技能本身从开局就有，卡池里的「主动」牌只负责强化它们。 */
+   和普攻的区别：普攻是自动连发，这三个要玩家自己按（键盘 Q/E/F、右键，或点 HUD 右下角按钮），
+   冷却期间按不动。技能不是白送的：Lv2 的路线三选一里选定一条才有，另外两条永久封闭
+   （ROUTES 注释的规矩）；卡池里的「主动」牌只负责强化已选的那条。 */
 const ACT_R = 30;
 const ACT_BTN = [
   { k: "q", key: "Q", n: "冲击波", x: W0 - 66, y: H0 - 66, cd: () => G.m.shockCd },
@@ -671,8 +672,23 @@ function flareBurn() {
   }
   return n;
 }
+/* 没解锁时给一句人话，不然玩家以为按键坏了 */
+function lockHint() {
+  G.hint = routeNow() ? "这条路线没选 · 技能已封闭" : "强化到 Lv2 · 选一条路线才有技能";
+  G.hintT = G.t + 1.8;
+}
+/* 右键 / HUD 按钮 / Q E F 三键共用：永远只放「你选的那一条」 */
+function useRouteSkill() {
+  const rt = routeNow();
+  if (!rt) { lockHint(); return false; }
+  return tryActive(rt.k);
+}
 function tryActive(k) {
   if (G.state !== "play") return false;
+  /* 技能是「选」出来的：路线没定 → 三个全锁；定完 → 另外两条永久关闭。
+     三个入口（右键 / 按钮 / 快捷键）全从这道闸过，不会有一条路漏放。 */
+  const rt = routeNow();
+  if (!rt || rt.k !== k) { lockHint(); return false; }
   if (G.act[k] > 0) return false;                        // 冷却中：按不动
   if (k === "q") { G.act.q = G.m.shockCd; shockwave(); }
   else if (k === "e") {
@@ -1172,7 +1188,21 @@ function drawHUD() {
 /* 主动技能的 HUD：右下角三个圆形按钮（键位 + 名字 + 冷却扇形）。
    做成可点的圆形是为了触屏 —— 手机上只有键盘就废了。 */
 function drawActives() {
+  const rt = routeNow();
   for (const b of ACT_BTN) {
+    /* 没选的技能画虚线：路线没定是「锁」，选了别的路线是「封」（永久关闭） */
+    const owned = !!rt && rt.k === b.k;
+    if (!owned) {
+      ctx.save();
+      ctx.beginPath(); ctx.arc(b.x, b.y, ACT_R, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(8,18,26,0.62)"; ctx.fill();
+      ctx.strokeStyle = "rgba(96,126,146,0.30)"; ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]); ctx.stroke();
+      ctx.restore();
+      text(b.key, b.x, b.y - 1, 15, "rgba(130,160,180,0.38)", "center", 700);
+      text(rt ? "封" : "锁", b.x, b.y + 16, 10.5, "rgba(130,160,180,0.5)", "center", 600);
+      continue;
+    }
     const cd = G.act[b.k], total = Math.max(0.001, b.cd()), rdy = cd <= 0;
     ctx.save();
     ctx.beginPath(); ctx.arc(b.x, b.y, ACT_R, 0, Math.PI * 2);
@@ -1188,6 +1218,7 @@ function drawActives() {
     text(b.key, b.x, b.y - 1, 17, rdy ? "#dff6ff" : "rgba(150,180,200,0.5)", "center", 700);
     text(rdy ? b.n : cd.toFixed(1), b.x, b.y + 16, 10.5, rdy ? "rgba(185,232,252,0.88)" : "rgba(150,180,200,0.6)", "center", 600);
   }
+  if (G.hint && G.t < G.hintT) text(G.hint, ACT_BTN[0].x + ACT_R, ACT_BTN[0].y - ACT_R - 14, 12.5, "rgba(255,214,150,0.92)", "right", 600);
 }
 
 function drawWorld() {
@@ -1434,14 +1465,14 @@ function drawTitle() {
   text("加速下潜：得分 ×" + CFG.boostMul + "　氧气消耗 ×" + CFG.boostDrainMul + "　视野更小", W0 / 2, 326, 14, "rgba(130,180,210,0.8)", "center", 500);
   text("越深越要命：耗氧↑　障碍更密　撞击更痛　·　每段路三选一强化", W0 / 2, 350, 13, "rgba(255,190,160,0.72)", "center", 500);
   text("A / D 转向　·　鼠标准星就是普攻落点（" + CFG.mobFrom + "m 以下有东西会还手）", W0 / 2, 372, 13, "rgba(255,170,140,0.82)", "center", 500);
-  text("Q 冲击波　E 突进　F 探照　—— 自己按的主动技能，各有冷却", W0 / 2, 394, 13, "rgba(255,175,235,0.85)", "center", 500);
+  text("Q 冲击波　E 突进　F 探照　—— 三条路线选一条，选定后右键放的就是它", W0 / 2, 394, 13, "rgba(255,175,235,0.85)", "center", 500);
   text("击杀怪物回 " + Math.round(CFG.killO2 * 100) + "% 氧气（自带，不用选；连杀递减，停手重置）", W0 / 2, 414, 12.5, "rgba(150,255,210,0.8)", "center", 500);
   const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
   ctx.globalAlpha = pulse;
   text("点击 / 按空格  开始下潜", W0 / 2, 448, 24, "#bfeaff", "center", 700);
   ctx.globalAlpha = 1;
   text("最佳深度 " + G.best + " m", W0 / 2, 480, 15, "rgba(255,225,150,0.9)", "center", 600);
-  text("A D / ← → 转向 · 鼠标瞄准 · 左键加速 · 右键放技能 · Q E F 也能放 · 1·2·3 选强化 · P 暂停", W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
+  text("A D / ← → 转向 · 鼠标瞄准 · 左键加速 · 右键放技能（只认你选的那条） · Q E F 同理 · 1·2·3 选强化 · P 暂停", W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
 }
 
 function drawOver() {
@@ -1473,7 +1504,7 @@ function drawPause() {
   ctx.fillStyle = "rgba(2,10,20,0.6)"; ctx.fillRect(0, 0, W0, H0);
   text("已暂停", W0 / 2, H0 / 2 - 6, 40, "#dff4ff", "center", 700);
   text("P 继续　·　R 重开　·　Esc 回标题", W0 / 2, H0 / 2 + 34, 15, "rgba(150,200,230,0.85)", "center", 500);
-  text("鼠标移动瞄准 · 按住左键 / 空格 加速 · 右键放技能", W0 / 2, H0 / 2 + 62, 13.5, "rgba(130,180,210,0.7)", "center", 500);
+  text("鼠标移动瞄准 · 按住左键 / 空格 加速 · 右键放你选的技能", W0 / 2, H0 / 2 + 62, 13.5, "rgba(130,180,210,0.7)", "center", 500);
 }
 
 /* ---------- 深渊馈赠：已获得强化的角标（HUD / 结算共用） ---------- */
@@ -1654,10 +1685,10 @@ canvas.addEventListener("pointerdown", (ev) => {
     return;
   }
   /* 主动技能按钮：点了就放技能，不能同时被算成「加速」或「开始一局」 */
-  /* 鼠标右键 = 放技能（路线技能；还没选路线时给冲击波）。左手要按住 A/D 转向，
-     Q/E/F 按起来别扭，所以技能搬到鼠标上来；Q/E/F 仍然可用。 */
+  /* 鼠标右键 = 放「你选的那条路线」的技能。左手要按住 A/D 转向，Q/E/F 按起来别扭，
+     所以技能搬到鼠标上来；Q/E/F 也留着（同样只认已解锁的那一个，没选就按不动）。 */
   if (ev.pointerType === "mouse" && ev.button === 2) {
-    tryActive(routeNow() ? routeNow().k : "q");
+    useRouteSkill();
     ev.preventDefault(); return;
   }
   const ab = actBtnHit(q.x, q.y);
@@ -1711,7 +1742,7 @@ window.addEventListener("keydown", (ev) => {
   } else if (k === "ArrowLeft" || k === "KeyA") { I.left = true; I.ptrActive = false; ev.preventDefault(); }
   else if (k === "ArrowRight" || k === "KeyD") { I.right = true; I.ptrActive = false; ev.preventDefault(); }
   else if (k === "KeyQ" || k === "KeyE" || k === "KeyF") {
-    /* 主动技能：自己按才放；普攻是自动连发的，两回事 */
+    /* 主动技能：自己按才放，而且只认已解锁的那条路线；普攻是自动连发的，两回事 */
     tryActive(k === "KeyQ" ? "q" : k === "KeyE" ? "e" : "f");
     ev.preventDefault();
   }
@@ -1930,9 +1961,10 @@ function init() {
     fireAttack();
     freezeClean(); AUTO_FREEZE = true;
   } else if (q.get("scenario") === "active") {
-    /* 主动技能验收截图：冲击波正在扩散 + 突进尾迹 + 三个按钮里两个在冷却。
-       摆一圈目标进去，一眼能看出「范围内的被打掉了」。 */
+    /* 主动技能验收截图：选「冲击波法师」→ Q 放出去正在扩散、按钮转冷却；
+       另外两个按钮没选，画虚线写「封」。摆一圈目标进去，一眼看出范围内被打掉了。 */
     startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    G.route = "mage"; recalcMods();            // 技能得先选出来：没选路线 tryActive 一律拒绝
     G.depth = parseFloat(q.get("depth") || "1300") || 1300;
     ents.length = 0; G.particles.length = 0; G.popups.length = 0;
     const py = p.y + 190;
@@ -1943,10 +1975,7 @@ function init() {
     }
     G.lightR = 620; G.lightBonus = 0;
     G.o2 = 58;
-    tryActive("q");
-    /* 再点一下突进（尾迹要在），探照的冷却让玩家看到按钮的三态 */
-    tryActive("e");
-    G.act.f = 6.2;
+    tryActive("q");                            // 放得出来：Q 的冷却扇形进画面
     fireAttack();
     freezeClean(); AUTO_FREEZE = true;
   } else if (q.get("scenario") === "active2") {
@@ -1955,6 +1984,7 @@ function init() {
     G.depth = parseFloat(q.get("depth") || "1200") || 1200;
     ents.length = 0; G.particles.length = 0; G.popups.length = 0;
     G.o2 = 62;
+    G.route = "lamp"; recalcMods();             // 探照只属于「照明使者」
     G.lightR = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1));
     tryActive("f");
     for (let i = 0; i < 90; i++) update(STEP);      // 让光照过渡到位
