@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-<!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
+<head><!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
-     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad--><meta charset="utf-8" />
+     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
+<meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#02060d" />
 <meta name="description" content="深潜 SINK —— 一盏会发光的灯，向深渊下潜。越贪越快，越快越瞎。" />
@@ -1040,9 +1040,16 @@ function stepPlay(dt) {
       }
     }
     if (e.y < -140) { ents.splice(i, 1); continue; }
-    /* 磁力：把光圈内的收集物横向拽过来（只动 x，不改 y —— 不破坏深度节奏） */
+    /* 磁力：圈内的收集物朝玩家本体整体收拢（x、y 一起动）。
+       旧写法只拽 x —— 上方的东西被拉到同一条竖线上、却照样留在上方飞走，永远吃不到
+       （实测：正上方 90px 的气泡最近只到 96px 就出屏了）。收拢量按剩余距离比例
+       （每秒 6 倍），越近拽得越紧，也不会过冲。 */
     if (G.m.magnet > 0 && (e.kind === "bubble" || e.kind === "jelly")) {
-      if (Math.hypot(e.x - p.x, e.y - p.y) < G.m.magnet) e.x += (p.x - e.x) * Math.min(1, dt * 6);
+      const mdx = p.x - e.x, mdy = p.y - e.y;
+      if (Math.hypot(mdx, mdy) < G.m.magnet) {
+        const mk = Math.min(1, dt * 6);
+        e.x += mdx * mk; e.y += mdy * mk;
+      }
     }
     const d = obstacleDist(e);
     const rr2 = CFG.playerR;
