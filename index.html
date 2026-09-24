@@ -212,10 +212,20 @@ function rollChoices() {
   /* 带 r 的是路线专属牌：选了哪条路，才抽得到哪条路的牌 */
   const pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route));
   const out = [];
-  /* 保底：战斗牌总共不到 2 级时，每次三选一必带一张战斗牌 ——
-     「特殊技能要找到才有用」，靠权重撞运气不够（实测原来整局只撞上 2/7 次）。 */
+  /* 保底：战斗牌总共不到 2 级时，每次普通三选一必带一张战斗牌 ——
+     「特殊技能要找到才有用」，靠权重撞运气不够（实测原来整局只撞上 2/7 次）。
+     坑（2026-09-25 修）：保底原来只在 pool 里找，而 pool 已经按 minD 过滤过 ——
+     Lv1(100m) 时火力要 170m 才解锁，池里一张战斗牌都没有，保底空转；
+     Lv2(280m) 本该是保底首次生效，又被「选路线」那次三选一顶掉，
+     结果实战第一次拿到战斗牌被推到 540m（保底写了等于没写）。
+     所以保底不认深度门槛：池里没有就把最早解锁的那张直接补进来。
+     （只在战斗牌总等级 <2 时生效，不会长期改变卡池曲线。） */
   if (combatOwned() < 2) {
-    const ci = pool.findIndex((s) => s.t === "战斗");
+    let ci = pool.findIndex((s) => s.t === "战斗");
+    if (ci < 0) {
+      const early = SKILLS.filter((s) => s.t === "战斗" && skLv(s.id) < s.max).sort((a, b) => a.minD - b.minD)[0];
+      if (early) { pool.push(early); ci = pool.length - 1; }
+    }
     if (ci >= 0) out.push(pool.splice(ci, 1)[0]);
   }
   while (out.length < 3 && pool.length) {
