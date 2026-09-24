@@ -179,6 +179,7 @@ python -m http.server 8080      # 或 npx serve .
 - 按钮避开**安全区**（刘海 / 底部小白条），并跟着地址栏收起展开重算位置（`visualViewport`）
 - 手机专属控件：左下**「加速」**（按住不放）、左上**暂停**，暂停页三颗大按钮（继续 / 重开 / 标题），结算页**回标题**
 - 关掉下拉刷新、长按选择、双击缩放（`overscroll-behavior: none` + `touch-action: none`），拖拽不会被浏览器抢走
+- **主角皮肤 5 条**：标题页点卡面就换（S 键循环），选哪条记在 localStorage 里 —— 银月鱼（原版）/ **蓝色大肥鱼**（本鲸）/ 灯笼鱼 / 锦鲤 / 幽灵鱼
 - 无头验收：`node test/_mobile.mjs`（横屏 844×390 + 竖屏 390×844，断言按钮屏幕尺寸/边距 + 点按真的生效）、
   `node test/_mobile-levelup.mjs`（点卡牌选强化）
 
