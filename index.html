@@ -9,13 +9,22 @@
 <meta name="description" content="深潜 SINK —— 一盏会发光的灯，向深渊下潜。越贪越快，越快越瞎。" />
 <title>深潜 · SINK</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: #02060d; overflow: hidden; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #02060d; overflow: hidden;
+               overscroll-behavior: none; -webkit-user-select: none; user-select: none;
+               -webkit-tap-highlight-color: transparent; }   /* 手机下拉刷新会抢走拖拽手势 */
   body { font-family: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif; }
   #c { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: crosshair; }
+  /* 安全区探针：只为量出刘海 / 底部小白条有多高，本身不可见 */
+  #sa { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none;
+        border-top: solid env(safe-area-inset-top, 0px) transparent;
+        border-right: solid env(safe-area-inset-right, 0px) transparent;
+        border-bottom: solid env(safe-area-inset-bottom, 0px) transparent;
+        border-left: solid env(safe-area-inset-left, 0px) transparent; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="sa"></div>
 <script>
 "use strict";
 /* =============================================================================
@@ -47,7 +56,8 @@ const CFG = {
   o2Drain: 1.12,                       // 基础 1.12/s → 约 89 秒
   boostDrainMul: 2.05,
   /* --- 深渊压力：随深度缓慢加压，曲线 d/(d+diffHalf) 永远爬不到顶 --- */
-  diffHalf: 1500,                      // 600m→29% · 1500m→50% · 4500m→75%
+  diffHalf: 1500,                      // 600m→29% · 1500m→50% · 4500m→75%（深水段原样不动）
+  diffGrace: 160,                      // 前 160m 不计压力（缓坡起步）：600m→23% · 900m→33%（原来 38%）
   drainGain: 0.50,                     // 氧气消耗 ×(1+压力×0.50)
   bubbleLoss: 0.20,                    // 气泡含氧 ×(1-压力×0.20)，最低保 58%
   hitGain: 0.45,                       // 撞击伤害 ×(1+压力×0.45)
@@ -107,7 +117,10 @@ const CFG = {
 };
 
 /* 深渊压力 0→1：0m 是 0，越深越接近 1 但永远到不了顶 —— 慢，且不封顶 */
-function diffK(depth) { return depth / (depth + CFG.diffHalf); }
+/* 深渊压力曲线：前 CFG.diffGrace 米是「缓坡起步」，之后才按 d/(d+half) 爬 ——
+   玩家反馈「难度增加太快」：生效的是前中段（人还没到深水就死了），
+   所以给前段一个起步宽限，深水段保持原样（不然尾段会松到出现 240s 准不朽局）。 */
+function diffK(depth) { const d = Math.max(0, depth - CFG.diffGrace); return d / (d + CFG.diffHalf); }
 
 /* ---------- 深渊馈赠：技能池（每级线性叠加，满 5 级不再出现） ----------
    minD = 解锁深度；w = 抽卡权重。类型只决定配色与手感，不影响数值。 */
@@ -405,9 +418,16 @@ function resize() {
   canvas.style.width = w + "px"; canvas.style.height = h + "px";
   R.scale = Math.min(w / W0, h / H0);
   R.ox = (w - W0 * R.scale) / 2; R.oy = (h - H0 * R.scale) / 2;
+  readSafeArea();
+  layoutHud();                       // 控件尺寸/位置按「屏幕像素」重算（见 6c 段）
 }
 window.addEventListener("resize", resize);
 window.addEventListener("orientationchange", () => setTimeout(resize, 120));
+/* 手机地址栏收起/展开会改变可见高度：跟着重算，否则底部按钮会被浏览器条压住点不到 */
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => setTimeout(resize, 60));
+  window.visualViewport.addEventListener("scroll", () => setTimeout(resize, 60));
+}
 
 /* ============================ 5. State =================================== */
 const p = { x: W0 / 2, y: CFG.playerY, vx: 0, invuln: 0, hurtT: 0 };
@@ -639,16 +659,71 @@ function fireAttack() {
    和普攻的区别：普攻是自动连发，这三个要玩家自己按（键盘 Q/E/F、右键，或点 HUD 右下角按钮），
    冷却期间按不动。技能不是白送的：Lv2 的路线三选一里选定一条才有，另外两条永久封闭
    （ROUTES 注释的规矩）；卡池里的「主动」牌只负责强化已选的那条。 */
-const ACT_R = 30;
+/* ---------- 触屏适配：控件按「屏幕像素」定大小，不吃 letterbox 缩放 ----------
+   竖屏手机上 960×600 被缩到 0.4 倍：半径 30 逻辑的按钮上屏只剩 12px，手指按不到。
+   所以半径取 max(30 逻辑, 屏幕上 24px)，并按安全区把按钮从屏幕边缘（刘海/小白条）挪开。 */
+let TOUCH = !!(window.matchMedia && matchMedia("(pointer: coarse)").matches);
+const SA = { t: 0, r: 0, b: 0, l: 0 };
+function readSafeArea() {
+  const el = document.getElementById("sa");
+  if (!el || !window.getComputedStyle) return;
+  const cs = getComputedStyle(el);
+  SA.t = parseFloat(cs.borderTopWidth) || 0;
+  SA.r = parseFloat(cs.borderRightWidth) || 0;
+  SA.b = parseFloat(cs.borderBottomWidth) || 0;
+  SA.l = parseFloat(cs.borderLeftWidth) || 0;
+}
+const cssPx = (n) => n / (R.scale || 1);          // 「屏幕上 n 像素」= 多少逻辑像素
+let ACT_R = 30;
 const ACT_BTN = [
   { k: "q", key: "Q", n: "冲击波", x: W0 - 66, y: H0 - 66, cd: () => G.m.shockCd },
   { k: "e", key: "E", n: "突进", x: W0 - 140, y: H0 - 66, cd: () => G.m.dashCd },
   { k: "f", key: "F", n: "探照", x: W0 - 214, y: H0 - 66, cd: () => CFG.flareCd }
 ];
+/* 触屏专用控件（桌面不画）：按住「加速」、点「暂停」—— 手机没键盘，这两个原本只能用键 */
+const BOOST_BTN = { x: W0 * 0.5, y: H0 - 66, r: 34, held: null };
+const PAUSE_BTN = { x: 50, y: 50, r: 26 };
+const PAUSE_MENU = ["▶ 继续", "↻ 重开", "⌂ 标题"];
+function layoutHud() {
+  const padL = cssPx(SA.l + 10), padR = cssPx(SA.r + 10), padB = cssPx(SA.b + 14), padT = cssPx(SA.t + 10);
+  ACT_R = clamp(cssPx(24), 30, 84);                       // 屏幕上直径 ≥ 48px
+  const step = ACT_R * 2 + cssPx(8);
+  const rowY = H0 - padB - ACT_R;
+  for (let i = 0; i < ACT_BTN.length; i++) { ACT_BTN[i].x = W0 - padR - ACT_R - i * step; ACT_BTN[i].y = rowY; }
+  BOOST_BTN.r = ACT_R * 1.12;
+  BOOST_BTN.y = rowY;
+  BOOST_BTN.x = Math.max(padL + BOOST_BTN.r, ACT_BTN[ACT_BTN.length - 1].x - ACT_R - cssPx(14) - BOOST_BTN.r);
+  PAUSE_BTN.r = clamp(cssPx(24), 30, 70);      // 屏幕上直径 ≥ 48px（上限别卡在目标之下）
+  PAUSE_BTN.x = padL + PAUSE_BTN.r; PAUSE_BTN.y = padT + PAUSE_BTN.r;
+}
+function pauseBtnRect(i) {
+  const w = clamp(cssPx(120), 140, 260), h = clamp(cssPx(44), 52, 120), gap = clamp(cssPx(14), 10, 26);
+  const tw = 3 * w + 2 * gap;
+  return { x: (W0 - tw) / 2 + i * (w + gap), y: H0 / 2 - 32, w, h };
+}
+function pauseMenuHit(lx, ly) {
+  for (let i = 0; i < 3; i++) { const r = pauseBtnRect(i); if (lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h) return i + 1; }
+  return 0;
+}
+function homeBtnRect() {
+  const w = clamp(cssPx(130), 170, 300), h = clamp(cssPx(42), 48, 110);
+  return { x: (W0 - w) / 2, y: 448, w, h };
+}
+function homeBtnHit(lx, ly) {
+  if (!TOUCH) return false;
+  const r = homeBtnRect();
+  return lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h;
+}
 function actBtnHit(lx, ly) {
   if (G.state !== "play") return null;
-  for (const b of ACT_BTN) if (Math.hypot(lx - b.x, ly - b.y) <= ACT_R) return b.k;
+  for (const b of ACT_BTN) if (Math.hypot(lx - b.x, ly - b.y) <= ACT_R * 1.1) return b.k;
   return null;
+}
+function boostBtnHit(lx, ly) {
+  return TOUCH && G.state === "play" && Math.hypot(lx - BOOST_BTN.x, ly - BOOST_BTN.y) <= BOOST_BTN.r * 1.08;
+}
+function pauseBtnHit(lx, ly) {
+  return TOUCH && G.state === "play" && Math.hypot(lx - PAUSE_BTN.x, ly - PAUSE_BTN.y) <= PAUSE_BTN.r * 1.15;
 }
 /* 冲击波：以本体为圆心清一圈 —— 怪物和障碍一起吃伤害，电球直接吹散 */
 function shockwave() {
@@ -1191,8 +1266,9 @@ function drawHUD() {
   rrRect(pbx, pby + pbh * (1 - d), 4, pbh * d, 2);
   ctx.fillStyle = "rgba(140,225,255,0.75)"; ctx.fill();
   text("1000m", pbx - 6, pby - 6, 11, "rgba(140,200,230,0.55)", "right", 600);
-  if (G.input.touches > 0) text("双指 = 加速", W0 / 2, H0 - 16, 12, "rgba(140,200,230,0.6)", "center", 600);
+  if (TOUCH && G.input.touches > 0) text("双指 = 加速（也可以按住左下「加速」）", W0 / 2, BOOST_BTN.y - BOOST_BTN.r - 12, 12, "rgba(140,200,230,0.6)", "center", 600);
   drawActives();
+  drawTouchCtl();
 }
 
 /* 主动技能的 HUD：右下角三个圆形按钮（键位 + 名字 + 冷却扇形）。
@@ -1229,6 +1305,29 @@ function drawActives() {
     text(rdy ? b.n : cd.toFixed(1), b.x, b.y + 16, 10.5, rdy ? "rgba(185,232,252,0.88)" : "rgba(150,180,200,0.6)", "center", 600);
   }
   if (G.hint && G.t < G.hintT) text(G.hint, ACT_BTN[0].x + ACT_R, ACT_BTN[0].y - ACT_R - 14, 12.5, "rgba(255,214,150,0.92)", "right", 600);
+}
+
+/* 触屏专用控件：左下「加速」（按住不放）+ 左上「暂停」。桌面鼠标环境不画。 */
+function drawTouchCtl() {
+  if (!TOUCH || G.state !== "play") return;
+  const b = BOOST_BTN, on = G.input.boost;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+  ctx.fillStyle = on ? "rgba(255,205,130,0.30)" : "rgba(20,58,84,0.62)"; ctx.fill();
+  ctx.strokeStyle = on ? "rgba(255,230,180,0.95)" : "rgba(150,235,255,0.62)"; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.restore();
+  text("加速", b.x, b.y + 2, 20, on ? "#fff2d6" : "#dff6ff", "center", 700);
+  text("按住", b.x, b.y + 24, 11, "rgba(185,232,252,0.72)", "center", 600);
+  const pb = PAUSE_BTN;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(pb.x, pb.y, pb.r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(12,30,46,0.62)"; ctx.fill();
+  ctx.strokeStyle = "rgba(150,235,255,0.5)"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+  const pw = Math.max(2.5, pb.r * 0.17), ph = pb.r * 0.86;      // 两条竖杠 = 暂停
+  ctx.fillStyle = "#dff6ff";
+  ctx.fillRect(pb.x - pw * 2, pb.y - ph / 2, pw, ph);
+  ctx.fillRect(pb.x + pw, pb.y - ph / 2, pw, ph);
 }
 
 function drawWorld() {
@@ -1474,7 +1573,9 @@ function drawTitle() {
   text("「越贪越快，越快越瞎」", W0 / 2, 296, 17, "rgba(160,215,245,0.9)", "center", 600);
   text("加速下潜：得分 ×" + CFG.boostMul + "　氧气消耗 ×" + CFG.boostDrainMul + "　视野更小", W0 / 2, 326, 14, "rgba(130,180,210,0.8)", "center", 500);
   text("越深越要命：耗氧↑　障碍更密　撞击更痛　·　每段路三选一强化", W0 / 2, 350, 13, "rgba(255,190,160,0.72)", "center", 500);
-  text("A / D 转向　·　鼠标准星就是普攻落点（" + CFG.mobFrom + "m 以下有东西会还手）", W0 / 2, 372, 13, "rgba(255,170,140,0.82)", "center", 500);
+  text(TOUCH
+    ? "拖动屏幕转向（普攻自动连发）　·　" + CFG.mobFrom + "m 以下有东西会还手"
+    : "A / D 转向　·　鼠标准星就是普攻落点（" + CFG.mobFrom + "m 以下有东西会还手）", W0 / 2, 372, 13, "rgba(255,170,140,0.82)", "center", 500);
   text("Q 冲击波　E 突进　F 探照　—— 三条路线选一条，选定后右键放的就是它", W0 / 2, 394, 13, "rgba(255,175,235,0.85)", "center", 500);
   text("击杀怪物回 " + Math.round(CFG.killO2 * 100) + "% 氧气（自带，不用选；连杀递减，停手重置）", W0 / 2, 414, 12.5, "rgba(150,255,210,0.8)", "center", 500);
   const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
@@ -1482,7 +1583,10 @@ function drawTitle() {
   text("点击 / 按空格  开始下潜", W0 / 2, 448, 24, "#bfeaff", "center", 700);
   ctx.globalAlpha = 1;
   text("最佳深度 " + G.best + " m", W0 / 2, 480, 15, "rgba(255,225,150,0.9)", "center", 600);
-  text("A D / ← → 转向 · 鼠标瞄准 · 左键加速 · 右键放技能（只认你选的那条） · Q E F 同理 · 1·2·3 选强化 · P 暂停", W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
+  text(TOUCH
+    ? "拖动屏幕转向 · 按住左下「加速」冲刺 · 右下圆钮放技能 · 左上圆钮暂停"
+    : "A D / ← → 转向 · 鼠标瞄准 · 左键加速 · 右键放技能（只认你选的那条） · Q E F 同理 · 1·2·3 选强化 · P 暂停",
+    W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
 }
 
 function drawOver() {
@@ -1507,14 +1611,35 @@ function drawOver() {
   ctx.globalAlpha = pulse;
   text("点击 / 按 R  再来一局", W0 / 2, 430, 22, "#bfeaff", "center", 700);
   ctx.globalAlpha = 1;
-  text("Esc 回标题", W0 / 2, 466, 13, "rgba(130,180,210,0.7)", "center", 500);
+  if (!TOUCH) text("Esc 回标题", W0 / 2, 466, 13, "rgba(130,180,210,0.7)", "center", 500);
+  else {
+    /* 触屏：给一颗点得到的「回标题」，键盘那行按不到 */
+    const r = homeBtnRect(), on = homeBtnHit(G.input.ptrX, G.input.ptrY);
+    ctx.save(); rrRect(r.x, r.y, r.w, r.h, 12);
+    ctx.fillStyle = on ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.92)"; ctx.fill();
+    ctx.strokeStyle = on ? "rgba(160,235,255,0.95)" : "rgba(130,200,235,0.45)"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+    text("⌂ 回标题", r.x + r.w / 2, r.y + r.h / 2 + 6, 17, "rgba(215,240,255,0.92)", "center", 700);
+  }
 }
 
 function drawPause() {
   ctx.fillStyle = "rgba(2,10,20,0.6)"; ctx.fillRect(0, 0, W0, H0);
-  text("已暂停", W0 / 2, H0 / 2 - 6, 40, "#dff4ff", "center", 700);
-  text("P 继续　·　R 重开　·　Esc 回标题", W0 / 2, H0 / 2 + 34, 15, "rgba(150,200,230,0.85)", "center", 500);
-  text("鼠标移动瞄准 · 按住左键 / 空格 加速 · 右键放你选的技能", W0 / 2, H0 / 2 + 62, 13.5, "rgba(130,180,210,0.7)", "center", 500);
+  text("已暂停", W0 / 2, H0 / 2 - 78, 40, "#dff4ff", "center", 700);
+  /* 三颗按钮：触屏上没键盘，「P 继续 / R 重开 / Esc 回标题」按不到 */
+  const hot = pauseMenuHit(G.input.ptrX, G.input.ptrY);
+  for (let i = 0; i < 3; i++) {
+    const r = pauseBtnRect(i), on = hot === i + 1;
+    ctx.save(); rrRect(r.x, r.y, r.w, r.h, 14);
+    ctx.fillStyle = on ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.92)"; ctx.fill();
+    ctx.strokeStyle = on ? "rgba(160,235,255,0.95)" : "rgba(130,200,235,0.45)";
+    ctx.lineWidth = on ? 2.2 : 1.4; ctx.stroke();
+    ctx.restore();
+    text(PAUSE_MENU[i], r.x + r.w / 2, r.y + r.h / 2 + 7, 19, on ? "#eafaff" : "rgba(215,240,255,0.92)", "center", 700);
+  }
+  const bh = clamp(cssPx(44), 52, 120);
+  text(TOUCH ? "点按钮继续 · 也可以点画面任意处" : "P 继续　·　R 重开　·　Esc 回标题", W0 / 2, H0 / 2 - 32 + bh + 32, 14, "rgba(150,200,230,0.85)", "center", 500);
+  text(TOUCH ? "拖动屏幕转向 · 按住「加速」冲刺 · 右下圆钮放技能" : "鼠标移动瞄准 · 按住左键 / 空格 加速 · 右键放你选的技能", W0 / 2, H0 / 2 - 32 + bh + 58, 13, "rgba(130,180,210,0.7)", "center", 500);
 }
 
 /* ---------- 深渊馈赠：已获得强化的角标（HUD / 结算共用） ---------- */
@@ -1681,12 +1806,16 @@ function toLogical(clientX, clientY) {
    任何一次鼠标微动（buttons=0）都会把键盘那份加速抹掉，手感变成一卡一卡。 */
 function syncPointerBoost() {
   const I = G.input;
-  I.boost = I.kb || I.mouseDown || I.touches >= 2;
+  I.boost = I.kb || I.mouseDown || I.touches >= 2 || BOOST_BTN.held !== null;   // 含触屏「按住加速」
 }
 const touchIds = new Set();
 canvas.addEventListener("pointerdown", (ev) => {
   SFX.unlock();
   const q = toLogical(ev.clientX, ev.clientY);
+  if (ev.pointerType === "touch" && !TOUCH) { TOUCH = true; layoutHud(); }   // 真被手指碰了才切触屏布局
+  /* 触屏专用按钮：左上暂停、左下加速（按住）。命中就吃掉这一下，不再算转向 */
+  if (pauseBtnHit(q.x, q.y)) { G.state = "pause"; ev.preventDefault(); return; }
+  if (boostBtnHit(q.x, q.y)) { BOOST_BTN.held = ev.pointerId; syncPointerBoost(); ev.preventDefault(); return; }
   /* 选牌优先：这一下不能同时被算成「开始一局」或「加速」 */
   if (G.state === "levelup") {
     const i = cardHit(q.x, q.y);
@@ -1708,8 +1837,14 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (ev.pointerType === "touch") { touchIds.add(ev.pointerId); G.input.touches = touchIds.size; G.input.ptrActive = true; G.input.ptrX = q.x; G.input.ptrY = q.y; }
   else { G.input.mouseDown = true; G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y; }
   syncPointerBoost();
+  if (G.state === "over" && homeBtnHit(q.x, q.y)) { G.state = "title"; return; }
   if (G.state === "title" || G.state === "over") { startRun(); return; }
-  if (G.state === "pause") { G.state = "play"; return; }
+  if (G.state === "pause") {
+    const pi = pauseMenuHit(q.x, q.y);          // 暂停菜单三颗按钮：继续 / 重开 / 回标题
+    if (pi === 2) { startRun(); return; }
+    if (pi === 3) { G.state = "title"; return; }
+    G.state = "play"; return;
+  }
   ev.preventDefault();
 }, { passive: false });
 canvas.addEventListener("pointermove", (ev) => {
@@ -1721,6 +1856,7 @@ canvas.addEventListener("pointermove", (ev) => {
   syncPointerBoost();
 });
 function endPointer(ev) {
+  if (ev.pointerId === BOOST_BTN.held) BOOST_BTN.held = null;    // 松手 = 松开加速
   if (ev.pointerType === "touch") { touchIds.delete(ev.pointerId); G.input.touches = touchIds.size; }
   else G.input.mouseDown = false;
   syncPointerBoost();
@@ -1731,7 +1867,7 @@ canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") { G.input.mouseDown = false; syncPointerBoost(); } });
 window.addEventListener("blur", () => {
   G.input.mouseDown = false; G.input.left = G.input.right = G.input.boost = false; G.input.kb = false;
-  touchIds.clear(); G.input.touches = 0;
+  touchIds.clear(); G.input.touches = 0; BOOST_BTN.held = null;
   if (G.state === "play") G.state = "pause";
 });
 window.addEventListener("keydown", (ev) => {
@@ -1888,7 +2024,7 @@ window.__SINK__ = {
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
   ents: () => ents, p, probePx, lightR: () => G.lightR,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, entSegDist, hurtPlayer,
-  tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit,
+  tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
   setAutoPick: (m) => { AUTO_PICK = m; },
