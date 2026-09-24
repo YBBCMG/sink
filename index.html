@@ -1,0 +1,1883 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#02060d" />
+<meta name="description" content="深潜 SINK —— 一盏会发光的灯，向深渊下潜。越贪越快，越快越瞎。" />
+<title>深潜 · SINK</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #02060d; overflow: hidden; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif; }
+  #c { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: crosshair; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+/* =============================================================================
+   深潜 · SINK  —  单文件网页小游戏（零依赖 / 零素材 / 零网络请求）
+   -----------------------------------------------------------------------------
+   核心循环：深度 = 分数；氧气是唯一生命；加速下潜 = ×2.5 得分但氧气 ×2、视野更小。
+   「越贪越快，越快越瞎。」
+   分区：0 Config · 1 Utils · 2 Store · 3 Audio · 4 Canvas · 5 State
+        6 Update · 7 Render · 8 Input · 9 Loop · 10 SelfTest/Debug
+   ============================================================================= */
+
+/* ============================ 0. Config ================================== */
+const W0 = 960, H0 = 600;              // 逻辑分辨率（渲染层按等比缩放铺满窗口）
+const CFG = {
+  pxPerMeter: 12,                      // 12 逻辑像素 = 1 米
+  baseSpeed: 130,                      // 正常下潜 px/s
+  boostSpeed: 360,                     // 加速下潜 px/s
+  boostMul: 2.5,                       // 加速段得分倍率
+  playerR: 13,
+  playerY: 192,
+  xMin: 46, xMax: W0 - 46,
+  maxVX: 640, steerK: 14, accelK: 20,  // 转向手感
+  /* 键盘转向（A/D）：按住＝踩油门（轻点微调 / 长按全速），不是一按就到顶的火箭。
+     原来 want 直接给 ±maxVX，实测轻点 0.16s 就冲到 97% 全速、贴边还剩 461px/s 撞墙 → 又冲又不准。 */
+  kbAccel: 24, kbHold: 0.12, kbRamp: 0.35, kbTapMul: 0.30,
+  kbSoftEdge: 120,                     // 贴边 120px 内线性收力：软着陆，不撞墙急停
+  boostRamp: 24, speedRamp: 9,         // 下潜手感：踩加速要脆(τ≈42ms)，松开要顺(τ≈110ms)
+  o2Max: 100,
+  o2Drain: 1.12,                       // 基础 1.12/s → 约 89 秒
+  boostDrainMul: 2.05,
+  /* --- 深渊压力：随深度缓慢加压，曲线 d/(d+diffHalf) 永远爬不到顶 --- */
+  diffHalf: 1500,                      // 600m→29% · 1500m→50% · 4500m→75%
+  drainGain: 0.50,                     // 氧气消耗 ×(1+压力×0.50)
+  bubbleLoss: 0.20,                    // 气泡含氧 ×(1-压力×0.20)，最低保 58%
+  hitGain: 0.45,                       // 撞击伤害 ×(1+压力×0.45)
+  rowGain: 0.14,                       // 障碍行更密 ×(1-压力×0.14)，最低 0.76×
+  gapGain: 0.08,                       // 安全走廊更窄 ×(1-压力×0.08)
+  extraObst: 0.30,                     // 每行多塞一个障碍的概率 = 压力×0.30
+  hitDamage: 15,
+  bubbleO2: 13,
+  bubbleThin: 700,                     // 越深气泡越稀：间隔 ×(1+depth/700×0.9)。
+                                       // 原来 4000 太松 —— 深水「完美捡泡 = 净回氧」，脚本对局 3/9 种子跑成 300s 不朽。
+                                       // 改 700 后有氧上限才是真的上限：中位 87.6s、8/9 落在 60~120s 带内。
+  invulnTime: 1.2,
+  hitSlowTime: 0.65, hitSlowMul: 0.45,
+  nearMissBonus: 5, nearMissPad: 22,
+  lightNear: 360, lightFar: 150, lightSpan: 900,
+  jellyLight: 200, jellyDecay: 9, jellyCap: 560,   // 捡一只：视野 +200，约 22s 才衰减干净（原来 90/26，两秒就没了）
+  rowNear: 0.72, rowFar: 0.34, rowSpan: 1300,   // 障碍行间隔随深度收紧
+  gapNear: 330, gapFar: 215,                    // 安全走廊宽度
+  gapStep: 200,                                 // 相邻走廊最大横移（保证「过得去」）
+  bubbleEvery: [0.45, 1.05],
+  jellyEvery: [5.5, 9.5],
+  /* --- 战斗：准星 + 普攻（AD 推准星，光束打在准星那条线上） --- */
+  atkDmg: 50,                          // 单发伤害：石头 100 血＝两发，泥鳅 30 血＝一发
+  atkEvery: 0.50,                      // 连发间隔（速射技能缩它）
+  atkReach: 300,                       // 准星在玩家正前方多远（逻辑像素）
+  atkHalfW: 22,                        // 光束半宽＝判定宽容度（散射技能加宽它）
+  beamT: 0.13,                         // 光束视觉残留
+  aimLerp: 16,                         // 准星跟手速度（越大越硬）
+  aimAutoR: 520,                       // 自动瞄准：这个距离内最近的怪物会被准星咬住
+  aimIdle: 2.5,                        // 鼠标停手多久后交给自动瞄准（一动鼠标立刻收回控制权）
+  rockHP: 100, cableHP: 30,            // 石头 / 泥鳅（线缆）血量
+  /* --- 深海猎食者：1000m 以下才出现，且刚过线有一段适应期 ---
+     注意：怪是所有氧气压力的主承重墙 —— 砍太狠局时会失控变长（实测砍 5 倍 → 中位 183s、3 局撞 300s 上限）。
+     所以浅段只留 35% 的爬升，深段反而要比原版更凶（原 deepen=0.7+1.4×压力）。 */
+  mobFrom: 1000,
+  mobRamp: 400, mobIntro: 0.30,        // 只软化 1000~1400m 这一段，1400m 起恢复原版压力
+  mobCapBase: 2, mobCapGain: 4,        // 同时在场上限 = 2 + 4×压力（压力 0.4→4 只，0.63→5 只）
+  mobDeepen: [0.70, 1.40],             // 深段倍率 = 0.70 + 1.40×压力（＝原版，别动）
+  hunterHP: 150, hunterEvery: [2.1, 3.7], hunterRush: 215, hunterVX: 200, huntDamage: 18,
+  spitterHP: 90, spitterEvery: [2.8, 4.6], spitterRush: 70, spitterVX: 130,
+  boltEvery: [1.3, 2.0], boltDmg: 12, boltSpeed: 235, boltR: 8,
+  killScore: 40, breakScore: 6,
+  /* --- 击杀回氧：自带被动，不用选技能（回的是「氧气上限的百分比」，不随深度缩水）
+     但它天生是「无限刷」：怪随深度变多，回氧速率会超过耗氧 1.12~1.68/s ——
+     实测 killO2=0.10 无递减时 12/12 种子跑成 300s 不朽（平均回氧 2057，撞穿计时上限）。
+     所以加连杀递减：一波里的第一只满额（＝你要的 10%），killComboReset 秒内再杀按 killComboMul 逐只打折。
+     0.50/8.0 是 7 变体×12 种子扫出来的最优：12/12 落在 60~120s 带内（中位 95.6s，范围 75~110），
+     比「完全关掉回氧」的 11/12 还稳，平均回氧 20.8 —— 手感有了，无限刷没了。 --- */
+  killO2: 0.10,
+  killComboMul: 0.50, killComboReset: 8.0,
+  /* --- 主动技能（Q/E/F）：冷却制，要玩家自己按，绝不跟普攻一起自动放 --- */
+  shockCd: 7.0, shockR: 240, shockMob: 150, shockObst: 200,   // 冲击波：以本体为圆心的清场
+  dashCd: 5.0, dashT: 1.1, dashMul: 2.4, dashDmg: 80,         // 突进：无敌 + 提速 + 撞碎挡路的
+  flareCd: 10.0, flareT: 4.0, flareLight: 620,                // 探照：短时间内把黑暗推开
+  /* --- 深渊馈赠（割草式三选一）：升到第 n+1 级所需深度 = lvBase + lvStep*(n-1) --- */
+  lvBase: 100, lvStep: 80
+};
+
+/* 深渊压力 0→1：0m 是 0，越深越接近 1 但永远到不了顶 —— 慢，且不封顶 */
+function diffK(depth) { return depth / (depth + CFG.diffHalf); }
+
+/* ---------- 深渊馈赠：技能池（每级线性叠加，满 5 级不再出现） ----------
+   minD = 解锁深度；w = 抽卡权重。类型只决定配色与手感，不影响数值。 */
+const SKILLS = [
+  { id: "greed",  n: "贪婪", t: "收益", d: "加速得分倍率 +0.30",       max: 5, minD: 0,   w: 1.0 },
+  { id: "haul",   n: "打捞", t: "收益", d: "气泡含氧 +4",              max: 5, minD: 0,   w: 1.0 },
+  { id: "edge",   n: "擦身", t: "收益", d: "擦身 +6 分 · 判定垫 +4px",  max: 5, minD: 120, w: 1.0 },
+  { id: "seal",   n: "气密", t: "生存", d: "氧气上限 +18（立刻补上）",   max: 5, minD: 0,   w: 1.0 },
+  { id: "eco",    n: "节氧", t: "生存", d: "耗氧 ×0.90",               max: 5, minD: 200, w: 0.9 },
+  { id: "plate",  n: "耐压", t: "生存", d: "撞击伤害 ×0.85",            max: 5, minD: 200, w: 0.9 },
+  { id: "shell",  n: "缓冲", t: "生存", d: "受击无敌 +0.30s",           max: 5, minD: 400, w: 0.8 },
+  { id: "stream", n: "流线", t: "机动", d: "常速 +8%",                 max: 5, minD: 0,   w: 1.0 },
+  { id: "rudder", n: "舵效", t: "机动", d: "转向响应 +22%",             max: 5, minD: 0,   w: 1.0 },
+  { id: "thrust", n: "推进", t: "机动", d: "加速速度 +8%",              max: 5, minD: 120, w: 1.0 },
+  { id: "magnet", n: "磁力", t: "采集", d: "吸附半径 +55px",            max: 5, minD: 150, w: 0.95 },
+  { id: "bloom",  n: "流萤", t: "采集", d: "水母视野 +60 · 更常见",      max: 5, minD: 150, w: 0.95 },
+  /* --- 战斗：普攻强化。权重 2.2（其余牌 ~1.0），且解锁深度整体提前 ——
+     原来 minD 260~520，实测整局 7 次三选一里战斗牌只撞上 2 次，玩家「根本找不到特殊技能」。 --- */
+  { id: "power",   n: "火力", t: "战斗", d: "普攻伤害 +25",                        max: 5, minD: 170, w: 2.2 },
+  { id: "rapid",   n: "速射", t: "战斗", d: "普攻间隔 ×0.82",                      max: 5, minD: 240, w: 2.2 },
+  { id: "crusher", n: "碎岩", t: "战斗", d: "普攻对障碍物 +50 伤害（一击碎泥鳅）",   max: 5, minD: 330, w: 2.2 },
+  { id: "spread",  n: "散射", t: "战斗", d: "普攻光束 +16px 宽",                    max: 5, minD: 420, w: 2.2 },
+  /* --- 主动技能强化：「主动」是独立一档（不稀释战斗牌保底），专管 Q/E/F 三个要自己按的技能 --- */
+  { id: "overload",  n: "过载", t: "主动", d: "冲击波 半径 +40 · 伤害 +30",        max: 5, minD: 300, w: 1.7 },
+  { id: "afterburn", n: "余燃", t: "主动", d: "突进 冷却 −1.0s · 无敌 +0.25s",     max: 5, minD: 360, w: 1.7 },
+  { id: "lumen",     n: "长明", t: "主动", d: "探照 持续 +2s · 半径 +120",         max: 5, minD: 480, w: 1.7 }
+];
+const KIND_COL = { 收益: [255, 208, 120], 生存: [140, 255, 200], 机动: [140, 205, 255], 采集: [205, 165, 255], 战斗: [255, 150, 130], 主动: [255, 170, 240] };
+function lvNeed(l) { return CFG.lvBase + CFG.lvStep * (l - 1); }   // 升到第 l+1 级还需的深度
+let aiRng = mulberry32(1);                       // 脚本选牌用的独立随机流（自检/截图可复现）
+const aiRnd = () => aiRng();
+function skLv(id) { return G.sk[id] || 0; }
+function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal"); }
+function boostMulNow() { return CFG.boostMul + 0.30 * skLv("greed"); }
+/* 所有强化在这里汇总成一份系数表，玩法里只读 G.m —— 改数值不用翻遍 stepPlay */
+function recalcMods() {
+  const rd = skLv("rudder");
+  G.m = {
+    drain: Math.pow(0.90, skLv("eco")),
+    dmg: Math.pow(0.85, skLv("plate")),
+    invuln: CFG.invulnTime + 0.30 * skLv("shell"),
+    base: CFG.baseSpeed * (1 + 0.08 * skLv("stream")),
+    boost: CFG.boostSpeed * (1 + 0.08 * skLv("thrust")),
+    steer: CFG.steerK * (1 + 0.22 * rd),
+    accel: CFG.accelK * (1 + 0.22 * rd),
+    magnet: 55 * skLv("magnet"),
+    bubble: CFG.bubbleO2 + 4 * skLv("haul"),
+    nearBonus: CFG.nearMissBonus + 6 * skLv("edge"),
+    nearPad: CFG.nearMissPad + 4 * skLv("edge"),
+    jellyLight: CFG.jellyLight + 60 * skLv("bloom"),
+    jellyFreq: Math.pow(0.85, skLv("bloom")),
+    /* 战斗 */
+    atkDmg: CFG.atkDmg + 25 * skLv("power"),
+    atkEvery: CFG.atkEvery * Math.pow(0.82, skLv("rapid")),
+    atkObst: 50 * skLv("crusher"),          // 只对障碍物追加的伤害：Lv1 起 50+50=100 → 石头一发碎
+    atkHalfW: CFG.atkHalfW + 16 * skLv("spread"),
+    /* 主动技能（Q/E/F）——冷却和强度都从这里读，激活时不直接看 CFG */
+    killO2: CFG.killO2,
+    shockR: CFG.shockR + 40 * skLv("overload"),
+    shockD: CFG.shockMob + 30 * skLv("overload"),
+    dashCd: Math.max(1.8, CFG.dashCd - 1.0 * skLv("afterburn")),
+    dashT: CFG.dashT + 0.25 * skLv("afterburn"),
+    flareT: CFG.flareT + 2 * skLv("lumen"),
+    flare: CFG.flareLight + 120 * skLv("lumen")
+  };
+}
+/* 三选一抽卡：独立 RNG（不动玩法随机流，同一 seed 的障碍布局不会因为抽卡而改变） */
+function combatOwned() {
+  let n = 0;
+  for (const s of SKILLS) if (s.t === "战斗") n += skLv(s.id);
+  return n;
+}
+function rollChoices() {
+  const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761) >>> 0);
+  const pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD);
+  const out = [];
+  /* 保底：战斗牌总共不到 2 级时，每次三选一必带一张战斗牌 ——
+     「特殊技能要找到才有用」，靠权重撞运气不够（实测原来整局只撞上 2/7 次）。 */
+  if (combatOwned() < 2) {
+    const ci = pool.findIndex((s) => s.t === "战斗");
+    if (ci >= 0) out.push(pool.splice(ci, 1)[0]);
+  }
+  while (out.length < 3 && pool.length) {
+    let tot = 0;
+    for (const s of pool) tot += s.w;
+    let x = rg() * tot, k = 0;
+    for (; k < pool.length - 1; k++) { x -= pool[k].w; if (x <= 0) break; }
+    out.push(pool.splice(k, 1)[0]);
+  }
+  return out;
+}
+function levelUp() {
+  G.level += 1;
+  G.nextLv += lvNeed(G.level + 1);
+  const c = rollChoices();
+  if (!c.length) return;                 // 全满级：安静地继续下潜
+  G.choices = c;
+  G.state = "levelup";
+  G.flash = 0.55;
+  SFX.level();
+}
+function applyPick(i) {
+  if (G.state !== "levelup" || !G.choices) return false;
+  const s = G.choices[i];
+  if (!s) return false;
+  G.sk[s.id] = skLv(s.id) + 1;
+  recalcMods();
+  G.choices = null; G.state = "play";
+  const col = KIND_COL[s.t] || [190, 240, 255];
+  if (s.id === "seal") G.o2 = Math.min(o2MaxNow(), G.o2 + 18);
+  popup(p.x, p.y - 48, s.n + " Lv" + G.sk[s.id], col.join(","));
+  burst(p.x, p.y, 20, col.join(","));
+  G.shakeT = 0.2; G.shakeMag = 5;
+  SFX.pick();
+  return true;
+}
+
+/* ============================ 1. Utils =================================== */
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const frac = (t) => t - Math.floor(t);
+const hash1 = (n) => frac(Math.sin(n * 127.1 + 311.7) * 43758.5453);   // 渲染用，不消耗 RNG
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let rng = mulberry32(1);
+const rnd = () => rng();
+const rr = (a, b) => a + (b - a) * rnd();
+const ri = (a, b) => Math.floor(a + (b - a + 1) * rnd());
+const mixRgb = (a, b, t) => `rgb(${Math.round(lerp(a[0], b[0], t))},${Math.round(lerp(a[1], b[1], t))},${Math.round(lerp(a[2], b[2], t))})`;
+
+/* ============================ 2. Store =================================== */
+const store = (() => {
+  const mem = {}; let ok = true;
+  try { localStorage.setItem("__sink_probe", "1"); localStorage.removeItem("__sink_probe"); }
+  catch (e) { ok = false; }
+  return {
+    ok,
+    get(k, d) { if (ok) { try { const v = localStorage.getItem(k); if (v !== null) return v; } catch (e) {} } return k in mem ? mem[k] : d; },
+    set(k, v) { mem[k] = v; if (ok) { try { localStorage.setItem(k, v); } catch (e) {} } }
+  };
+})();
+
+/* ============================ 3. Audio =================================== */
+/* 全部 WebAudio 现场合成：0 KB 音效素材。必须先有用户手势才建 AudioContext。 */
+const SFX = (() => {
+  let ac = null, master = null, noiseBuf = null, droneNodes = null, gestured = false;
+  let muted = store.get("sink.muted", "0") === "1";
+  function ensure() {
+    if (!gestured) return null;
+    if (ac) return ac;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try { ac = new AC(); } catch (e) { return null; }
+    master = ac.createGain(); master.gain.value = muted ? 0 : 0.85; master.connect(ac.destination);
+    const len = Math.max(1, Math.floor(ac.sampleRate * 0.5));
+    noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return ac;
+  }
+  function tone(f0, f1, dur, type, vol) {
+    const c = ensure(); if (!c || muted) return;
+    try {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(f0, c.currentTime);
+      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), c.currentTime + dur);
+      g.gain.setValueAtTime(0.0001, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      o.connect(g); g.connect(master); o.start(); o.stop(c.currentTime + dur + 0.03);
+    } catch (e) {}
+  }
+  function noise(dur, vol, freq) {
+    const c = ensure(); if (!c || muted || !noiseBuf) return;
+    try {
+      const s = c.createBufferSource(); s.buffer = noiseBuf;
+      const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = freq || 800;
+      const g = c.createGain();
+      g.gain.setValueAtTime(vol, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      s.connect(f); f.connect(g); g.connect(master); s.start(); s.stop(c.currentTime + dur);
+    } catch (e) {}
+  }
+  return {
+    get muted() { return muted; },
+    setMuted(m) { muted = m; store.set("sink.muted", m ? "1" : "0"); if (master) master.gain.value = m ? 0 : 0.85; },
+    toggleMute() { this.setMuted(!muted); return muted; },
+    unlock() { gestured = true; const c = ensure(); if (c && c.state === "suspended") c.resume().catch(() => {}); },
+    start() { tone(330, 660, 0.14, "triangle", 0.10); },
+    bubble() { tone(560 + Math.random() * 180, 980 + Math.random() * 200, 0.09, "sine", 0.10); },
+    jelly() { tone(420, 884, 0.28, "sine", 0.10); },
+    nomiss() { tone(1200, 1700, 0.05, "triangle", 0.05); },
+    shoot() { tone(760, 240, 0.07, "square", 0.045); noise(0.05, 0.05, 2600); },
+    kill() { noise(0.20, 0.20, 1600); tone(320, 90, 0.18, "triangle", 0.09); },
+    zap() { tone(180, 90, 0.14, "sawtooth", 0.07); noise(0.10, 0.10, 1800); },
+    level() { tone(520, 780, 0.16, "triangle", 0.10); setTimeout(() => tone(780, 1180, 0.22, "triangle", 0.09), 110); },
+    pick() { tone(880, 1320, 0.14, "sine", 0.10); tone(1320, 1560, 0.1, "triangle", 0.05); },
+    hit() { noise(0.26, 0.32, 900); tone(190, 55, 0.26, "sawtooth", 0.16); },
+    over() { tone(220, 48, 0.95, "sine", 0.18); noise(0.7, 0.14, 420); },
+    droneOn() {
+      const c = ensure(); if (!c || droneNodes) return;
+      try {
+        const o1 = c.createOscillator(), o2 = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+        o1.type = "sine"; o2.type = "sine";
+        o1.frequency.value = 48; o2.frequency.value = 72.5;
+        f.type = "lowpass"; f.frequency.value = 320;
+        g.gain.setValueAtTime(0.0001, c.currentTime);
+        g.gain.exponentialRampToValueAtTime(muted ? 0.0001 : 0.045, c.currentTime + 0.7);
+        o1.connect(f); o2.connect(f); f.connect(g); g.connect(master);
+        o1.start(); o2.start();
+        droneNodes = { o1, o2, g, c };
+      } catch (e) {}
+    },
+    droneOff() {
+      if (!droneNodes) return;
+      const { o1, o2, g, c } = droneNodes; droneNodes = null;
+      try {
+        g.gain.cancelScheduledValues(c.currentTime);
+        g.gain.setValueAtTime(g.gain.value, c.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
+        o1.stop(c.currentTime + 0.45); o2.stop(c.currentTime + 0.45);
+      } catch (e) {}
+    },
+    droneUpdate(s01) {
+      if (!droneNodes) return;
+      try { droneNodes.o1.frequency.value = 48 + s01 * 24; droneNodes.o2.frequency.value = 72.5 + s01 * 36; } catch (e) {}
+    }
+  };
+})();
+
+/* ============================ 4. Canvas ================================== */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", { alpha: false });
+const R = { cw: 0, ch: 0, dpr: 1, scale: 1, ox: 0, oy: 0 };
+function resize() {
+  const w = Math.max(320, window.innerWidth), h = Math.max(240, window.innerHeight);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  R.cw = w; R.ch = h; R.dpr = dpr;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  canvas.style.width = w + "px"; canvas.style.height = h + "px";
+  R.scale = Math.min(w / W0, h / H0);
+  R.ox = (w - W0 * R.scale) / 2; R.oy = (h - H0 * R.scale) / 2;
+}
+window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", () => setTimeout(resize, 120));
+
+/* ============================ 5. State =================================== */
+const p = { x: W0 / 2, y: CFG.playerY, vx: 0, invuln: 0, hurtT: 0 };
+let ents = [];
+const G = {
+  state: "title",              // title | play | pause | over
+  t: 0, runTime: 0,
+  depth: 0, bonus: 0, diff: 0,
+  o2: CFG.o2Max, lightBonus: 0, lightR: CFG.lightNear,
+  speed: CFG.baseSpeed, boosting: false, slowT: 0,
+  rowT: 0, bubbleT: 0, jellyT: 0, huntT: 0, spitT: 0,
+  shakeT: 0, shakeMag: 0, flash: 0, redFlash: 0,
+  particles: [], popups: [], snow: [],
+  best: 0, newBest: false,
+  lastRun: { depth: 0, bonus: 0, rating: "D", quip: "" },
+  input: { left: false, right: false, boost: false, kb: false, ptrActive: false, ptrX: W0 / 2, ptrY: H0 / 2, mouseDown: false, touches: 0,
+           aimActive: false, ax: W0 / 2, ay: CFG.playerY + CFG.atkReach },
+  /* --- 战斗：准星（鼠标准心管打哪）+ 普攻冷却 --- */
+  aim: { x: W0 / 2, y: CFG.playerY + CFG.atkReach, tx: W0 / 2, ty: CFG.playerY + CFG.atkReach, idle: 99, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0 },
+  /* --- 深渊馈赠（割草式三选一） --- */
+  level: 0, nextLv: 0, sk: {}, choices: null, m: null,
+  /* --- 主动技能：act = 剩余冷却，actFx = 正在生效的持续时间；kills/o2Kill 供探针核对 --- */
+  act: { q: 0, e: 0, f: 0 }, actFx: { dash: 0, flare: 0, shock: 0, sx: 0, sy: 0 },
+  kills: 0, o2Kill: 0,
+  seed: 1
+};
+let AUTO_FREEZE = false;
+const SELFTEST = { active: false, pass: true, rows: [], lsOk: false, version: "0.3.0" };
+
+const QUIPS = {
+  S: "你这已经不是下潜，是在跟地心交朋友。",
+  A: "深得有点犯规，探照灯都替你紧张。",
+  B: "不错，摸到黑影的边缘了。",
+  C: "还行，至少比浮游生物强一点。",
+  D: "水温都没适应就上来了。"
+};
+function rate(d) {
+  if (d >= 1000) return ["S", QUIPS.S];
+  if (d >= 700) return ["A", QUIPS.A];
+  if (d >= 450) return ["B", QUIPS.B];
+  if (d >= 220) return ["C", QUIPS.C];
+  return ["D", QUIPS.D];
+}
+
+function makeSnow() {
+  G.snow = [];
+  for (let i = 0; i < 110; i++) {
+    G.snow.push({ x: Math.random() * W0, y: Math.random() * H0, r: 0.6 + Math.random() * 1.9, a: 0.12 + Math.random() * 0.5, k: 0.25 + Math.random() * 0.6 });
+  }
+}
+/* 环境浮游雪：不消耗 RNG，纯装饰 */
+function updateSnow(dt) {
+  const sp = G.speed * 0.28 * dt;
+  for (const s of G.snow) {
+    s.y -= sp * s.k;
+    s.x += Math.sin((G.t + s.k * 9) * 0.7) * 4 * dt;
+    if (s.y < -6) { s.y = H0 + 6; s.x = Math.random() * W0; }
+    if (s.x < -6) s.x = W0 + 6; else if (s.x > W0 + 6) s.x = -6;
+  }
+}
+function burst(x, y, n, col) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 220;
+    G.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + Math.random() * 0.55, max: 0.9, r: 1 + Math.random() * 2.6, col: col || "160,220,255" });
+  }
+}
+function updateParticles(dt) {
+  for (let i = G.particles.length - 1; i >= 0; i--) {
+    const q = G.particles[i];
+    q.x += q.vx * dt; q.y += q.vy * dt + G.speed * 0.35 * dt;
+    q.vx *= 0.96; q.vy *= 0.96; q.life -= dt;
+    if (q.life <= 0) G.particles.splice(i, 1);
+  }
+}
+function popup(x, y, text, col) { G.popups.push({ x, y, text, life: 0.9, col: col || "190,240,255" }); }
+function updatePopups(dt) {
+  for (let i = G.popups.length - 1; i >= 0; i--) {
+    const q = G.popups[i]; q.y -= 42 * dt + G.speed * 0.25 * dt; q.life -= dt;
+    if (q.life <= 0) G.popups.splice(i, 1);
+  }
+}
+
+/* ============================ 6. Update ================================== */
+function startRun(seed) {
+  const s = (seed === undefined || seed === null) ? Math.floor(Math.random() * 1e9) : seed;
+  G.seed = s >>> 0;
+  rng = mulberry32(G.seed);
+  ents = []; G.particles = []; G.popups = [];
+  p.x = W0 / 2; p.vx = 0; p.invuln = 0; p.hurtT = 0;
+  const I = G.input;
+  I.left = I.right = I.boost = I.ptrActive = I.mouseDown = I.aimActive = false; I.kb = false; I.touches = 0; I.ptrX = W0 / 2; I.ptrY = H0 / 2;
+  /* kbHold 是「按住多久」的累加器：不清的话，复活那一刻还按着 A/D 会直接顶到全速 */
+  I.kbHold = 0;
+  I.ax = W0 / 2; I.ay = CFG.playerY + CFG.atkReach;
+  G.aim.x = G.aim.tx = W0 / 2; G.aim.y = G.aim.ty = CFG.playerY + CFG.atkReach;
+  G.aim.cd = 0.4; G.aim.beam = 0; G.aim.idle = 99;
+  G.state = "play"; G.t = 0; G.runTime = 0;
+  G.depth = 0; G.bonus = 0; G.diff = 0; G.o2 = CFG.o2Max; G.lightBonus = 0; G.lightR = CFG.lightNear;
+  /* 深渊馈赠：清空强化、重算系数表、把氧气上限按当前技能（此时为空）定死 */
+  G.level = 0; G.nextLv = lvNeed(1); G.sk = {}; G.choices = null; recalcMods(); G.o2 = o2MaxNow();
+  G.act.q = G.act.e = G.act.f = 0;
+  G.actFx.dash = G.actFx.flare = G.actFx.shock = 0;
+  G.actFx.sx = G.actFx.sy = 0;
+  G.kills = 0; G.o2Kill = 0; G.dashStamp = 0;
+  G.comboN = 0; G.comboT = -99;                  // 连杀回氧递减：计数 + 上一只的时间戳
+  aiRng = mulberry32((G.seed * 7919 + 13) >>> 0);
+  G.speed = CFG.baseSpeed; G.boosting = false; G.slowT = 0;
+  G.rowT = 0.9; G.bubbleT = 0.8; G.jellyT = rr(CFG.jellyEvery[0], CFG.jellyEvery[1]);
+  G.huntT = rr(CFG.hunterEvery[0], CFG.hunterEvery[1]); G.spitT = rr(CFG.spitterEvery[0], CFG.spitterEvery[1]);
+  G.lastGapC = W0 / 2;
+  G.shakeT = 0; G.shakeMag = 0; G.flash = 0; G.redFlash = 0; G.newBest = false;
+  /* 注意：这里不调 SFX.unlock()。AudioContext 只允许在真实用户手势里建，
+     否则浏览器会刷一片 autoplay 警告；程序化开局（自检/截图）本就该静音。 */
+  SFX.droneOn(); SFX.start();
+}
+function gameOver() {
+  G.state = "over";
+  const depth = Math.floor(G.depth);
+  const r = rate(depth);
+  G.lastRun = { depth, bonus: Math.round(G.bonus), rating: r[0], quip: r[1] };
+  G.newBest = depth > G.best;
+  if (G.newBest) { G.best = depth; store.set("sink.best", String(depth)); }
+  G.shakeT = 0.7; G.shakeMag = 16; G.redFlash = 1;
+  G.popups.length = 0;          // 死前的「擦身 +5」飘字到此为止，别糊在结算面板上
+  burst(p.x, p.y, 30, "255,140,140");
+  SFX.over(); SFX.droneOff();
+}
+
+function mkObstacle(x, y) {
+  if (rnd() < 0.28) return { kind: "cable", x, y, r: rr(15, 19), len: rr(60, 130), hp: CFG.cableHP, maxHp: CFG.cableHP, seed: rnd() * 997, hit: false, near: false, flash: 0 };
+  return { kind: "rock", x, y, r: rr(20, 34), hp: CFG.rockHP, maxHp: CFG.rockHP, seed: rnd() * 997, hit: false, near: false, flash: 0 };
+}
+function spawnRow(prog, dk) {
+  const gapW = lerp(CFG.gapNear, CFG.gapFar, prog) * (1 - dk * CFG.gapGain);
+  G.lastGapC = clamp(G.lastGapC + rr(-CFG.gapStep, CFG.gapStep), 150, W0 - 150);
+  const gapC = G.lastGapC;
+  const y = H0 + 60;
+  const n = ri(1, 3) + (rnd() < dk * CFG.extraObst ? 1 : 0);   // 越深，一行越多一个
+  for (let i = 0; i < n; i++) {
+    let x = 0, ok = false;
+    for (let k = 0; k < 24; k++) { x = rr(40, W0 - 40); if (Math.abs(x - gapC) > gapW / 2 + 26) { ok = true; break; } }
+    if (ok) ents.push(mkObstacle(x, y + rr(-30, 30)));
+  }
+}
+function distToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const L = dx * dx + dy * dy;
+  let t = L > 0 ? ((px - ax) * dx + (py - ay) * dy) / L : 0;
+  t = clamp(t, 0, 1);
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+function obstacleDist(e) {
+  if (e.kind === "cable") return distToSeg(p.x, p.y, e.x, e.y - e.len / 2, e.x, e.y + e.len / 2) - e.r;
+  return Math.hypot(e.x - p.x, e.y - p.y) - e.r;
+}
+/* 实体到「任意一条线段」的距离（普攻光束判定用；泥鳅按整条身子算） */
+function entSegDist(e, ax, ay, bx, by) {
+  if (e.kind === "cable") return distToSeg(e.x, e.y - e.len / 2, ax, ay, bx, by) - e.r;
+  return distToSeg(e.x, e.y, ax, ay, bx, by) - e.r;
+}
+
+/* ============================ 6b. 战斗 =================================== */
+/* 普攻：从玩家射向准星的一道光束（hitscan），沿途障碍物与怪物一起吃伤害。
+   准星 = 鼠标位置（「打哪」由准星管）；鼠标停手 2.5s 或触屏/键盘玩家，交给自动瞄准兜底。 */
+function aimPoint() {
+  const A = G.aim;
+  let tx = clamp(A.x, 14, W0 - 14), ty = clamp(A.y, 70, H0 - 12);
+  const dx = tx - p.x, dy = ty - p.y, L = Math.hypot(dx, dy);
+  if (L > CFG.atkReach) { tx = p.x + (dx / L) * CFG.atkReach; ty = p.y + (dy / L) * CFG.atkReach; }
+  return [tx, ty];
+}
+/* ---------- 统一的「打一下」入口：扣血 → 飘字 → 死了发奖励并移除 ----------
+   普攻 / 冲击波 / 突进撞碎 全部走这里，所以击杀回氧只写一份，不会有哪条路漏发。 */
+function killReward(e) {
+  G.bonus += CFG.killScore;
+  G.kills += 1;
+  /* 连杀递减：距上一只超过 killComboReset 秒就重新满额，否则按 killComboMul 逐只打折 */
+  const streak = (G.t - G.comboT <= CFG.killComboReset) ? G.comboN : 0;
+  const mul = Math.pow(CFG.killComboMul, streak);
+  const gain = o2MaxNow() * G.m.killO2 * mul;    // 回的是「上限的 10%」× 连杀系数，深水压力再大也不缩水
+  G.comboN = streak + 1; G.comboT = G.t;
+  G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+  G.o2Kill += gain;
+  popup(e.x, e.y - e.r - 26, "击杀 +" + CFG.killScore + " · 氧 +" + gain.toFixed(1)
+    + (streak > 0 ? " ×" + mul.toFixed(2) : ""), "255,215,150");
+  burst(e.x, e.y, 22, e.kind === "hunter" ? "255,150,120" : "170,220,255");
+  SFX.kill();
+}
+function breakReward(e) {
+  G.bonus += CFG.breakScore;
+  burst(e.x, e.y, 14, "190,205,220");
+}
+function hurtEnt(i, e, dmg, tag) {
+  e.hp -= dmg; e.flash = 0.16;
+  popup(e.x, e.y - e.r - 8, "-" + dmg, tag || "255,175,125");
+  if (e.hp > 0) { burst(e.x, e.y, 4, "255,200,150"); return false; }
+  if (e.kind === "hunter" || e.kind === "spitter") killReward(e); else breakReward(e);
+  ents.splice(i, 1);
+  return true;
+}
+function fireAttack() {
+  const A = G.aim;
+  const [bx, by] = aimPoint();
+  A.sx = p.x; A.sy = p.y; A.ex = bx; A.ey = by;
+  A.beam = CFG.beamT;
+  const halfw = G.m.atkHalfW;
+  let hits = 0;
+  for (let i = ents.length - 1; i >= 0; i--) {
+    const e = ents[i];
+    if (e.kind === "bubble" || e.kind === "jelly" || e.kind === "bolt") continue;
+    if (entSegDist(e, p.x, p.y, bx, by) > halfw) continue;
+    const isObst = e.kind === "rock" || e.kind === "cable";
+    hurtEnt(i, e, G.m.atkDmg + (isObst ? G.m.atkObst : 0));
+    hits++;
+  }
+  SFX.shoot();
+  return hits;
+}
+
+/* ============================ 6c. 主动技能（Q/E/F）========================
+   和普攻的区别：普攻是自动连发，这三个要玩家自己按（键盘 Q/E/F，或点 HUD 右下角按钮），
+   冷却期间按不动。技能本身从开局就有，卡池里的「主动」牌只负责强化它们。 */
+const ACT_R = 30;
+const ACT_BTN = [
+  { k: "q", key: "Q", n: "冲击波", x: W0 - 66, y: H0 - 66, cd: () => CFG.shockCd },
+  { k: "e", key: "E", n: "突进", x: W0 - 140, y: H0 - 66, cd: () => G.m.dashCd },
+  { k: "f", key: "F", n: "探照", x: W0 - 214, y: H0 - 66, cd: () => CFG.flareCd }
+];
+function actBtnHit(lx, ly) {
+  if (G.state !== "play") return null;
+  for (const b of ACT_BTN) if (Math.hypot(lx - b.x, ly - b.y) <= ACT_R) return b.k;
+  return null;
+}
+/* 冲击波：以本体为圆心清一圈 —— 怪物和障碍一起吃伤害，电球直接吹散 */
+function shockwave() {
+  const Rr = G.m.shockR, D = G.m.shockD;
+  G.actFx.shock = 0.45; G.actFx.sx = p.x; G.actFx.sy = p.y;
+  let n = 0;
+  for (let i = ents.length - 1; i >= 0; i--) {
+    const e = ents[i];
+    if (e.kind === "bubble" || e.kind === "jelly") continue;
+    if (e.kind === "bolt") { ents.splice(i, 1); n++; continue; }
+    if (Math.hypot(e.x - p.x, e.y - p.y) > Rr + e.r) continue;
+    const isObst = e.kind === "rock" || e.kind === "cable";
+    hurtEnt(i, e, isObst ? Math.round(D * 1.3) : D, "255,220,160");
+    n++;
+  }
+  G.shakeT = 0.35; G.shakeMag = 12;
+  burst(p.x, p.y, 30, "180,240,255");
+  SFX.zap();
+  return n;
+}
+function tryActive(k) {
+  if (G.state !== "play") return false;
+  if (G.act[k] > 0) return false;                        // 冷却中：按不动
+  if (k === "q") { G.act.q = CFG.shockCd; shockwave(); }
+  else if (k === "e") {
+    G.act.e = G.m.dashCd;
+    G.actFx.dash = G.m.dashT;
+    G.dashStamp = (G.dashStamp || 0) + 1;                // 一次突进对每个障碍只算一次账
+    p.invuln = Math.max(p.invuln, G.m.dashT);            // 突进期间无敌（撞怪不挨咬）
+    burst(p.x, p.y, 16, "150,255,220"); SFX.zap();
+  } else if (k === "f") {
+    G.act.f = CFG.flareCd;
+    G.actFx.flare = G.m.flareT;
+    burst(p.x, p.y, 18, "210,240,255"); SFX.jelly();
+  } else return false;
+  return true;
+}
+
+function spawnHunter() {
+  ents.push({ kind: "hunter", x: rr(60, W0 - 60), y: H0 + 50, r: 20, hp: CFG.hunterHP, maxHp: CFG.hunterHP, seed: rnd() * 997, hit: false, near: false, flash: 0 });
+}
+function spawnSpitter() {
+  ents.push({ kind: "spitter", x: rr(60, W0 - 60), y: H0 + 50, r: 17, hp: CFG.spitterHP, maxHp: CFG.spitterHP, seed: rnd() * 997, hit: false, near: false, flash: 0, fireT: 1.3 });
+}
+function hurtPlayer(dmg, col) {
+  if (p.invuln > 0) return false;
+  G.o2 -= dmg;
+  p.invuln = G.m.invuln; p.hurtT = 0.4; G.slowT = CFG.hitSlowTime;
+  G.shakeT = 0.45; G.shakeMag = 13; G.redFlash = 0.9;
+  burst(p.x, p.y, 18, col || "255,150,150");
+  popup(p.x, p.y - 26, "-" + dmg + " 氧", "255,160,160");
+  SFX.hit();
+  return true;
+}
+
+function stepPlay(dt) {
+  const I = G.input;
+  G.runTime += dt;
+
+  /* --- 主动技能计时：冷却倒计时 + 生效时间倒计时 --- */
+  for (const k in G.act) if (G.act[k] > 0) G.act[k] = Math.max(0, G.act[k] - dt);
+  const fx = G.actFx;
+  if (fx.dash > 0) fx.dash = Math.max(0, fx.dash - dt);
+  if (fx.flare > 0) fx.flare = Math.max(0, fx.flare - dt);
+  if (fx.shock > 0) fx.shock = Math.max(0, fx.shock - dt);
+
+  /* --- 加速：只有还有氧气才能踩 --- */
+  G.boosting = I.boost && G.o2 > 0;
+  if (G.slowT > 0) G.slowT = Math.max(0, G.slowT - dt);
+  let target = G.boosting ? G.m.boost : G.m.base;
+  if (fx.dash > 0) target = Math.max(target, G.m.base * CFG.dashMul);   // 突进期间至少这么快
+  if (G.slowT > 0) target *= CFG.hitSlowMul;
+  G.speed += (target - G.speed) * Math.min(1, dt * (G.boosting ? CFG.boostRamp : CFG.speedRamp));
+
+  /* --- 深度与分数 --- */
+  const dm = G.speed * dt / CFG.pxPerMeter;
+  G.depth += dm;
+  if (G.boosting) G.bonus += dm * (boostMulNow() - 1);
+  if (G.depth >= G.nextLv) levelUp();          // 到点就三选一（状态切 levelup，本帧剩余照跑）
+
+  /* --- 氧气（深渊压力：越深耗得越快）--- */
+  const dk = G.diff = diffK(G.depth);
+  const drain = CFG.o2Drain * (G.boosting ? CFG.boostDrainMul : 1) * (1 + dk * CFG.drainGain) * G.m.drain;
+  G.o2 -= drain * dt;
+
+  /* --- 视野 --- */
+  const lit = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1));
+  G.lightBonus = Math.max(0, G.lightBonus - CFG.jellyDecay * dt);
+  /* 探照：生效期间把光照半径硬顶到 flare，时间一到自己退回背景值（不是永久加成） */
+  let litTarget = lit + G.lightBonus;
+  if (fx.flare > 0) litTarget = Math.max(litTarget, G.m.flare);
+  G.lightR += (litTarget - G.lightR) * Math.min(1, dt * 3);
+
+  /* --- 转向：键盘＝按住踩油门（轻点微调 / 长按全速），鼠标＝比例控制 --- */
+  let want = 0;
+  const kdir = (I.right ? 1 : 0) - (I.left ? 1 : 0);
+  if (kdir) {
+    I.kbHold = (I.kbHold || 0) + dt;
+    const k = clamp((I.kbHold - CFG.kbHold) / CFG.kbRamp, 0, 1);
+    const ease = k * k * (3 - 2 * k);                    // smoothstep：起步软、中段快、末端稳
+    want = kdir * CFG.maxVX * (CFG.kbTapMul + (1 - CFG.kbTapMul) * ease);
+    I.ptrActive = false;                                 // 键盘优先，不和鼠标拖拽抢
+  } else {
+    I.kbHold = 0;
+    if (I.ptrActive) want = clamp((I.ptrX - p.x) * G.m.steer, -CFG.maxVX, CFG.maxVX);
+  }
+  /* 软边界：贴边 120px 内线性收力（硬钳到 0 会让船像撞墙一样急停） */
+  if (want > 0) want *= clamp((CFG.xMax - p.x) / CFG.kbSoftEdge, 0, 1);
+  else if (want < 0) want *= clamp((p.x - CFG.xMin) / CFG.kbSoftEdge, 0, 1);
+  p.vx += (want - p.vx) * Math.min(1, dt * (kdir ? CFG.kbAccel : G.m.accel));
+  p.x += p.vx * dt;
+  if (p.x < CFG.xMin) { p.x = CFG.xMin; p.vx = 0; }
+  if (p.x > CFG.xMax) { p.x = CFG.xMax; p.vx = 0; }
+  if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt);
+  p.hurtT = Math.max(0, p.hurtT - dt);
+
+  /* --- 准星（鼠标准心管打哪）与普攻连发 --- */
+  const A = G.aim;
+  if (I.aimActive) { A.tx = I.ax; A.ty = I.ay; A.idle = 0; }
+  else A.idle += dt;
+  if (A.idle > CFG.aimIdle) {
+    /* 自动瞄准兜底（触屏 / 键盘玩家）：只咬怪物，没怪物就回到正前方 */
+    let best = null, bd = 1e9;
+    for (const e of ents) {
+      if (e.kind !== "hunter" && e.kind !== "spitter") continue;
+      const dd = Math.hypot(e.x - p.x, e.y - p.y);
+      if (dd < bd) { bd = dd; best = e; }
+    }
+    if (best && bd < CFG.aimAutoR) { A.tx = best.x; A.ty = best.y; }
+    else { A.tx = clamp(p.x, 14, W0 - 14); A.ty = clamp(p.y + CFG.atkReach * 0.7, 70, H0 - 12); }
+  }
+  A.tx = clamp(A.tx, 14, W0 - 14); A.ty = clamp(A.ty, 70, H0 - 12);
+  A.x += (A.tx - A.x) * Math.min(1, dt * CFG.aimLerp);
+  A.y += (A.ty - A.y) * Math.min(1, dt * CFG.aimLerp);
+  if (A.beam > 0) A.beam = Math.max(0, A.beam - dt);
+  A.cd -= dt;
+  if (A.cd <= 0) { A.cd = G.m.atkEvery; fireAttack(); }
+
+  /* --- 生成 --- */
+  const prog = clamp(G.depth / CFG.rowSpan, 0, 1);
+  G.rowT -= dt;
+  if (G.rowT <= 0) {
+    G.rowT = lerp(CFG.rowNear, CFG.rowFar, prog) * (0.85 + 0.3 * rnd()) * Math.max(0.76, 1 - dk * CFG.rowGain);
+    spawnRow(prog, dk);
+  }
+  G.bubbleT -= dt;
+  if (G.bubbleT <= 0) {
+    G.bubbleT = rr(CFG.bubbleEvery[0], CFG.bubbleEvery[1]) * (1 + 0.9 * clamp(G.depth / CFG.bubbleThin, 0, 1));
+    ents.push({ kind: "bubble", x: rr(64, W0 - 64), y: H0 + 34, r: rr(9, 14), seed: rnd() * 997 });
+  }
+  G.jellyT -= dt;
+  if (G.jellyT <= 0) {
+    G.jellyT = rr(CFG.jellyEvery[0], CFG.jellyEvery[1]) * G.m.jellyFreq;
+    ents.push({ kind: "jelly", x: rr(70, W0 - 70), y: H0 + 40, r: rr(14, 19), seed: rnd() * 997 });
+  }
+  /* --- 深海猎食者：1000m 以下才出现；刚过线有适应期，越深才越凶 --- */
+  if (G.depth >= CFG.mobFrom) {
+    const intro = clamp((G.depth - CFG.mobFrom) / CFG.mobRamp, 0, 1);
+    const rate = (CFG.mobIntro + (1 - CFG.mobIntro) * intro) * (CFG.mobDeepen[0] + CFG.mobDeepen[1] * dk);
+    const cap = CFG.mobCapBase + Math.round(CFG.mobCapGain * dk);
+    let live = 0;
+    for (const e of ents) if (e.kind === "hunter" || e.kind === "spitter") live++;
+    G.huntT -= dt * rate;
+    if (G.huntT <= 0) { G.huntT = rr(CFG.hunterEvery[0], CFG.hunterEvery[1]); if (live < cap) spawnHunter(); }
+    G.spitT -= dt * rate;
+    if (G.spitT <= 0) { G.spitT = rr(CFG.spitterEvery[0], CFG.spitterEvery[1]); if (live < cap) spawnSpitter(); }
+  }
+
+  /* --- 实体推进 + 碰撞 --- */
+  const dy = G.speed * dt;
+  for (let i = ents.length - 1; i >= 0; i--) {
+    const e = ents[i];
+    if (e.flash > 0) e.flash = Math.max(0, e.flash - dt);
+    /* 电球：自带速度，不跟世界一起滚（它是「扑」过来的，不是「沉」上来的） */
+    if (e.kind === "bolt") {
+      e.x += e.vx * dt; e.y += e.vy * dt; e.life -= dt;
+      if (e.life <= 0 || e.x < -60 || e.x > W0 + 60 || e.y < -60 || e.y > H0 + 60) { ents.splice(i, 1); continue; }
+      if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + CFG.playerR) {
+        hurtPlayer(Math.round(CFG.boltDmg * (1 + dk * CFG.hitGain) * G.m.dmg), "190,220,255");
+        burst(e.x, e.y, 8, "170,215,255");
+        ents.splice(i, 1);
+      }
+      continue;
+    }
+    /* 电袭者是「悬停射手」：不跟着水流一起滚，靠自己慢慢游上来 ——
+       否则世界滚动 + 自己的漂移会让它 3 秒穿过整屏，一枪都来不及放 */
+    if (e.kind !== "spitter") e.y -= dy;
+    /* 怪物自己的动作：猎手加速上冲咬人，喷吐者保持距离放冷枪 */
+    if (e.kind === "hunter") {
+      e.y -= CFG.hunterRush * dt;
+      e.x += clamp(p.x - e.x, -CFG.hunterVX * dt, CFG.hunterVX * dt);
+    } else if (e.kind === "spitter") {
+      e.y -= CFG.spitterRush * dt;
+      e.x += clamp(p.x - e.x, -CFG.spitterVX * dt, CFG.spitterVX * dt);
+      e.fireT -= dt;
+      if (e.fireT <= 0 && e.y > p.y + 70 && e.y < H0 + 30) {
+        e.fireT = rr(CFG.boltEvery[0], CFG.boltEvery[1]);
+        const a = Math.atan2(p.y - e.y, p.x - e.x);
+        ents.push({ kind: "bolt", x: e.x, y: e.y, r: CFG.boltR, vx: Math.cos(a) * CFG.boltSpeed, vy: Math.sin(a) * CFG.boltSpeed, life: 4.5, seed: rnd() * 997 });
+        SFX.zap();
+      }
+    }
+    if (e.y < -140) { ents.splice(i, 1); continue; }
+    /* 磁力：把光圈内的收集物横向拽过来（只动 x，不改 y —— 不破坏深度节奏） */
+    if (G.m.magnet > 0 && (e.kind === "bubble" || e.kind === "jelly")) {
+      if (Math.hypot(e.x - p.x, e.y - p.y) < G.m.magnet) e.x += (p.x - e.x) * Math.min(1, dt * 6);
+    }
+    const d = obstacleDist(e);
+    const rr2 = CFG.playerR;
+    if (e.kind === "bubble" || e.kind === "jelly") {
+      if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + rr2 + 2) {
+        if (e.kind === "bubble") {
+          const gain = G.m.bubble * Math.max(0.58, 1 - dk * CFG.bubbleLoss);
+          G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+          popup(e.x, e.y, "+" + Math.round(gain) + " 氧", "150,255,210"); SFX.bubble();
+        }
+        else { G.lightBonus = Math.min(CFG.jellyCap, G.lightBonus + G.m.jellyLight); popup(e.x, e.y, "视野 +" + Math.round(G.m.jellyLight), "190,230,255"); SFX.jelly(); }
+        burst(e.x, e.y, 10, e.kind === "bubble" ? "150,255,210" : "190,230,255");
+        ents.splice(i, 1);
+      }
+    } else if (fx.dash > 0 && (e.kind === "rock" || e.kind === "cable") && d < rr2 + 10 && e.dashS !== G.dashStamp) {
+      /* 突进撞上去不算撞车，是撞碎：无敌期间给挡路的开个洞。
+         dashS 是「哪一次突进已经打过它」的戳记 —— 不加就会每帧（120/s）扣一次 80 血。 */
+      e.dashS = G.dashStamp;
+      hurtEnt(i, e, CFG.dashDmg, "150,255,220");
+      continue;
+    } else if (d < rr2 && p.invuln <= 0 && !e.hit) {
+      e.hit = true;
+      if (e.kind === "hunter" || e.kind === "spitter") {
+        /* 咬一口就同归于尽：不给它反复贴脸刷伤害的机会 */
+        hurtPlayer(Math.round(CFG.huntDamage * (1 + dk * CFG.hitGain) * G.m.dmg), "255,150,120");
+        burst(e.x, e.y, 20, "255,140,110");
+        ents.splice(i, 1);
+      } else {
+        hurtPlayer(Math.round(CFG.hitDamage * (1 + dk * CFG.hitGain) * G.m.dmg));
+      }
+    } else if (!e.near && (e.kind === "rock" || e.kind === "cable") && d < rr2 + G.m.nearPad) {
+      e.near = true;
+      G.bonus += G.m.nearBonus;
+      popup(p.x + (e.x > p.x ? 30 : -30), p.y - 20, "擦身 +" + G.m.nearBonus, "255,225,150");
+      SFX.nomiss();
+    }
+  }
+
+  if (G.o2 <= 0) { G.o2 = 0; gameOver(); }
+}
+
+function update(dt) {
+  G.t += dt;
+  if (G.shakeT > 0) G.shakeT = Math.max(0, G.shakeT - dt);
+  if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 3.2);
+  if (G.redFlash > 0) G.redFlash = Math.max(0, G.redFlash - dt * 2.2);
+  updateSnow(dt);
+  updateParticles(dt);
+  updatePopups(dt);
+  if (G.state === "play") stepPlay(dt);
+  if (G.state === "title" || G.state === "over") { G.speed += (CFG.baseSpeed - G.speed) * Math.min(1, dt * 2); }
+  SFX.droneUpdate(clamp((G.speed - CFG.baseSpeed) / (CFG.boostSpeed - CFG.baseSpeed), 0, 1));
+}
+
+/* ============================ 7. Render ================================== */
+function rrRect(x, y, w, h, r) {
+  const rad = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rad);
+  ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad);
+  ctx.arcTo(x, y, x + w, y, rad);
+  ctx.closePath();
+}
+function text(s, x, y, size, color, align, weight) {
+  ctx.font = (weight || 600) + " " + size + 'px "PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,sans-serif';
+  ctx.textAlign = align || "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = color;
+  ctx.fillText(s, x, y);
+}
+function panel(x, y, w, h) {
+  rrRect(x, y, w, h, 18);
+  ctx.fillStyle = "rgba(4,14,26,0.84)"; ctx.fill();
+  ctx.strokeStyle = "rgba(120,190,230,0.26)"; ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+function drawPlayer() {
+  const bob = Math.sin(G.t * 2.2) * 3;
+  const px = p.x, py = p.y + bob;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(px, py, 2, px, py, 150 + G.lightBonus * 0.4);
+  g.addColorStop(0, "rgba(140,225,255,0.34)");
+  g.addColorStop(0.45, "rgba(90,180,255,0.11)");
+  g.addColorStop(1, "rgba(60,140,255,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(px, py, 150 + G.lightBonus * 0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  if (p.invuln > 0 && Math.floor(G.t * 14) % 2 === 0) ctx.globalAlpha = 0.45;
+  const tilt = clamp(p.vx / 700, -0.5, 0.5);
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(tilt * 0.6);
+  /* 尾鳍 */
+  const wig = Math.sin(G.t * 16) * 0.45;
+  ctx.beginPath();
+  ctx.moveTo(-8, 0);
+  ctx.lineTo(-24, -9 + wig * 8);
+  ctx.lineTo(-20, 0);
+  ctx.lineTo(-24, 9 + wig * 8);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(120,205,245,0.75)"; ctx.fill();
+  /* 身体 */
+  ctx.beginPath(); ctx.ellipse(0, 0, 16, 10, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#d8f2ff"; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(2, -3, 9, 5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.fill();
+  /* 眼 */
+  ctx.beginPath(); ctx.arc(9, -1.5, 2.3, 0, Math.PI * 2);
+  ctx.fillStyle = "#06202f"; ctx.fill();
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  if (G.boosting) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + G.t * 3;
+      const d0 = 20 + (i % 3) * 9;
+      ctx.strokeStyle = "rgba(150,230,255,0.30)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(px + Math.cos(a) * d0, py + Math.sin(a) * d0);
+      ctx.lineTo(px + Math.cos(a) * (d0 + 26), py + Math.sin(a) * (d0 + 26));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawEntity(e) {
+  const x = e.x, y = e.y;
+  if (e.kind === "rock") {
+    ctx.beginPath();
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      const rad = e.r * (0.72 + 0.5 * hash1(e.seed + i * 3.7));
+      const px = x + Math.cos(a) * rad, py = y + Math.sin(a) * rad;
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#0a1420"; ctx.fill();
+    ctx.strokeStyle = "rgba(120,175,205,0.42)"; ctx.lineWidth = 1.4; ctx.stroke();
+  } else if (e.kind === "cable") {
+    ctx.beginPath();
+    const h = e.len / 2;
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8, yy = y - h + e.len * t;
+      const xx = x + Math.sin(t * 5 + e.seed) * 5;
+      if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy);
+    }
+    ctx.strokeStyle = "rgba(150,190,215,0.7)"; ctx.lineWidth = e.r * 0.55; ctx.lineCap = "round"; ctx.stroke();
+    ctx.strokeStyle = "rgba(20,40,60,0.9)"; ctx.lineWidth = e.r * 0.22; ctx.stroke();
+  } else if (e.kind === "bubble") {
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(x, y, 1, x, y, e.r * 2.6);
+    g.addColorStop(0, "rgba(160,255,220,0.55)"); g.addColorStop(1, "rgba(160,255,220,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, e.r * 2.6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(x, y, e.r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(190,255,230,0.95)"; ctx.lineWidth = 1.8; ctx.stroke();
+    ctx.beginPath(); ctx.arc(x - e.r * 0.32, y - e.r * 0.34, e.r * 0.26, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fill();
+  } else if (e.kind === "jelly") {
+    const pulse = 1 + Math.sin(G.t * 3 + e.seed) * 0.14;
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(x, y, 2, x, y, e.r * 4.2 * pulse);
+    g.addColorStop(0, "rgba(150,205,255,0.5)"); g.addColorStop(1, "rgba(120,180,255,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, e.r * 4.2 * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.ellipse(x, y, e.r * pulse, e.r * 0.78 * pulse, 0, Math.PI, 0);
+    ctx.fillStyle = "rgba(205,235,255,0.85)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + i * e.r * 0.4, y);
+      ctx.quadraticCurveTo(x + i * e.r * 0.4 + Math.sin(G.t * 4 + i) * 4, y + e.r * 0.9, x + i * e.r * 0.4, y + e.r * 1.5);
+      ctx.stroke();
+    }
+  } else if (e.kind === "hunter") {
+    /* 深海猎食者：尖头朝上（冲着玩家来）的梭形，一对红眼 */
+    const R0 = e.r, wob = Math.sin(G.t * 9 + e.seed) * 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y - R0 * 1.55);
+    ctx.lineTo(x + R0 * 1.05, y + R0 * 0.30);
+    ctx.lineTo(x + R0 * 0.30, y + R0 * 0.12);
+    ctx.lineTo(x, y + R0 * 1.30 + wob);
+    ctx.lineTo(x - R0 * 0.30, y + R0 * 0.12);
+    ctx.lineTo(x - R0 * 1.05, y + R0 * 0.30);
+    ctx.closePath();
+    ctx.fillStyle = e.flash > 0 ? "rgba(255,235,225,0.95)" : "#2b0d12";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,110,90,0.85)"; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.fillStyle = "rgba(255,95,70,0.95)";
+    for (const sx of [-1, 1]) {
+      ctx.beginPath(); ctx.ellipse(x + sx * R0 * 0.34, y - R0 * 0.62, 3.4, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (e.kind === "spitter") {
+    /* 电袭者：紫伞 + 炮口，蓄力时炮口发亮 */
+    const pulse = 1 + Math.sin(G.t * 4 + e.seed) * 0.10;
+    const ch = clamp(1 - e.fireT / 0.9, 0, 1);
+    ctx.beginPath();
+    ctx.ellipse(x, y, e.r * pulse, e.r * 0.85 * pulse, 0, Math.PI, 0);
+    ctx.fillStyle = e.flash > 0 ? "rgba(240,245,255,0.95)" : "rgba(118,88,190,0.88)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(195,165,255,0.85)"; ctx.lineWidth = 1.3; ctx.stroke();
+    ctx.strokeStyle = "rgba(180,150,255,0.7)"; ctx.lineWidth = 2;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + i * e.r * 0.36, y + e.r * 0.1);
+      ctx.quadraticCurveTo(x + i * e.r * 0.36 + Math.sin(G.t * 6 + i + e.seed) * 5, y + e.r * 0.85, x + i * e.r * 0.36, y + e.r * 1.5);
+      ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x, y + e.r * 0.3, 3 + ch * 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255," + Math.round(205 - ch * 130) + ",125," + (0.45 + ch * 0.55).toFixed(2) + ")";
+    ctx.fill();
+  } else if (e.kind === "bolt") {
+    /* 电球 */
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(x, y, 1, x, y, e.r * 3.2);
+    g.addColorStop(0, "rgba(205,240,255,0.9)");
+    g.addColorStop(1, "rgba(120,180,255,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, e.r * 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(x, y, e.r, 0, Math.PI * 2);
+    ctx.fillStyle = "#eaf6ff"; ctx.fill();
+  }
+  /* 血条不画在这里：它会被黑暗层吞掉，统一挪到黑暗之上重画（drawHpBar） */
+}
+
+function drawHUD() {
+  const depth = Math.floor(G.depth);
+  const d = clamp(depth / 1200, 0, 1);
+  /* 深度 */
+  ctx.save();
+  ctx.shadowColor = "rgba(120,220,255,0.55)"; ctx.shadowBlur = 16;
+  text(String(depth), W0 / 2, 74, 54, "#e8f8ff", "center", 700);
+  ctx.restore();
+  text("米", W0 / 2 + String(depth).length * 17 + 16, 74, 20, "rgba(160,215,245,0.75)", "left", 600);
+  text("深度", W0 / 2, 96, 12, "rgba(130,185,215,0.65)", "center", 600);
+  if (G.bonus >= 1) text("加成 +" + Math.round(G.bonus), W0 / 2, 118, 14, "rgba(255,225,150,0.85)", "center", 600);
+  /* 最佳 */
+  text("最佳 " + Math.max(G.best, depth) + " m", W0 - 24, 38, 15, "rgba(140,190,220,0.7)", "right", 600);
+  /* 深渊压力：越深越高，耗氧/障碍/伤害一起跟着涨 */
+  const press = Math.round(diffK(depth) * 100);
+  text("压力 " + press + "%", W0 - 24, 60, 12, press >= 45 ? "rgba(255,175,150,0.9)" : press >= 25 ? "rgba(255,225,150,0.75)" : "rgba(140,190,220,0.6)", "right", 600);
+  drawSkillChips(W0 - 24, 84);
+  /* 氧气条 */
+  const bw = 300, bh = 13, bx = 24, by = H0 - 42;
+  const ratio = clamp(G.o2 / o2MaxNow(), 0, 1);
+  const low = ratio < 0.25;
+  const pulse = low ? 0.55 + 0.45 * Math.abs(Math.sin(G.t * 6)) : 1;
+  rrRect(bx, by, bw, bh, 6.5);
+  ctx.fillStyle = "rgba(8,22,36,0.85)"; ctx.fill();
+  ctx.strokeStyle = "rgba(120,190,230,0.28)"; ctx.lineWidth = 1; ctx.stroke();
+  const col = ratio > 0.5 ? [110, 230, 190] : ratio > 0.25 ? [255, 210, 120] : [255, 120, 120];
+  ctx.save();
+  rrRect(bx, by, bw, bh, 6.5); ctx.clip();
+  ctx.globalAlpha = pulse;
+  const gg = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+  gg.addColorStop(0, mixRgb([col[0] * 0.7, col[1] * 0.7, col[2] * 0.7], col, 0.4));
+  gg.addColorStop(1, mixRgb(col, [255, 255, 255], 0.35));
+  ctx.fillStyle = gg;
+  ctx.fillRect(bx, by, bw * ratio, bh);
+  ctx.restore();
+  text("氧气", bx, by - 8, 12, low ? "rgba(255,150,150,0.95)" : "rgba(140,190,220,0.7)", "left", 600);
+  text(Math.ceil(G.o2) + "%", bx + bw + 12, by + 12, 15, low ? "rgba(255,150,150,0.95)" : "rgba(190,230,250,0.85)", "left", 600);
+  /* 加速提示 */
+  if (G.boosting) text("加速 ×" + boostMulNow().toFixed(2).replace(/0$/, ""), bx + bw + 12, by - 8, 12, "rgba(255,225,150,0.9)", "left", 600);
+  /* 深渊馈赠：等级 + 距下次强化的距离 */
+  const lvSpan = lvNeed(G.level + 1);
+  const lvP = clamp((G.depth - (G.nextLv - lvSpan)) / lvSpan, 0, 1);
+  const lby = by - 30;
+  rrRect(bx, lby, bw, 5, 2.5); ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fill();
+  rrRect(bx, lby, lvP * bw, 5, 2.5); ctx.fillStyle = "rgba(255,215,150,0.85)"; ctx.fill();
+  text("强化 Lv " + G.level + "　·　距下次 " + Math.max(0, Math.ceil(G.nextLv - G.depth)) + " m", bx, lby - 7, 12, "rgba(255,225,170,0.78)", "left", 600);
+  /* 深度进度条（右侧，暗示 1000m 是传奇线） */
+  const pbx = W0 - 26, pby = 120, pbh = 300;
+  rrRect(pbx, pby, 4, pbh, 2); ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fill();
+  rrRect(pbx, pby + pbh * (1 - d), 4, pbh * d, 2);
+  ctx.fillStyle = "rgba(140,225,255,0.75)"; ctx.fill();
+  text("1000m", pbx - 6, pby - 6, 11, "rgba(140,200,230,0.55)", "right", 600);
+  if (G.input.touches > 0) text("双指 = 加速", W0 / 2, H0 - 16, 12, "rgba(140,200,230,0.6)", "center", 600);
+  drawActives();
+}
+
+/* 主动技能的 HUD：右下角三个圆形按钮（键位 + 名字 + 冷却扇形）。
+   做成可点的圆形是为了触屏 —— 手机上只有键盘就废了。 */
+function drawActives() {
+  for (const b of ACT_BTN) {
+    const cd = G.act[b.k], total = Math.max(0.001, b.cd()), rdy = cd <= 0;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(b.x, b.y, ACT_R, 0, Math.PI * 2);
+    ctx.fillStyle = rdy ? "rgba(20,58,84,0.70)" : "rgba(10,24,36,0.70)"; ctx.fill();
+    ctx.strokeStyle = rdy ? "rgba(150,235,255,0.75)" : "rgba(110,150,175,0.38)";
+    ctx.lineWidth = 2; ctx.stroke();
+    if (!rdy) {
+      ctx.beginPath(); ctx.moveTo(b.x, b.y);
+      ctx.arc(b.x, b.y, ACT_R - 1, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (cd / total));
+      ctx.closePath(); ctx.fillStyle = "rgba(3,10,18,0.66)"; ctx.fill();
+    }
+    ctx.restore();
+    text(b.key, b.x, b.y - 1, 17, rdy ? "#dff6ff" : "rgba(150,180,200,0.5)", "center", 700);
+    text(rdy ? b.n : cd.toFixed(1), b.x, b.y + 16, 10.5, rdy ? "rgba(185,232,252,0.88)" : "rgba(150,180,200,0.6)", "center", 600);
+  }
+}
+
+function drawWorld() {
+  const d = clamp(G.depth / 1200, 0, 1);
+  const g = ctx.createLinearGradient(0, 0, 0, H0);
+  g.addColorStop(0, mixRgb([10, 38, 66], [1, 4, 12], d));
+  g.addColorStop(1, mixRgb([22, 70, 108], [3, 10, 22], d));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W0, H0);
+  /* 光柱 */
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 4; i++) {
+    const bx = 60 + i * 250 + Math.sin(G.t * 0.25 + i) * 26;
+    const lg = ctx.createLinearGradient(bx, 0, bx + 90, H0 * 0.9);
+    lg.addColorStop(0, "rgba(130,205,255," + (0.085 * (1 - d)).toFixed(3) + ")");
+    lg.addColorStop(1, "rgba(130,205,255,0)");
+    ctx.fillStyle = lg;
+    ctx.beginPath();
+    ctx.moveTo(bx - 34, 0); ctx.lineTo(bx + 34, 0);
+    ctx.lineTo(bx + 150, H0 * 0.9); ctx.lineTo(bx - 110, H0 * 0.9);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  /* 浮游雪 */
+  for (const s of G.snow) {
+    ctx.globalAlpha = s.a * (0.35 + 0.65 * (1 - d));
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = "#bfe6ff"; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const e of ents) drawEntity(e);
+  for (const q of G.particles) {
+    const a = clamp(q.life / q.max, 0, 1);
+    ctx.globalAlpha = a * 0.9;
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgb(" + q.col + ")"; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  if (G.state === "play" || G.state === "pause" || G.state === "over") drawPlayer();
+  else { const bx = p.x, by = p.y; p.x = W0 / 2; p.y = 78 + Math.sin(G.t * 1.4) * 7; drawPlayer(); p.x = bx; p.y = by; }
+  /* 拾取飘字 */
+  for (const q of G.popups) {
+    ctx.globalAlpha = clamp(q.life / 0.9, 0, 1);
+    text(q.text, q.x, q.y, 14, "rgba(" + q.col + ",1)", "center", 700);
+  }
+  ctx.globalAlpha = 1;
+  /* 黑暗 / 视野：光照半径之外 alpha=1（纯黑）—— 轮廓、气泡一律看不见。
+     早先是「全屏压暗 + 一圈渐变」，半径外还剩 55~65% 亮度，等于自带夜视仪。 */
+  const px = p.x, py = p.y + (G.state === "play" ? Math.sin(G.t * 2.2) * 3 : 0);
+  const lr = Math.max(90, G.lightR);
+  const dg = ctx.createRadialGradient(px, py, lr * 0.20, px, py, lr);
+  dg.addColorStop(0, "rgba(2,8,18,0)");
+  dg.addColorStop(0.52, "rgba(2,8,18," + (0.30 + 0.34 * d).toFixed(3) + ")");
+  dg.addColorStop(0.80, "rgba(2,8,18," + (0.80 + 0.20 * d).toFixed(3) + ")");
+  dg.addColorStop(1, "rgba(2,8,18,1)");
+  ctx.fillStyle = dg;
+  ctx.fillRect(0, 0, W0, H0);
+  /* 水母例外：它是光源，得在黑暗层之上重绘一遍，否则一样被吞进纯黑 */
+  for (const e of ents) if (e.kind === "jelly") drawJellyGlow(e);
+  /* 猎食者/电球也是生物光：不在光照半径内照样看得见它们扑过来（否则 1000m 以下纯挨打） */
+  for (const e of ents) if (e.kind === "hunter" || e.kind === "spitter" || e.kind === "bolt") drawCombatGlow(e);
+  for (const e of ents) drawHpBar(e);
+  drawActiveFx();
+  drawAim();
+  /* 受伤红闪 */
+  if (G.redFlash > 0) {
+    ctx.fillStyle = "rgba(255,60,60," + (G.redFlash * 0.22).toFixed(3) + ")";
+    ctx.fillRect(0, 0, W0, H0);
+  }
+}
+
+/* 主动技能特效：都画在黑暗层之上（深水里不放光就等于没放） */
+function drawActiveFx() {
+  const fx = G.actFx;
+  if (fx.shock > 0) {
+    const k = clamp(1 - fx.shock / 0.45, 0, 1);          // 0→1 向外扩散
+    const Rr = G.m.shockR * (0.25 + 0.85 * k);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = Math.max(0, 1 - k) * 0.9;
+    ctx.beginPath(); ctx.arc(fx.sx, fx.sy, Rr, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(170,240,255,0.95)"; ctx.lineWidth = 1.5 + 6 * (1 - k); ctx.stroke();
+    ctx.beginPath(); ctx.arc(fx.sx, fx.sy, Rr * 0.72, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,225,170,0.7)"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+  }
+  if (fx.dash > 0) {
+    const a = clamp(fx.dash / Math.max(0.001, G.m.dashT), 0, 1);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.55 * a;
+    const g = ctx.createLinearGradient(p.x, p.y - 130, p.x, p.y + 10);
+    g.addColorStop(0, "rgba(120,255,215,0)");
+    g.addColorStop(1, "rgba(150,255,225,0.85)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 4, p.y + 10); ctx.lineTo(p.x + 4, p.y + 10);
+    ctx.lineTo(p.x + 17, p.y - 130); ctx.lineTo(p.x - 17, p.y - 130);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  /* 探照生效期间给屏幕边缘一圈冷光，提示「现在是技能在照，不是背景变亮了」 */
+  if (fx.flare > 0) {
+    const a = clamp(fx.flare / Math.max(0.001, G.m.flareT), 0, 1);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.16 * a;
+    ctx.fillStyle = "rgba(150,215,255,1)";
+    ctx.fillRect(0, 0, W0, 10); ctx.fillRect(0, H0 - 10, W0, 10);
+    ctx.restore();
+  }
+}
+/* 水母是光源：黑暗层之上重画一遍（加色），保证光照半径外仍看得见它游过来 */
+function drawJellyGlow(e) {
+  const pulse = 1 + Math.sin(G.t * 3 + e.seed) * 0.14;
+  const rad = e.r * 5.6 * pulse;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(e.x, e.y, 2, e.x, e.y, rad);
+  g.addColorStop(0, "rgba(175,220,255,0.50)");
+  g.addColorStop(0.45, "rgba(110,175,255,0.15)");
+  g.addColorStop(1, "rgba(90,150,255,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(e.x, e.y, rad, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y, e.r * pulse, e.r * 0.78 * pulse, 0, Math.PI, 0);
+  ctx.fillStyle = "rgba(215,240,255,0.70)"; ctx.fill();
+  ctx.restore();
+}
+
+/* 猎食者的生物光 + 本体：都画在黑暗层之上，保证光照半径外也看得清（不然深水区纯挨打） */
+function drawCombatGlow(e) {
+  const rad = e.r * (e.kind === "hunter" ? 2.8 : e.kind === "bolt" ? 3.4 : 3.0);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(e.x, e.y, 1, e.x, e.y, rad);
+  if (e.kind === "hunter") { g.addColorStop(0, "rgba(255,95,70,0.38)"); g.addColorStop(1, "rgba(255,60,40,0)"); }
+  else if (e.kind === "spitter") { g.addColorStop(0, "rgba(175,140,255,0.38)"); g.addColorStop(1, "rgba(140,110,255,0)"); }
+  else { g.addColorStop(0, "rgba(180,225,255,0.45)"); g.addColorStop(1, "rgba(120,180,255,0)"); }
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(e.x, e.y, rad, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  if (e.kind === "bolt") return;                       // 电球本体在 drawEntity 里已经够亮
+  /* 本体轮廓：黑暗里只剩一团糊的话，玩家没法判断该往哪打 */
+  const x = e.x, y = e.y;
+  ctx.save();
+  if (e.kind === "hunter") {
+    const R0 = e.r, wob = Math.sin(G.t * 9 + e.seed) * 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y - R0 * 1.55);
+    ctx.lineTo(x + R0 * 1.05, y + R0 * 0.30);
+    ctx.lineTo(x + R0 * 0.30, y + R0 * 0.12);
+    ctx.lineTo(x, y + R0 * 1.30 + wob);
+    ctx.lineTo(x - R0 * 0.30, y + R0 * 0.12);
+    ctx.lineTo(x - R0 * 1.05, y + R0 * 0.30);
+    ctx.closePath();
+    ctx.fillStyle = e.flash > 0 ? "rgba(255,235,225,0.95)" : "rgba(72,15,19,0.86)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,125,100,0.9)"; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.fillStyle = "rgba(255,105,80,1)";
+    for (const sx of [-1, 1]) {
+      ctx.beginPath(); ctx.ellipse(x + sx * R0 * 0.34, y - R0 * 0.62, 3.4, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  } else {
+    const pulse = 1 + Math.sin(G.t * 4 + e.seed) * 0.10;
+    const ch = clamp(1 - e.fireT / 0.9, 0, 1);
+    ctx.beginPath();
+    ctx.ellipse(x, y, e.r * pulse, e.r * 0.85 * pulse, 0, Math.PI, 0);
+    ctx.fillStyle = e.flash > 0 ? "rgba(240,245,255,0.95)" : "rgba(78,58,140,0.86)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(200,170,255,0.9)"; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.strokeStyle = "rgba(190,160,255,0.8)"; ctx.lineWidth = 2;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + i * e.r * 0.36, y + e.r * 0.1);
+      ctx.quadraticCurveTo(x + i * e.r * 0.36 + Math.sin(G.t * 6 + i + e.seed) * 5, y + e.r * 0.85, x + i * e.r * 0.36, y + e.r * 1.5);
+      ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x, y + e.r * 0.3, 3 + ch * 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255," + Math.round(205 - ch * 130) + ",125," + (0.55 + ch * 0.45).toFixed(2) + ")";
+    ctx.fill();
+  }
+  ctx.restore();
+}
+/* 血条：打过才显示（满血不糊脸），画在黑暗之上 —— 否则深水区连血条都看不见 */
+function drawHpBar(e) {
+  if (!e.maxHp || e.hp <= 0 || e.hp >= e.maxHp) return;
+  const w = Math.max(30, e.r * 2.4), h = 3.5;
+  const bx = e.x - w / 2, by = e.y - e.r - (e.kind === "hunter" ? 26 : 16);
+  ctx.fillStyle = "rgba(6,14,24,0.8)"; ctx.fillRect(bx, by, w, h);
+  const f = clamp(e.hp / e.maxHp, 0, 1);
+  ctx.fillStyle = f > 0.5 ? "rgba(150,235,190,0.95)" : "rgba(255,180,120,0.95)";
+  ctx.fillRect(bx, by, w * f, h);
+}
+/* 准星（AD 操控）+ 普攻光束：都画在黑暗层之上 —— 光是打出去的，不该被黑暗吃掉 */
+function drawAim() {
+  if (G.state !== "play" && G.state !== "pause") return;
+  const A = G.aim;
+  const [ex, ey] = aimPoint();
+  ctx.save();
+  /* 瞄准导引线：从玩家指向准星，弱到自己不抢戏 */
+  ctx.strokeStyle = "rgba(255,190,120,0.16)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 7]);
+  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.setLineDash([]);
+  if (A.beam > 0) {
+    const a = A.beam / CFG.beamT;                       // 1 → 0 的视觉残留
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(255,190,120," + (0.50 * a).toFixed(3) + ")";
+    ctx.lineWidth = 12 * a + 3;
+    ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(A.ex, A.ey); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,246,228," + (0.92 * a).toFixed(3) + ")";
+    ctx.lineWidth = 3.5 * a + 1;
+    ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(A.ex, A.ey); ctx.stroke();
+    ctx.globalCompositeOperation = "source-over";
+  }
+  /* 准星本体：一直在，方便把「AD 推的是它」看明白 */
+  const r = 14 + (A.beam > 0 ? (A.beam / CFG.beamT) * 5 : 0);
+  ctx.strokeStyle = "rgba(255,205,140,0.85)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(ex - r - 7, ey); ctx.lineTo(ex - r + 3, ey);
+  ctx.moveTo(ex + r - 3, ey); ctx.lineTo(ex + r + 7, ey);
+  ctx.moveTo(ex, ey - r - 7); ctx.lineTo(ex, ey - r + 3);
+  ctx.moveTo(ex, ey + r - 3); ctx.lineTo(ex, ey + r + 7);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawTitle() {
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  panel(W0 / 2 - 300, 118, 600, 410);
+  ctx.restore();
+  ctx.save();
+  ctx.shadowColor = "rgba(110,215,255,0.65)"; ctx.shadowBlur = 28;
+  text("深 潜", W0 / 2, 214, 62, "#e9f9ff", "center", 700);
+  ctx.restore();
+  text("S I N K", W0 / 2, 246, 18, "rgba(140,205,240,0.8)", "center", 600);
+  text("「越贪越快，越快越瞎」", W0 / 2, 296, 17, "rgba(160,215,245,0.9)", "center", 600);
+  text("加速下潜：得分 ×" + CFG.boostMul + "　氧气消耗 ×" + CFG.boostDrainMul + "　视野更小", W0 / 2, 326, 14, "rgba(130,180,210,0.8)", "center", 500);
+  text("越深越要命：耗氧↑　障碍更密　撞击更痛　·　每段路三选一强化", W0 / 2, 350, 13, "rgba(255,190,160,0.72)", "center", 500);
+  text("A / D 转向　·　鼠标准星就是普攻落点（" + CFG.mobFrom + "m 以下有东西会还手）", W0 / 2, 372, 13, "rgba(255,170,140,0.82)", "center", 500);
+  text("Q 冲击波　E 突进　F 探照　—— 自己按的主动技能，各有冷却", W0 / 2, 394, 13, "rgba(255,175,235,0.85)", "center", 500);
+  text("击杀怪物回 " + Math.round(CFG.killO2 * 100) + "% 氧气（自带，不用选；连杀递减，停手重置）", W0 / 2, 414, 12.5, "rgba(150,255,210,0.8)", "center", 500);
+  const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
+  ctx.globalAlpha = pulse;
+  text("点击 / 按空格  开始下潜", W0 / 2, 448, 24, "#bfeaff", "center", 700);
+  ctx.globalAlpha = 1;
+  text("最佳深度 " + G.best + " m", W0 / 2, 480, 15, "rgba(255,225,150,0.9)", "center", 600);
+  text("A D / ← → 转向 · 鼠标瞄准 · 左键/空格加速 · Q E F 主动技能 · 1·2·3 选强化 · P 暂停 · M 静音", W0 / 2, 508, 12, "rgba(130,180,210,0.7)", "center", 500);
+}
+
+function drawOver() {
+  const L = G.lastRun;
+  ctx.save();
+  ctx.globalAlpha = 0.94;
+  panel(W0 / 2 - 290, 108, 580, 392);
+  ctx.restore();
+  text("深 度 报 告", W0 / 2, 156, 22, "rgba(160,220,250,0.9)", "center", 600);
+  ctx.save();
+  ctx.shadowColor = "rgba(110,215,255,0.5)"; ctx.shadowBlur = 20;
+  text(L.depth + " m", W0 / 2, 234, 58, "#eafaff", "center", 700);
+  ctx.restore();
+  text("评级 " + L.rating, W0 / 2, 274, 20, "rgba(255,225,150,0.95)", "center", 700);
+  if (G.newBest) text("★ 新纪录", W0 / 2, 302, 15, "rgba(255,225,150,0.95)", "center", 700);
+  else text("最佳 " + G.best + " m", W0 / 2, 302, 14, "rgba(140,190,220,0.8)", "center", 600);
+  text("加速加成 +" + L.bonus + "　·　存活 " + G.runTime.toFixed(1) + " 秒", W0 / 2, 330, 13.5, "rgba(140,190,220,0.75)", "center", 500);
+  ctx.font = '500 15px "PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,sans-serif';
+  text("「" + L.quip + "」", W0 / 2, 372, 15.5, "rgba(180,225,250,0.92)", "center", 500);
+  drawSkillChips(W0 / 2 + 270, 404);
+  const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
+  ctx.globalAlpha = pulse;
+  text("点击 / 按 R  再来一局", W0 / 2, 430, 22, "#bfeaff", "center", 700);
+  ctx.globalAlpha = 1;
+  text("Esc 回标题", W0 / 2, 466, 13, "rgba(130,180,210,0.7)", "center", 500);
+}
+
+function drawPause() {
+  ctx.fillStyle = "rgba(2,10,20,0.6)"; ctx.fillRect(0, 0, W0, H0);
+  text("已暂停", W0 / 2, H0 / 2 - 6, 40, "#dff4ff", "center", 700);
+  text("P 继续　·　R 重开　·　Esc 回标题", W0 / 2, H0 / 2 + 34, 15, "rgba(150,200,230,0.85)", "center", 500);
+  text("鼠标移动瞄准 · 按住左键 / 空格 加速 · Q E F 主动技能", W0 / 2, H0 / 2 + 62, 13.5, "rgba(130,180,210,0.7)", "center", 500);
+}
+
+/* ---------- 深渊馈赠：已获得强化的角标（HUD / 结算共用） ---------- */
+function drawSkillChips(right, y) {
+  const own = SKILLS.filter((s) => skLv(s.id) > 0);
+  let x = right;
+  for (let i = own.length - 1; i >= 0; i--) {
+    const s = own[i], lv = skLv(s.id), col = (KIND_COL[s.t] || [190, 240, 255]).join(",");
+    x -= 34;
+    rrRect(x, y - 11, 34, 22, 6);
+    ctx.fillStyle = "rgba(" + col + ",0.13)"; ctx.fill();
+    ctx.strokeStyle = "rgba(" + col + ",0.5)"; ctx.lineWidth = 1; ctx.stroke();
+    text(s.n.charAt(0), x + 12, y + 5, 13, "rgb(" + col + ")", "center", 700);
+    text(String(lv), x + 26, y + 4, 11, "rgba(" + col + ",0.85)", "center", 600);
+    x -= 6;
+  }
+}
+
+/* ---------- 深渊馈赠：三选一（割草式升级卡） ---------- */
+const CARD_W = 252, CARD_H = 244, CARD_GAP = 26;
+function cardRect(i) {
+  const tw = 3 * CARD_W + 2 * CARD_GAP;
+  return { x: (W0 - tw) / 2 + i * (CARD_W + CARD_GAP), y: 190, w: CARD_W, h: CARD_H };
+}
+function cardHit(lx, ly) {
+  for (let i = 0; i < 3; i++) {
+    const r = cardRect(i);
+    if (lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h) return i;
+  }
+  return -1;
+}
+function drawLevelUp() {
+  ctx.fillStyle = "rgba(2,10,20,0.74)"; ctx.fillRect(0, 0, W0, H0);
+  ctx.save();
+  ctx.shadowColor = "rgba(255,215,150,0.5)"; ctx.shadowBlur = 22;
+  text("深 渊 馈 赠", W0 / 2, 116, 34, "#fff3d8", "center", 700);
+  ctx.restore();
+  text("第 " + G.level + " 次强化　·　" + Math.floor(G.depth) + " m　·　选择一项（点击 / 按 1·2·3）",
+    W0 / 2, 148, 14, "rgba(200,225,245,0.8)", "center", 500);
+  if (!G.choices) return;
+  for (let i = 0; i < G.choices.length; i++) {
+    const s = G.choices[i], r = cardRect(i), col = (KIND_COL[s.t] || [190, 240, 255]).join(",");
+    const cur = skLv(s.id);
+    const hot = cardHit(G.input.ptrX, G.input.ptrY) === i;
+    ctx.save();
+    ctx.shadowColor = hot ? "rgba(" + col + ",0.55)" : "transparent"; ctx.shadowBlur = hot ? 26 : 0;
+    rrRect(r.x, r.y, r.w, r.h, 16);
+    ctx.fillStyle = hot ? "rgba(18,48,76,0.97)" : "rgba(8,24,40,0.94)"; ctx.fill();
+    ctx.restore();
+    rrRect(r.x, r.y, r.w, r.h, 16);
+    ctx.strokeStyle = "rgba(" + col + "," + (hot ? 0.98 : 0.42) + ")"; ctx.lineWidth = hot ? 2.2 : 1.2; ctx.stroke();
+    /* 类型标签 */
+    ctx.save();
+    rrRect(r.x + 1.5, r.y + 1.5, 62, 26, 14); ctx.clip();
+    ctx.fillStyle = "rgba(" + col + ",0.16)"; ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.restore();
+    text(s.t, r.x + 32, r.y + 34, 13, "rgba(" + col + ",0.95)", "center", 700);
+    /* 名称 */
+    text(s.n, r.x + r.w / 2, r.y + 96, 38, "#f2fbff", "center", 700);
+    /* 等级点：已满的实心，本次要加的那颗描边高亮 */
+    const pn = Math.min(5, s.max), py = r.y + 132, pw = 16;
+    for (let k = 0; k < pn; k++) {
+      const px2 = r.x + r.w / 2 + (k - (pn - 1) / 2) * pw;
+      ctx.beginPath(); ctx.arc(px2, py, 4.6, 0, Math.PI * 2);
+      if (k < cur) { ctx.fillStyle = "rgba(" + col + ",0.95)"; ctx.fill(); }
+      else if (k === cur) { ctx.strokeStyle = "rgba(" + col + ",0.95)"; ctx.lineWidth = 1.6; ctx.stroke(); }
+      else { ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fill(); }
+    }
+    /* 效果 */
+    text(s.d, r.x + r.w / 2, r.y + 172, 13.5, "rgba(205,232,248,0.92)", "center", 500);
+    text("Lv " + cur + " → " + (cur + 1), r.x + r.w / 2, r.y + 198, 12.5, "rgba(" + col + ",0.85)", "center", 600);
+    /* 数字键提示 */
+    ctx.save();
+    rrRect(r.x + r.w / 2 - 13, r.y + r.h - 34, 26, 22, 7);
+    ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fill();
+    ctx.strokeStyle = "rgba(" + col + ",0.4)"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+    text(String(i + 1), r.x + r.w / 2, r.y + r.h - 18, 13, "rgba(215,240,255,0.9)", "center", 700);
+  }
+  text("深渊会等你 —— 卡面出现时下潜暂停", W0 / 2, 470, 12.5, "rgba(140,190,220,0.6)", "center", 500);
+}
+
+function drawSelfTest() {
+  ctx.fillStyle = "#04101c"; ctx.fillRect(0, 0, W0, H0);
+  text("自 检 报 告  self-test", 40, 56, 26, "#dff4ff", "left", 700);
+  text("判据：典型单局 60 ~ 120 秒（中位在带内，且 ≥70% 对局在带内）", 40, 84, 14, "rgba(140,195,225,0.85)", "left", 500);
+  text("种子      时长(s)     深度(m)      结果", 40, 128, 15, "rgba(160,215,245,0.9)", "left", 600);
+  ctx.strokeStyle = "rgba(120,190,230,0.25)"; ctx.beginPath(); ctx.moveTo(40, 138); ctx.lineTo(760, 138); ctx.stroke();
+  SELFTEST.rows.forEach((r, i) => {
+    const y = 168 + i * 30;
+    const col = r.ok ? "rgba(150,255,205,0.95)" : "rgba(255,150,150,0.95)";
+    text(String(r.seed), 40, y, 15, "rgba(200,230,250,0.9)", "left", 500);
+    text(r.seconds.toFixed(1), 170, y, 15, col, "left", 600);
+    text(String(r.depth), 300, y, 15, "rgba(200,230,250,0.9)", "left", 500);
+    text(r.ok ? "PASS" : "FAIL(" + r.state + ")", 470, y, 15, col, "left", 700);
+  });
+  const y0 = 168 + SELFTEST.rows.length * 30 + 24;
+  const bandOk = SELFTEST.inBand >= Math.ceil(SELFTEST.rows.length * 0.7);
+  text("中位时长 " + SELFTEST.median + " s　·　带内 " + SELFTEST.inBand + "/" + SELFTEST.rows.length + "　（判据：中位 60~120s 且 ≥70% 在带内）",
+    40, y0, 15, bandOk ? "rgba(150,255,205,0.95)" : "rgba(255,150,150,0.95)", "left", 600);
+  text("localStorage 可写：" + (SELFTEST.lsOk ? "PASS" : "FAIL（file:// 受限，已降级内存）"), 40, y0 + 28, 15, SELFTEST.lsOk ? "rgba(150,255,205,0.95)" : "rgba(255,210,140,0.95)", "left", 600);
+  text("外部网络请求：0（无外链 / 无 fetch / 无 import）", 40, y0 + 56, 15, "rgba(150,255,205,0.95)", "left", 600);
+  text("总判定：" + (SELFTEST.pass ? "PASS" : "FAIL"), 40, y0 + 94, 24, SELFTEST.pass ? "rgba(150,255,205,0.98)" : "rgba(255,150,150,0.98)", "left", 700);
+  text("版本 " + SELFTEST.version + "　·　逻辑分辨率 " + W0 + "×" + H0 + "　·　固定步长 1/120s", 40, H0 - 28, 13, "rgba(130,180,210,0.7)", "left", 500);
+}
+
+function render() {
+  ctx.setTransform(R.dpr, 0, 0, R.dpr, 0, 0);
+  ctx.fillStyle = "#02060d";
+  ctx.fillRect(0, 0, R.cw, R.ch);
+  ctx.setTransform(R.dpr * R.scale, 0, 0, R.dpr * R.scale, R.dpr * R.ox, R.dpr * R.oy);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, W0, H0); ctx.clip();
+  let sx = 0, sy = 0;
+  if (G.shakeT > 0) {
+    const m = G.shakeMag * (G.shakeT / 0.7);
+    sx = (Math.random() * 2 - 1) * m; sy = (Math.random() * 2 - 1) * m;
+  }
+  ctx.translate(sx, sy);
+  if (SELFTEST.active) {
+    drawSelfTest();
+    ctx.restore();
+    return;
+  }
+  drawWorld();
+  if (G.state === "play" || G.state === "pause" || G.state === "levelup") {
+    /* 选牌时把 HUD 压暗：否则「100 米」会和「深渊馈赠」标题叠在一起，看着像花了屏 */
+    ctx.save();
+    ctx.globalAlpha = G.state === "levelup" ? 0.28 : 1;
+    drawHUD();
+    ctx.restore();
+  }
+  if (G.state === "title") drawTitle();
+  else if (G.state === "over") drawOver();
+  else if (G.state === "pause") drawPause();
+  else if (G.state === "levelup") drawLevelUp();
+  ctx.restore();
+  /* 竖屏提示：画面是 16:10，竖屏只能缩成中间一条 —— 占用空白黑边明说，别让玩家以为是坏了 */
+  const barH = (R.ch - R.scale * H0) / 2;
+  if (barH > 60) {
+    ctx.save();
+    ctx.setTransform(R.dpr, 0, 0, R.dpr, 0, 0);
+    ctx.fillStyle = "rgba(140,200,230,0.72)";
+    ctx.font = '600 14px "PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,sans-serif';
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("↻ 把手机横过来，画面大一倍", R.cw / 2, barH * 0.5);
+    ctx.restore();
+  }
+}
+
+/* ============================ 8. Input =================================== */
+function toLogical(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: clamp((clientX - r.left - R.ox) / R.scale, -200, W0 + 200),
+    y: clamp((clientY - r.top - R.oy) / R.scale, -200, H0 + 200)
+  };
+}
+/* 加速有多个来源（键盘 / 鼠标左键 / 双指），必须「或」起来算 ——
+   早先这里直接写 I.boost = I.mouseDown || touches>=2，于是按住空格时
+   任何一次鼠标微动（buttons=0）都会把键盘那份加速抹掉，手感变成一卡一卡。 */
+function syncPointerBoost() {
+  const I = G.input;
+  I.boost = I.kb || I.mouseDown || I.touches >= 2;
+}
+const touchIds = new Set();
+canvas.addEventListener("pointerdown", (ev) => {
+  SFX.unlock();
+  const q = toLogical(ev.clientX, ev.clientY);
+  /* 选牌优先：这一下不能同时被算成「开始一局」或「加速」 */
+  if (G.state === "levelup") {
+    const i = cardHit(q.x, q.y);
+    if (i >= 0) applyPick(i);
+    ev.preventDefault();
+    return;
+  }
+  /* 主动技能按钮：点了就放技能，不能同时被算成「加速」或「开始一局」 */
+  const ab = actBtnHit(q.x, q.y);
+  if (ab) { tryActive(ab); ev.preventDefault(); return; }
+  try { if (canvas.setPointerCapture) canvas.setPointerCapture(ev.pointerId); } catch (e) { /* 合成事件/无活动指针时会抛，不能让它挡住后面的输入登记 */ }
+  /* 鼠标 = 准星（管打哪），触屏 = 拖拽转向（管在哪）——「打哪」和「在哪」分家 */
+  if (ev.pointerType === "touch") { touchIds.add(ev.pointerId); G.input.touches = touchIds.size; G.input.ptrActive = true; G.input.ptrX = q.x; G.input.ptrY = q.y; }
+  else { G.input.mouseDown = true; G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y; }
+  syncPointerBoost();
+  if (G.state === "title" || G.state === "over") { startRun(); return; }
+  if (G.state === "pause") { G.state = "play"; return; }
+  ev.preventDefault();
+}, { passive: false });
+canvas.addEventListener("pointermove", (ev) => {
+  const q = toLogical(ev.clientX, ev.clientY);
+  if (ev.pointerType === "mouse") {
+    G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y;
+    G.input.mouseDown = (ev.buttons & 1) !== 0;
+  } else { G.input.ptrActive = true; G.input.ptrX = q.x; G.input.ptrY = q.y; }
+  syncPointerBoost();
+});
+function endPointer(ev) {
+  if (ev.pointerType === "touch") { touchIds.delete(ev.pointerId); G.input.touches = touchIds.size; }
+  else G.input.mouseDown = false;
+  syncPointerBoost();
+}
+canvas.addEventListener("pointerup", endPointer);
+canvas.addEventListener("pointercancel", endPointer);
+canvas.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") { G.input.mouseDown = false; syncPointerBoost(); } });
+window.addEventListener("blur", () => {
+  G.input.mouseDown = false; G.input.left = G.input.right = G.input.boost = false; G.input.kb = false;
+  touchIds.clear(); G.input.touches = 0;
+  if (G.state === "play") G.state = "pause";
+});
+window.addEventListener("keydown", (ev) => {
+  SFX.unlock();
+  const k = ev.code;
+  const I = G.input;
+  if (G.state === "levelup") {                       // 选牌：数字键 1/2/3
+    const i = ["Digit1", "Digit2", "Digit3"].indexOf(k);
+    const j = ["Numpad1", "Numpad2", "Numpad3"].indexOf(k);
+    const pick = i >= 0 ? i : j;
+    if (pick >= 0) { applyPick(pick); ev.preventDefault(); }
+    else if (k === "Escape" || k === "KeyP") ev.preventDefault();
+    return;
+  }
+  if (k === "Space" || k === "ArrowUp" || k === "KeyW" || k === "Enter" || k === "NumpadEnter") {
+    if (G.state === "title" || G.state === "over") { startRun(); ev.preventDefault(); return; }
+    I.kb = true; syncPointerBoost(); ev.preventDefault();
+  } else if (k === "ArrowLeft" || k === "KeyA") { I.left = true; I.ptrActive = false; ev.preventDefault(); }
+  else if (k === "ArrowRight" || k === "KeyD") { I.right = true; I.ptrActive = false; ev.preventDefault(); }
+  else if (k === "KeyQ" || k === "KeyE" || k === "KeyF") {
+    /* 主动技能：自己按才放；普攻是自动连发的，两回事 */
+    tryActive(k === "KeyQ" ? "q" : k === "KeyE" ? "e" : "f");
+    ev.preventDefault();
+  }
+  else if (k === "KeyP" || k === "Escape") {
+    if (k === "Escape" && G.state !== "play") { G.state = "title"; return; }
+    if (G.state === "play") G.state = "pause"; else if (G.state === "pause") G.state = "play";
+  } else if (k === "KeyM") { SFX.toggleMute(); }
+  else if (k === "KeyR") { if (G.state !== "title") startRun(); }
+});
+window.addEventListener("keyup", (ev) => {
+  const k = ev.code, I = G.input;
+  if (k === "Space" || k === "ArrowUp" || k === "KeyW" || k === "Enter" || k === "NumpadEnter") { I.kb = false; syncPointerBoost(); }
+  else if (k === "ArrowLeft" || k === "KeyA") I.left = false;
+  else if (k === "ArrowRight" || k === "KeyD") I.right = false;
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && G.state === "play") G.state = "pause";
+});
+
+/* ============================ 9. Loop ==================================== */
+const STEP = 1 / 120;
+let last = 0, acc = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (!last) last = now;
+  let dt = (now - last) / 1000; last = now;
+  if (!(dt > 0)) dt = 0;
+  if (dt > 0.25) dt = 0.25;
+  if (!AUTO_FREEZE) {
+    acc += dt;
+    let n = 0;
+    while (acc >= STEP && n < 10) { update(STEP); acc -= STEP; n++; }
+    if (n >= 10) acc = 0;
+  }
+  render();
+}
+
+/* ========================= 10. SelfTest / Debug ========================== */
+let AUTO_PICK = "random";               // 脚本替玩家选牌：random | first | none
+function aiPick() {
+  if (!G.choices || !G.choices.length || AUTO_PICK === "none") return false;
+  const i = AUTO_PICK === "random" ? Math.floor(aiRnd() * G.choices.length) : 0;
+  return applyPick(clamp(i, 0, G.choices.length - 1));
+}
+function autopilot(dt) {
+  const LOOK = 240;                       // 前瞻纵深：看得太短会一头撞上去
+  let steer = 0, threat = 0;
+  for (const e of ents) {
+    if (e.kind === "bubble" || e.kind === "jelly") continue;
+    const dy = e.y - p.y;
+    if (dy < -LOOK || dy > 90) continue;
+    const dx = e.x - p.x;
+    const urgency = 1 - clamp(-dy / LOOK, 0, 1);   // dy 越接近 0 越紧急
+    const adx = Math.abs(dx);
+    if (adx < 210) {
+      const w = (1 - adx / 210) * (0.35 + 0.65 * urgency);
+      steer += (dx >= 0 ? -1 : 1) * w * 3.2;
+      threat = Math.max(threat, urgency * (1 - adx / 210));
+    }
+  }
+  let pk = null, pd = 1e9;
+  for (const e of ents) {
+    if (e.kind !== "bubble" && e.kind !== "jelly") continue;
+    const dy = e.y - p.y;
+    if (dy < 0 || dy > 500) continue;
+    const dd = Math.hypot(e.x - p.x, dy);
+    if (dd < pd) { pd = dd; pk = e; }
+  }
+  if (pk && threat < 0.55) steer += Math.sign(pk.x - p.x) * (1 - Math.min(1, pd / 560)) * 1.1;
+  if (p.x < CFG.xMin + 60) steer += 0.5;
+  if (p.x > CFG.xMax - 60) steer -= 0.5;
+  /* 瞄准：优先最近的猎食者，其次正前方 —— 脚本 AI 得真的会开枪，局时才有意义 */
+  let aimT = null, ad = 1e9;
+  for (const e of ents) {
+    if (e.kind !== "hunter" && e.kind !== "spitter") continue;
+    const dd = Math.hypot(e.x - p.x, e.y - p.y);
+    if (dd < ad) { ad = dd; aimT = e; }
+  }
+  G.input.aimActive = true;
+  G.input.ax = aimT ? aimT.x : p.x;
+  G.input.ay = aimT ? aimT.y : p.y + CFG.atkReach * 0.7;
+  G.input.ptrActive = true;
+  G.input.ptrX = clamp(p.x + steer * 240, CFG.xMin, CFG.xMax);
+  G.input.kb = threat < 0.25 && G.o2 > 45 && Math.abs(steer) < 0.6;
+  syncPointerBoost();
+  void dt;
+}
+function simulate(seconds, seed) {
+  startRun(seed);
+  const dt = STEP;
+  let t = 0, guard = 0;
+  const maxSteps = Math.ceil((seconds || 300) / dt);
+  while (t < (seconds || 300) && (G.state === "play" || G.state === "levelup") && guard++ < maxSteps + 10) {
+    if (G.state === "levelup") aiPick();
+    autopilot(dt);
+    update(dt);
+    t += dt;
+  }
+  if (G.state === "play") gameOver();
+  return { seed: G.seed, state: G.state, seconds: +G.runTime.toFixed(1), depth: Math.floor(G.depth), o2: +G.o2.toFixed(1), level: G.level, sk: Object.assign({}, G.sk) };
+}
+function runSelfTest() {
+  SELFTEST.active = true;
+  SELFTEST.pass = true;
+  SELFTEST.rows = [1, 2, 3, 4, 5, 7, 42].map((s) => {
+    const r = simulate(300, s);
+    const ok = r.seconds >= 60 && r.seconds <= 120;
+    return { seed: r.seed, seconds: r.seconds, depth: r.depth, state: r.state, ok };
+  });
+  /* 判据用「典型单局」：中位时长在带内 + 至少 70% 对局在带内。
+     单局过短是玩家（或脚本 AI）自己连续撞出来的，不该靠把游戏改简单来掩盖。 */
+  const secs = SELFTEST.rows.map((r) => r.seconds).slice().sort((a, b) => a - b);
+  SELFTEST.median = +secs[Math.floor(secs.length / 2)].toFixed(1);
+  SELFTEST.inBand = SELFTEST.rows.filter((r) => r.ok).length;
+  SELFTEST.pass = SELFTEST.median >= 60 && SELFTEST.median <= 120 && SELFTEST.inBand >= Math.ceil(SELFTEST.rows.length * 0.7);
+  try {
+    localStorage.setItem("sink.selftest", "1");
+    SELFTEST.lsOk = localStorage.getItem("sink.selftest") === "1";
+    localStorage.removeItem("sink.selftest");
+  } catch (e) { SELFTEST.lsOk = false; }
+  G.state = "title";
+}
+/* 采样一个逻辑坐标的设备像素（黑暗验收用：证明半径外真的是黑的、水母真的亮着） */
+function probePx(x, y) {
+  const dx = Math.round((R.ox + x * R.scale) * R.dpr), dy = Math.round((R.oy + y * R.scale) * R.dpr);
+  if (dx < 0 || dy < 0 || dx >= R.cw * R.dpr || dy >= R.ch * R.dpr) return [-1, -1, -1];
+  const d = ctx.getImageData(dx, dy, 1, 1).data;
+  return [d[0], d[1], d[2]];
+}
+window.__SINK__ = {
+  version: SELFTEST.version, CFG, G, diffK, state: () => G.state,
+  startRun, update, simulate, runSelfTest, autopilot,
+  SKILLS, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
+  ents: () => ents, p, probePx, lightR: () => G.lightR,
+  fireAttack, aimPoint, spawnHunter, spawnSpitter, entSegDist, hurtPlayer,
+  tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit,
+  cfg: CFG,
+  owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
+  setAutoPick: (m) => { AUTO_PICK = m; },
+  setFreeze: (v) => { AUTO_FREEZE = !!v; },      // 探针用：关掉 rAF 自动步进，改成手动 S.update，量手感可复现
+  stats: () => ({ state: G.state, depth: Math.floor(G.depth), o2: +G.o2.toFixed(2), ents: ents.length, best: G.best, speed: +G.speed.toFixed(1), level: G.level, sk: Object.assign({}, G.sk), choices: G.choices ? G.choices.map((s) => s.id) : null,
+                   act: { q: +G.act.q.toFixed(2), e: +G.act.e.toFixed(2), f: +G.act.f.toFixed(2) },
+                   actFx: { dash: +G.actFx.dash.toFixed(2), flare: +G.actFx.flare.toFixed(2), shock: +G.actFx.shock.toFixed(2) },
+                   kills: G.kills, o2Kill: +G.o2Kill.toFixed(1), lightR: +G.lightR.toFixed(0), invuln: +p.invuln.toFixed(2) })
+};
+
+/* ============================ init ======================================= */
+/* 定格截图前必须把「瞬时特效」清干净：震动是每帧随机偏移、受击红闪是按时间衰减的，
+   冻结状态下二者不会自己退场，会让截图看起来像出了故障。 */
+function freezeClean() { G.shakeT = 0; G.shakeMag = 0; G.flash = 0; G.redFlash = 0; }
+function init() {
+  resize();
+  G.best = parseFloat(store.get("sink.best", "0")) || 0;
+  makeSnow();
+  const q = new URLSearchParams(location.search);
+  if (q.get("selftest") === "1") { runSelfTest(); }
+  else if (q.get("scenario") === "over") {
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    let guard = 0;
+    while ((G.state === "play" || G.state === "levelup") && guard++ < 120 * 400) { if (G.state === "levelup") aiPick(); autopilot(STEP); update(STEP); }
+    if (G.state === "play") gameOver();
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "levelup") {
+    /* 停在第一张三选一卡面上（视觉验收用） */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    let guard = 0;
+    while (G.state === "play" && guard++ < 120 * 400) { autopilot(STEP); update(STEP); }
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "deep") {
+    startRun(q.get("seed") === null ? 3 : +q.get("seed"));
+    const want = parseFloat(q.get("depth") || "1100") || 1100;
+    let guard = 0;
+    while ((G.state === "play" || G.state === "levelup") && G.depth < want && guard++ < 120 * 200) { if (G.state === "levelup") aiPick(); autopilot(STEP); update(STEP); }
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "build") {
+    /* 跑一段并自动选牌，用来截「一身强化」的 HUD */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    const want = parseFloat(q.get("depth") || "900") || 900;
+    let guard = 0;
+    while ((G.state === "play" || G.state === "levelup") && G.depth < want && guard++ < 120 * 400) { if (G.state === "levelup") aiPick(); autopilot(STEP); update(STEP); }
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "dark") {
+    /* 黑暗验收：光照半径外必须纯黑（连气泡都看不见），水母必须在纯黑里亮着。
+       三个探针点摆在玩家同一条水平线上，左右各 430px（远在半径之外）。 */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    const want = parseFloat(q.get("depth") || "1200") || 1200;
+    let guard = 0;
+    while ((G.state === "play" || G.state === "levelup") && G.depth < want && guard++ < 120 * 200) { if (G.state === "levelup") aiPick(); autopilot(STEP); update(STEP); }
+    G.o2 = 80;
+    ents.length = 0; G.particles.length = 0;
+    /* 玩家停回正中：探针点按「正中心 ±330」摆，脚本 AI 最后停在哪不该影响测量 */
+    p.x = W0 / 2; p.vx = 0;
+    G.lightBonus = 0;
+    G.lightR = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1));
+    /* 摆在玩家下方左右各 330px（离 HUD 的深度条与氧气条都远），水母要看得见、气泡要看不见 */
+    const py = p.y + 170;
+    ents.push({ kind: "jelly",  x: p.x + 330, y: py, r: 17, seed: 11, vy: 0 });
+    ents.push({ kind: "bubble", x: p.x - 330, y: py, r: 12, seed: 23, vy: 0 });
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "combat") {
+    /* 战斗验收截图：一只猎手、一只电袭者、一块半血石头、一条泥鳅、一颗电球摆进视野，
+       朝猎手开一枪后定格 —— 光束、准星、血条、飘字一次性全在画面里。 */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    G.depth = parseFloat(q.get("depth") || "1200") || 1200;
+    ents.length = 0; G.particles.length = 0; G.popups.length = 0;
+    const py = p.y + 200;
+    ents.push({ kind: "hunter",  x: p.x - 150, y: py + 120, r: 20, hp: 100, maxHp: CFG.hunterHP,  seed: 3,  flash: 0 });
+    ents.push({ kind: "spitter", x: p.x + 165, y: py + 40,  r: 17, hp: 45,  maxHp: CFG.spitterHP, seed: 9,  flash: 0, fireT: 0.35 });
+    ents.push({ kind: "rock",    x: p.x - 250, y: py + 10,  r: 28, hp: 50,  maxHp: CFG.rockHP,    seed: 21, flash: 0 });
+    ents.push({ kind: "cable",   x: p.x + 300, y: py + 90,  r: 17, len: 90, hp: 30, maxHp: CFG.cableHP, seed: 33, flash: 0 });
+    ents.push({ kind: "bolt",    x: p.x + 130, y: py + 150, r: CFG.boltR, vx: -60, vy: -120, life: 3, seed: 5 });
+    G.input.aimActive = false; G.aim.idle = 99;
+    G.aim.tx = G.aim.x = p.x - 150; G.aim.ty = G.aim.y = py + 120;
+    /* 截图要把整场战斗都照亮，不然一半零件埋在纯黑里（黑暗验收另有 dark 场景） */
+    G.lightR = 560; G.lightBonus = 0;
+    fireAttack();
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "active") {
+    /* 主动技能验收截图：冲击波正在扩散 + 突进尾迹 + 三个按钮里两个在冷却。
+       摆一圈目标进去，一眼能看出「范围内的被打掉了」。 */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    G.depth = parseFloat(q.get("depth") || "1300") || 1300;
+    ents.length = 0; G.particles.length = 0; G.popups.length = 0;
+    const py = p.y + 190;
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI * 0.75 + i * (Math.PI * 1.5 / 4);
+      ents.push({ kind: i % 2 ? "hunter" : "rock", x: clamp(p.x + Math.cos(a) * 190, 50, W0 - 50), y: py + Math.sin(a) * 160,
+                  r: i % 2 ? 20 : 28, hp: i % 2 ? 60 : 70, maxHp: i % 2 ? CFG.hunterHP : CFG.rockHP, seed: 5 + i * 7, flash: 0 });
+    }
+    G.lightR = 620; G.lightBonus = 0;
+    G.o2 = 58;
+    tryActive("q");
+    /* 再点一下突进（尾迹要在），探照的冷却让玩家看到按钮的三态 */
+    tryActive("e");
+    G.act.f = 6.2;
+    fireAttack();
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "active2") {
+    /* 探照生效中：光照半径被技能顶到最大，黑暗被推开（对比 09-dark） */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    G.depth = parseFloat(q.get("depth") || "1200") || 1200;
+    ents.length = 0; G.particles.length = 0; G.popups.length = 0;
+    G.o2 = 62;
+    G.lightR = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1));
+    tryActive("f");
+    for (let i = 0; i < 90; i++) update(STEP);      // 让光照过渡到位
+    for (const e of ents) if (e.kind === "hunter") e.x = clamp(e.x, 90, W0 - 90);
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("auto") !== null) {
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    const n = clamp(parseInt(q.get("auto"), 10) || 0, 0, 120 * 600);
+    for (let i = 0; i < n; i++) { if (G.state === "levelup") aiPick(); update(STEP); }
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "play") {
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+  }
+  requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>
