@@ -243,15 +243,15 @@ const MUTATIONS = [
   /* —— 战士（E 突进）：同一颗技能键，三种完全不同的打架方式 —— */
   { id: "whirl", r: "warrior", n: "鲸吞漩涡", col: [135,235,255], d: "E 不再冲出去：原地张口 1.2s，把 300px 内的怪和气泡吸到身上（吸到的怪吃满一次撞击伤害）· 冷却 −25%", sub: "把敌人拽过来打" },
   { id: "bone",  r: "warrior", n: "鲸落骨甲", col: [225,240,255], d: "撞死怪 / 碎障各叠 1 层骨甲（上限 12：每层撞击 +4% · 减伤 +2%）· 受伤消耗 1 层顶掉 55% 伤害", sub: "攒层数换命" },
-  { id: "rip",   r: "warrior", n: "回声冲撞", col: [150,255,220], d: "突进路上留下 3.5s 不散的激流带：带内的怪每 0.5s 吃一次撞击伤害并被推开 · 普攻穿过激流宽度 +22px", sub: "走位就是布雷" },
+  { id: "chg",   r: "warrior", n: "怒涛冲锋", col: [150,255,220], d: "E 改成朝准星冲刺：速度 ×2.2 · 路上撞到的怪吃 120 伤害（不用点猛撞）· 冷却 −15%", sub: "鼠标指哪冲哪" },
   /* —— 法师（Q 冲击波）：控场 / 连锁 / 血压，三条路三种资源观 —— */
   { id: "sing", r: "mage", n: "虚空奇点", col: [190,170,255], d: "冲击波改为奇点：把 340px 内的怪拉向中心并钉住 1.5s（钉住的怪受伤 +30%）· 直伤降到 60%", sub: "控住再点杀" },
   { id: "fis",  r: "mage", n: "熔核连锁", col: [255,180,140], d: "被冲击波打死的怪原地引爆（半径 140 · 75% 伤害）· 爆炸能引爆别的怪 —— 怪越密越炸", sub: "找引爆点" },
-  { id: "asp",  r: "mage", n: "窒息燃烧", col: [255,140,170], d: "冲击波吃 6% 氧换伤害：你缺的氧越多打得越狠（每缺 10% → +18%，上限 +170%）· 命中回氧", sub: "把氧压在危险区" },
+  { id: "asp",  r: "mage", n: "窒息燃烧", col: [255,140,170], d: "冲击波吃 6% 氧换伤害：你缺的氧越多打得越狠（每缺 10% → +18%，上限 +170%）· 命中按「实际造成伤害的 10%」回氧", sub: "把氧压在危险区" },
   /* —— 照明使者（F 探照）：光不再只跟着你 —— */
-  { id: "day",   r: "lamp", n: "白夜",     col: [255,245,200], d: "探照改为抛向准星：落地一片 300px 白昼区存续 8s —— 灼光 / 回春 / 光盾全部从这片灯发出来，区内敌人受伤 +35%", sub: "先把灯插在地上" },
-  { id: "lant",  r: "lamp", n: "行灯拖尾", col: [255,225,170], d: "移动时每 100px 掉一盏灯蕊（存 9s · 上限 12）：灯蕊灼伤靠近的怪；连成一串时拉出火线，线上的怪额外挨烧", sub: "走位画火线" },
-  { id: "judge", r: "lamp", n: "审判之光", col: [195,255,235], d: "光照半径内的怪每秒叠 1 层光印（满 4 层处决：小怪即死 · 剃刀鲸/圣盾使吃 320）· 处决后光印跳给最近的一只", sub: "盖章点名" }
+  { id: "lance", r: "lamp", n: "光矛",     col: [255,245,200], d: "按住 F 蓄力（探照照常亮），松手一道贯穿光矛：满蓄 140 伤害 · 沿途所有目标一起吃 · 冷却 3.2s", sub: "蓄一发穿一片" },
+  { id: "lant",  r: "lamp", n: "行灯环",   col: [255,225,170], d: "每走 110px 点亮一盏灯蕊（上限 6 · 常亮）：灯蕊绕着你转圈烧怪 · 相邻两盏之间连成火线", sub: "把火围成环" },
+  { id: "judge", r: "lamp", n: "审判之光", col: [195,255,235], d: "光里的怪每秒叠 1 层光印（满 4 层）· 完全不造成伤害：改为你回氧 6% 并 +1 层圣光（每层减伤 8% · 上限 5 层）", sub: "用光换护盾" }
 ];
 const MUT_MAP = {}; for (const m of MUTATIONS) MUT_MAP[m.id] = m;
 /* 质变路线的强化牌（t = 质变；只有定了对应质变才进池）—— 每条 3 张，专打这条新玩法的关键旋钮 */
@@ -265,9 +265,9 @@ const MUT_SKILLS = [
   { id: "o_cut", n: "骨壁", t: "质变", r: "bone", d: "兑甲顶伤 +8%（最高 85%）",               max: 5, minD: 2100, w: 1.7 },
   { id: "o_gain",n: "碎骨", t: "质变", r: "bone", d: "撞碎障碍额外 +1 层（每障 2 层）",         max: 5, minD: 2200, w: 1.7 },
   /* 回声冲撞：激流更久 / 更疼 / 更宽 */
-  { id: "p_len", n: "长流", t: "质变", r: "rip",  d: "激流带存续 +1.2s",                       max: 5, minD: 2000, w: 1.7 },
-  { id: "p_dmg", n: "湍流", t: "质变", r: "rip",  d: "激流伤害 +40%",                          max: 5, minD: 2100, w: 1.7 },
-  { id: "p_wide",n: "宽流", t: "质变", r: "rip",  d: "普攻穿激流宽度 +14px · 推得更远",         max: 5, minD: 2200, w: 1.7 },
+  { id: "p_spd", n: "加速", t: "质变", r: "chg",  d: "冲刺距离 +45px",                         max: 5, minD: 2000, w: 1.7 },
+  { id: "p_dmg", n: "浪击", t: "质变", r: "chg",  d: "冲刺撞到的怪 +50 伤害",                    max: 5, minD: 2100, w: 1.7 },
+  { id: "p_cd",  n: "回流", t: "质变", r: "chg",  d: "冲刺冷却 ×0.9",                           max: 5, minD: 2200, w: 1.7 },
   /* 虚空奇点：更大 / 钉更久 / 更勤 */
   { id: "s_r",   n: "奇点域", t: "质变", r: "sing", d: "奇点半径 +80",                        max: 5, minD: 2000, w: 1.7 },
   { id: "s_pin", n: "钉牢", t: "质变", r: "sing", d: "钉住时长 +0.6s · 钉住增伤 +10%",          max: 5, minD: 2100, w: 1.7 },
@@ -279,19 +279,19 @@ const MUT_SKILLS = [
   /* 窒息燃烧：更狠 / 更省 / 回燃 */
   { id: "a_rate",n: "灼性", t: "质变", r: "asp",  d: "缺氧加成 +0.4/10%",                      max: 5, minD: 2000, w: 1.7 },
   { id: "a_cost",n: "省耗", t: "质变", r: "asp",  d: "冲击波耗氧 −2%",                         max: 5, minD: 2100, w: 1.7 },
-  { id: "a_heal",n: "回燃", t: "质变", r: "asp",  d: "命中回氧 +0.35%/只",                     max: 5, minD: 2200, w: 1.7 },
+  { id: "a_heal",n: "噬氧", t: "质变", r: "asp",  d: "吸血 +2%（伤害的 10% → 最高 20%）",        max: 5, minD: 2200, w: 1.7 },
   /* 白夜：更大 / 更久 / 更疼 */
-  { id: "d_r",   n: "日域", t: "质变", r: "day",  d: "白昼区半径 +70",                         max: 5, minD: 2000, w: 1.7 },
-  { id: "d_t",   n: "长昼", t: "质变", r: "day",  d: "白昼区存续 +3s",                         max: 5, minD: 2100, w: 1.7 },
-  { id: "d_amp", n: "烈日", t: "质变", r: "day",  d: "区内敌人受伤 +12%",                      max: 5, minD: 2200, w: 1.7 },
+  { id: "n_dmg", n: "光刃", t: "质变", r: "lance", d: "光矛伤害 +40",                          max: 5, minD: 2000, w: 1.7 },
+  { id: "n_wide",n: "阔矛", t: "质变", r: "lance", d: "矛刃宽度 +6px",                          max: 5, minD: 2100, w: 1.7 },
+  { id: "n_cd",  n: "聚能", t: "质变", r: "lance", d: "光矛冷却 ×0.88",                         max: 5, minD: 2200, w: 1.7 },
   /* 行灯拖尾：更多 / 更旺 / 火线更凶 */
-  { id: "l_n",   n: "灯数", t: "质变", r: "lant", d: "灯蕊上限 +4 · 存续 +3s",                 max: 5, minD: 2000, w: 1.7 },
+  { id: "l_n",   n: "灯数", t: "质变", r: "lant", d: "灯蕊上限 +2 · 点亮间隔 −10px",            max: 5, minD: 2000, w: 1.7 },
   { id: "l_d",   n: "灯焰", t: "质变", r: "lant", d: "灯蕊灼伤 +18/s",                         max: 5, minD: 2100, w: 1.7 },
   { id: "l_line",n: "火线", t: "质变", r: "lant", d: "火线伤害 +30/s",                         max: 5, minD: 2200, w: 1.7 },
   /* 审判之光：印得更快 / 要求更少 / 断罪更狠 */
   { id: "j_rate",n: "速印", t: "质变", r: "judge", d: "叠印间隔 −0.15s（最快 0.5s）",           max: 5, minD: 2000, w: 1.7 },
-  { id: "j_n",   n: "减印", t: "质变", r: "judge", d: "满层要求 −1（最低 2 层）",               max: 5, minD: 2100, w: 1.7 },
-  { id: "j_exec",n: "断罪", t: "质变", r: "judge", d: "处决大怪伤害 +160 · 处决回氧 1.2%",      max: 5, minD: 2200, w: 1.7 }
+  { id: "j_layer",n: "圣佑", t: "质变", r: "judge", d: "每层圣光减伤 +2%（上限 5 层）",          max: 5, minD: 2100, w: 1.7 },
+  { id: "j_heal",n: "恩泽", t: "质变", r: "judge", d: "赦免回氧 +1.5%（基础 6%）",               max: 5, minD: 2200, w: 1.7 }
 ];
 const KIND_COL = { 收益: [255, 208, 120], 生存: [140, 255, 200], 机动: [140, 205, 255], 采集: [205, 165, 255], 战斗: [255, 150, 130], 主动: [255, 170, 240], 神器: [255, 226, 130] };
 function lvNeed(_l) { return CFG.lvEvery; }   // 每 100m 一次（恒定；原来是 lvBase + lvStep*(l-1) 递增）
@@ -373,10 +373,10 @@ function recalcMods() {
                save: Math.min(0.85, 0.55 + 0.08 * skLv("o_cut")), gain: 1 + (skLv("o_gain") ? 1 : 0) };
   }
   /* 战士 · 回声冲撞：突进路上留激流带 */
-  if (mu === "rip") {
-    M.rip = { life: 3.5 + 1.2 * skLv("p_len"), r: 72, drop: 90,
-              dmg: (CFG.dashDmg + M.ramDmg) * (0.55 + 0.40 * skLv("p_dmg")),
-              wide: 22 + 14 * skLv("p_wide"), push: 120 + 60 * skLv("p_wide") };
+  if (mu === "chg") {
+    /* 玩家口径「回声冲撞没用」→ 改成朝准星的高速冲刺：位移本身变成操作 */
+    M.dashCd = Math.max(1.2, M.dashCd * 0.85 * Math.pow(0.9, skLv("p_cd")));
+    M.chg = { speed: CFG.baseSpeed * 2.2 + 130 * skLv("p_spd"), t: 0.34, dmg: 120 + 50 * skLv("p_dmg") };
   }
   /* 法师 · 虚空奇点：拉 + 钉（直伤打折，靠钉住的增伤和普攻补回来） */
   if (mu === "sing") {
@@ -390,22 +390,28 @@ function recalcMods() {
   }
   /* 法师 · 窒息燃烧：吃氧换伤害，越缺氧越狠 */
   if (mu === "asp") {
+    /* 玩家口径「增加吸血」：回氧 = 实际造成伤害的 10%（不再是一口固定值） */
     M.asp = { cost: Math.max(0.02, 0.06 - 0.02 * skLv("a_cost")), rate: 1.8 + 0.4 * skLv("a_rate"),
-              heal: 0.006 + 0.0035 * skLv("a_heal") };
+              heal: 0.10 + 0.02 * skLv("a_heal") };
   }
   /* 照明 · 白夜：探照变成「插在地上的一盏灯」，灼光 / 回春 / 光盾全从这片灯发出来 */
-  if (mu === "day") {
-    M.day = { r: 300 + 70 * skLv("d_r"), life: 8 + 3 * skLv("d_t"), amp: 0.35 + 0.12 * skLv("d_amp"), heal: 1.2 };
+  if (mu === "lance") {
+    /* 玩家口径「白夜没什么用」→ 换成光矛：按住蓄力、松手打出一道贯穿光束 */
+    M.lance = { charge: 1.2, dmg: 140 + 40 * skLv("n_dmg"), w: 26 + 6 * skLv("n_wide"),
+                range: 1100, cd: Math.max(1.2, 3.2 * Math.pow(0.88, skLv("n_cd"))) };
   }
   /* 照明 · 行灯拖尾：走一路掉一路灯蕊，连成串就是火线 */
   if (mu === "lant") {
-    M.lant = { max: 12 + 4 * skLv("l_n"), life: 9 + 3 * skLv("l_n"), r: 120, gap: 100, lineR: 46,
-               dmg: 22 + 18 * skLv("l_d"), line: 40 + 30 * skLv("l_line") };
+    /* 玩家口径「做成符咒那种环绕」→ 灯蕊不再丢在原地，改成绕着自己转的一圈火 */
+    M.lant = { max: 6 + 2 * skLv("l_n"), gap: Math.max(70, 110 - 10 * skLv("l_n")), r: 118, lineR: 46,
+               orbit: 96, spin: 0.85, dmg: 22 + 18 * skLv("l_d"), line: 40 + 30 * skLv("l_line") };
   }
   /* 照明 · 审判之光：光照半径内叠印，满层处决并跳印 */
   if (mu === "judge") {
-    M.judge = { every: Math.max(0.5, 1.0 - 0.15 * skLv("j_rate")), need: Math.max(2, 4 - skLv("j_n")),
-                exec: 320 + 160 * skLv("j_exec"), o2: skLv("j_exec") ? 0.012 : 0 };
+    /* 玩家口径「让他没有伤害，但提供恢复与减免」→ 满印不再处决，改成给自己发护盾 */
+    M.judge = { every: Math.max(0.5, 1.0 - 0.15 * skLv("j_rate")), need: 4,
+                layer: 0.08 + 0.02 * skLv("j_layer"), maxLayer: 5,
+                heal: 0.06 + 0.015 * skLv("j_heal"), shieldT: 12 };
   }
 }
 /* 三选一抽卡：独立 RNG（不动玩法随机流，同一 seed 的障碍布局不会因为抽卡而改变） */
@@ -712,7 +718,8 @@ const G = {
   /* 新机制（2026-09-25 质变/神器重做）：场 / 骨片 / 折射光线 / 层数 / 漩涡 / 白夜光球。
      标题页也会跑 drawWorld，所以这几个必须在 G 里就有默认值，不能只在 startRun 里给。 */
   zones: [], shards: [], beams: [], bone: 0, frenzy: 0, whirlT: 0, whirlStamp: 0, orb: null, dayZ: null,
-  lampX: W0 / 2, lampY: CFG.playerY - 1, lampN: 0, judgeTick: 0, atkCount: 0, prismT: 0, ripX: 0, ripY: 0,
+  lampX: W0 / 2, lampY: CFG.playerY - 1, lampN: 0, lampA: 0, judgeTick: 0, atkCount: 0, prismT: 0,
+  charge: 0, dashVX: null, dashVY: null, holy: 0, holyT: 0,
   trail: [], trailPath: [], trailT: 0,
   best: 0, newBest: false,
   lastRun: { depth: 0, bonus: 0, rating: "D", quip: "" },
@@ -811,6 +818,7 @@ function startRun(seed) {
   /* --- 新机制的运行时状态：场（zone）/ 骨片 / 层数 / 漩涡 / 白夜光球 / 行灯 / 审判计时 --- */
   G.zones = []; G.shards = []; G.beams = [];
   G.bone = 0; G.frenzy = 0; G.whirlT = 0; G.whirlStamp = 0; G.orb = null;
+  G.lampN = 0; G.lampA = 0; G.charge = 0; G.dashVX = null; G.dashVY = null; G.holy = 0; G.holyT = 0;
   G.judgeTick = 0; G.atkCount = 0;
   G.trail.length = 0; G.trailPath.length = 0; G.trailT = 0; trailSeed = 20260925;   // 拖尾每局清空（种子固定 → 探针可复现）
   G.lampX = p.x; G.lampY = p.y - 1; G.lampN = 0;
@@ -976,24 +984,8 @@ function fireAttack() {
   const [bx, by] = aimPoint();
   A.sx = p.x; A.sy = p.y; A.ex = bx; A.ey = by;
   A.beam = CFG.beamT;
-  /* 白夜（照明质变）：你站在自己的白昼区里 —— 普攻同时锁定区内最多 3 个目标。
-     （这段原来属于「双生光束」神器，神器重做后让给了白夜：同一套多目标锁定，换了驱动条件。） */
-  const dz = (G.mutate === "day") ? zoneAt(p.x, p.y, "day") : null;
-  /* 回声冲撞（战士质变）：光束穿过自己的激流带会变宽 —— 把怪逼到带子上打 */
-  let halfw = G.m.atkHalfW;
-  if (G.m.rip) for (const z of G.zones) if (z.type === "rip" && Math.hypot(z.x - p.x, z.y - p.y) < 160) { halfw += G.m.rip.wide; break; }
+  const halfw = G.m.atkHalfW;
   let hits = 0;
-  const targets = [];
-  if (dz) for (const e of ents) {
-    if (e.dead || !MOB_SET[e.kind] || e.kind === "bolt") continue;
-    if (entSegDist(e, p.x, p.y, bx, by) <= halfw) continue;          // 主光束会打到的，不重复挑
-    if (Math.hypot(e.x - dz.x, e.y - dz.y) > dz.r + e.r) continue;   // 只在白昼区里挑
-    targets.push(e);
-  }
-  targets.sort((a, b) => (Math.hypot(a.x - p.x, a.y - p.y)) - (Math.hypot(b.x - p.x, b.y - p.y)));
-  const extraPts = [];
-  for (let k = 0; k < 3 && k < targets.length; k++) extraPts.push([targets[k].x, targets[k].y]);
-  A.extra = extraPts;
   let totalDmg = 0, totalHits = 0;
   const firstHit = [];
   const shootSeg = (ex, ey) => {
@@ -1013,7 +1005,6 @@ function fireAttack() {
     }
   };
   shootSeg(bx, by);
-  for (const pt of extraPts) shootSeg(pt[0], pt[1]);
   A.beamDmg = totalDmg;
   /* 湮灭核心（法师专属神器，外职业弱化版）：每 4 发普攻在落点留一颗小核心 */
   G.atkCount = (G.atkCount || 0) + 1;
@@ -1123,7 +1114,7 @@ function shockwave() {
     burst(p.x, p.y, 26, "190,170,255"); G.shakeT = 0.3; G.shakeMag = 10; SFX.zap();
     return 0;
   }
-  let n = 0;
+  let n = 0, dealt = 0;
   /* 先快照目标再结算：熔核连锁会在 hurtEnt 里引爆、删掉别的实体，
      边遍历边删会让倒序索引失效（读到 undefined —— 实景截图时踩到过）。 */
   const wave = [];
@@ -1143,14 +1134,15 @@ function shockwave() {
     const before = e.hp;
     hurtEnt(i, e, isObst ? Math.round(D * 1.3) : D, "255,220,160");
     if (e.hp !== before || e.dead) n++;
+    dealt += Math.max(0, before - Math.max(0, e.hp));       // 吸血按「真掉的血」算，超杀不算
   }
   /* 神器·湮灭核心（法师专属）：落点留下一颗持续工作的核心 */
   dropCore(p.x, p.y);                       // 普通爆发也一样落核心（同一个函数，两条路不会走岔）
-  /* 质变·窒息燃烧：命中回氧（打中越多回得越多） */
-  if (asp && n > 0) {
-    const g = o2MaxNow() * asp.heal * n;
+  /* 质变·窒息燃烧：吸血 —— 回氧 = 实际打出伤害的 10%（升级牌每级 +2%） */
+  if (asp && dealt > 0) {
+    const g = dealt * asp.heal;
     G.o2 = Math.min(o2MaxNow(), G.o2 + g);
-    popup(p.x, p.y - 70, "回燃 +" + g.toFixed(1), "255,170,190");
+    popup(p.x, p.y - 70, "噬氧 +" + g.toFixed(1) + "（伤害 " + dealt + " 的 " + Math.round(asp.heal * 100) + "%）", "255,170,190");
   }
   G.shakeT = 0.35; G.shakeMag = 12;
   burst(p.x, p.y, 30, "180,240,255");
@@ -1167,13 +1159,8 @@ function ramOnHit(e, died) {
   if (wasObst && M.bone && M.bone.gain > 1) stackGain(1);              // 碎骨牌：撞碎障碍额外 +1 层
   if (M.tusk) spawnShards(e.x, e.y, M.tusk.n, M.tusk.d, M.tusk.o2);    // 鲸骨撞角：碎掉的障碍溅骨片
 }
-/* 照明：探照的圆心 —— 白夜质变之后，光不在你身上，而在你插下的那盏灯上
-   （灼光 / 回春 / 光盾三个基础效果都跟着这个圆心走，所以「先把灯插在地上」是全局改玩法） */
+/* 照明：探照的圆心 = 你自己（灯一直挂在你身上） */
 function flareCenter() {
-  if (G.mutate === "day") {
-    const z = G.dayZ;
-    return (z && G.zones.indexOf(z) >= 0) ? z : null;
-  }
   return { x: p.x, y: p.y, r: G.m.flare };
 }
 /* 光盾 / 回春生效的前提：你得站在自己的光里（白夜之后光在别处，站进去才算） */
@@ -1216,6 +1203,36 @@ function useRouteSkill() {
   if (!rt) { lockHint(); return false; }
   return tryActive(rt.k);
 }
+/* 质变·光矛：沿准星打出一道贯穿光束（沿途所有目标一起吃，障碍也一起清） */
+function lanceFire(k2) {
+  const L2 = G.m.lance;
+  if (!L2 || k2 <= 0.02) return;
+  const [tx, ty] = aimPoint();
+  const dx = tx - p.x, dy = ty - p.y, D0 = Math.max(1, Math.hypot(dx, dy));
+  const ux = dx / D0, uy = dy / D0;
+  const reach = L2.range;                                  // 贯穿到底：不借普攻那 300px 的射程上限
+  const ex = p.x + ux * reach, ey = p.y + uy * reach;
+  const full = clamp(k2, 0, 1);
+  const dmg = Math.round(L2.dmg * (0.45 + 0.55 * full));
+  const halfw = L2.w * (0.75 + 0.25 * full);
+  G.beams.push({ x1: p.x, y1: p.y, x2: ex, y2: ey, t: 0.34, lance: true, w: halfw });
+  burst(p.x + ux * 40, p.y + uy * 40, 18, "255,250,215");
+  G.shakeT = Math.max(G.shakeT, 0.18); G.shakeMag = Math.max(G.shakeMag, 7);
+  G.flash = Math.max(G.flash, 0.25); SFX.zap();
+  const list = [];
+  for (const e of ents) {
+    if (e.dead) continue;
+    if (e.kind !== "rock" && e.kind !== "cable" && !MOB_SET[e.kind]) continue;
+    if (e.kind === "bolt") continue;
+    if (entSegDist(e, p.x, p.y, ex, ey) > halfw) continue;      // 贯穿：够得着就一起打
+    list.push(e);
+  }
+  for (const e of list) {
+    const i = ents.indexOf(e);
+    if (i < 0) continue;
+    hurtEnt(i, e, dmg, "255,248,205");
+  }
+}
 function tryActive(k) {
   if (G.state !== "play") return false;
   /* 技能是「选」出来的：路线没定 → 三个全锁；定完 → 另外两条永久关闭。
@@ -1233,9 +1250,18 @@ function tryActive(k) {
       burst(p.x, p.y, 26, "135,235,255"); G.shakeT = 0.2; G.shakeMag = 6; SFX.zap();
       return true;
     }
+    /* 质变·怒涛冲锋：E 变成朝准星的高速冲刺（方向在按下的这一瞬间锁死，之后甩鼠标也不改） */
+    if (G.mutate === "chg" && G.m.chg) {
+      const [tx2, ty2] = aimPoint();
+      const dx2 = tx2 - p.x, dy2 = ty2 - p.y, L2 = Math.max(1, Math.hypot(dx2, dy2));
+      G.dashVX = dx2 / L2; G.dashVY = dy2 / L2;
+      G.actFx.dash = G.m.chg.t;
+      G.dashStamp = (G.dashStamp || 0) + 1;
+      burst(p.x, p.y, 18, "150,255,220"); SFX.zap();
+      return true;
+    }
     G.actFx.dash = G.m.dashT;
     G.dashStamp = (G.dashStamp || 0) + 1;                // 一次突进对每个障碍只算一次账
-    G.ripX = p.x; G.ripY = p.y;                          // 回声冲撞：激流带从这一脚开始铺
     /* 突进期间无敌（撞怪不挨咬）—— 但战士只要选了质变，这条免费无敌就取消：
        玩家口径「虽然冲锋期间会受到伤害」。三条战士质变各自用别的方式换生存：
        漩涡给起手 0.5s · 骨甲花层顶伤 · 激流把怪推开。 */
@@ -1243,15 +1269,15 @@ function tryActive(k) {
     if (!warriorMut) p.invuln = Math.max(p.invuln, G.m.dashT);
     burst(p.x, p.y, 16, "150,255,220"); SFX.zap();
   } else if (k === "f") {
-    G.act.f = G.m.flareCd;
-    /* 质变·白夜：把灯朝准星抛出去，落地成一片白昼区（灼光/回春/光盾从此以那片灯为圆心） */
-    if (G.mutate === "day" && G.m.day) {
-      const [tx, ty] = aimPoint();
-      const dx = tx - p.x, dy = ty - p.y, L = Math.max(1, Math.hypot(dx, dy));
-      G.orb = { x: p.x, y: p.y, vx: dx / L * 520, vy: dy / L * 520, t: 0.55 };
-      burst(p.x, p.y, 16, "255,245,200"); SFX.jelly();
+    /* 质变·光矛：按 F 只是「开灯 + 开始蓄力」，蓄力在 stepPlay 里累，松手才打出去 */
+    if (G.m.lance) {
+      G.act.f = G.m.lance.cd;
+      G.charge = 0;
+      G.actFx.flare = G.m.flareT;
+      burst(p.x, p.y, 18, "255,245,200"); SFX.jelly();
       return true;
     }
+    G.act.f = G.m.flareCd;
     G.actFx.flare = G.m.flareT;
     burst(p.x, p.y, 18, "210,240,255"); SFX.jelly();
   } else return false;
@@ -1301,6 +1327,11 @@ function hurtPlayer(dmg, col) {
     popup(p.x, p.y - 60, "骨甲 -" + cut + "（剩 " + G.bone + " 层）", "225,240,255");
     burst(p.x, p.y, 10, "225,240,255");
   }
+  /* 质变·审判之光的圣光：每层减伤 8%（玩家口径「恢复与伤害减免也要有」） */
+  if (G.mutate === "judge" && G.m.judge && G.holy > 0) {
+    const cut = Math.round(dmg * G.m.judge.layer * G.holy);
+    if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(p.x, p.y - 46, "圣光 -" + cut, "195,255,235"); }
+  }
   /* 神器·血鲸之牙：受击掉层 —— 连挨打会把攒的血怒赔光 */
   if (G.m.frenzy && G.frenzy > 0) G.frenzy = Math.max(0, G.frenzy - G.m.frenzy.lose);
   /* 层数减伤（骨甲 / 血怒） */
@@ -1342,7 +1373,6 @@ function addZone(z) {
 function hitAmp(e) {
   let k = 0;
   if (G.m.sing && e && e.pinT > 0) k += G.m.sing.amp;
-  if (G.m.day && e && zoneAt(e.x, e.y, "day")) k += G.m.day.amp;
   return 1 + k;
 }
 /* 范围伤害：先把目标快照下来再逐个结算 —— hurtEnt 里会 splice，边遍历边删会打错人 */
@@ -1373,6 +1403,13 @@ function stepZones(dt) {
         if (e.dead || !MOB_SET[e.kind] || e.kind === "bolt") continue;
         const dx = z.x - e.x, dy = z.y - e.y, d = Math.hypot(dx, dy);
         if (d > z.r + e.r || d < 1) continue;
+        if (z.type === "sing") {
+          /* 玩家口径：血量不足、这一下就会被奇点打死的怪「只造成伤害，不造成牵引」，
+             也不给它那份「不撞人」豁免 —— 免得拽着一具尸体冲到自己脸上。 */
+          const lethal = z.dmg > 0 && e.hp <= Math.round(z.dmg / 2);
+          if (lethal) continue;
+          e.pullImm = 0.5;
+        }
         const k = Math.min(0.5, dt * (z.type === "sing" ? 6.5 : 3.0));
         e.x += dx * k; e.y += dy * k;
         if (z.type === "sing") e.pinT = 0.25;
@@ -1382,28 +1419,13 @@ function stepZones(dt) {
         z.tick = 0;
         aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), z.type === "sing" ? "190,170,255" : "210,180,255", null);
       }
-    } else if (z.type === "day") {
-      /* 白昼区：站在里面每秒回氧（灼光 / 回春 / 光盾也都以这片灯为圆心，见 flareCenter） */
-      if (z.heal > 0 && Math.hypot(p.x - z.x, p.y - z.y) <= z.r) G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * z.heal / 100 * dt);
-    } else if (z.type === "rip") {
-      z.tick += dt;
-      if (z.tick >= 0.5) {
-        z.tick = 0;
-        for (const e of ents) {
-          if (e.dead || !MOB_SET[e.kind] || e.kind === "bolt") continue;
-          const dx = e.x - z.x, dy = e.y - z.y, d = Math.hypot(dx, dy);
-          if (d > z.r + e.r) continue;
-          if (d > 1) { e.x += dx / d * z.push * dt; e.y += dy / d * z.push * dt; }
-          const k = ents.indexOf(e);
-          if (k >= 0) hurtEnt(k, e, Math.round(z.dmg / 2), "150,255,220", true);
-        }
-      }
     } else if (z.type === "lamp") {
+      /* 行灯环：每盏灯自己烧一圈（r=118），相邻两盏之间那道火线再补一刀 */
       z.tick += dt;
       if (z.tick >= 0.5) {
         z.tick = 0;
         aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), "255,225,170", null);
-        if (z.px !== undefined) {                  /* 火线：这盏灯和上一盏之间连成一条线 */
+        if (z.px !== undefined) {
           for (const e of ents) {
             if (e.dead || !MOB_SET[e.kind] || e.kind === "bolt") continue;
             if (distToSeg(e.x, e.y, z.px, z.py, z.x, z.y) > z.lineR) continue;
@@ -1501,7 +1523,11 @@ function stepPlay(dt) {
   stepZones(dt);
   stepShards(dt);
   if (G.beams.length) { for (const b of G.beams) b.t -= dt; G.beams = G.beams.filter((b) => b.t > 0); }
-  for (const e of ents) if (e.pinT > 0) e.pinT = Math.max(0, e.pinT - dt);      // 奇点的钉住标记
+  for (const e of ents) {
+    if (e.pinT > 0) e.pinT = Math.max(0, e.pinT - dt);                          // 奇点的钉住标记
+    if (e.pullImm > 0) e.pullImm = Math.max(0, e.pullImm - dt);                 // 被牵引期间的「不撞人」免疫
+  }
+  if (G.holy > 0) { G.holyT = Math.max(0, (G.holyT || 0) - dt); if (G.holyT <= 0) G.holy = 0; }   // 圣光：12s 不刷新就散
 
   /* 质变·鲸吞漩涡：张口期间把怪和气泡往身上吸，吸到嘴边结一次撞击伤害 */
   if (G.whirlT > 0 && G.m.whirl) {
@@ -1530,34 +1556,27 @@ function stepPlay(dt) {
       }
     }
   }
-  /* 质变·回声冲撞：突进路上每 90px 铺一条激流带 */
-  if (G.m.rip && fx.dash > 0) {
-    if (Math.hypot(p.x - G.ripX, p.y - G.ripY) >= G.m.rip.drop) {
-      addZone({ type: "rip", x: p.x, y: p.y, r: G.m.rip.r, dmg: G.m.rip.dmg, life: G.m.rip.life, push: G.m.rip.push, col: "150,255,220" });
-      G.ripX = p.x; G.ripY = p.y;
-    }
-  } else if (G.m.rip) { G.ripX = p.x; G.ripY = p.y; }
+  /* （原「回声冲撞」的激流带已按玩家口径改成怒涛冲锋 —— 位移本身变成操作，不再铺场） */
   /* 质变·行灯拖尾：走一段掉一盏灯蕊（上一盏的位置记在 px/py，连成串就是火线） */
+  /* 质变·行灯环（玩家口径：做成符咒那种环绕）：点亮靠走，亮起来就绕着你转，永远不灭 */
   if (G.m.lant) {
     const L2 = G.m.lant;
-    if (Math.hypot(p.x - G.lampX, p.y - G.lampY) >= L2.gap) {
-      const lamps = G.zones.filter((z) => z.type === "lamp");
-      if (lamps.length >= L2.max) G.zones.splice(G.zones.indexOf(lamps[0]), 1);
-      addZone({ type: "lamp", x: p.x, y: p.y, r: L2.r, dmg: L2.dmg, life: L2.life,
-                line: L2.line, lineR: L2.lineR, px: G.lampX, py: G.lampY, col: "255,225,170" });
-      G.lampX = p.x; G.lampY = p.y;
+    if (G.lampN < L2.max && Math.hypot(p.x - G.lampX, p.y - G.lampY) >= L2.gap) { G.lampN++; G.lampX = p.x; G.lampY = p.y; }
+    const lamps = [];
+    for (const z of G.zones) if (z.type === "lamp") lamps.push(z);
+    while (lamps.length < G.lampN) {                       // 点亮了就补一盏
+      const z = { type: "lamp", x: p.x, y: p.y, r: L2.r, dmg: L2.dmg, life: 1e9, t: 0, tick: 0,
+                  line: L2.line, lineR: L2.lineR, px: p.x, py: p.y, orbit: true, col: "255,225,170" };
+      G.zones.push(z); lamps.push(z);
     }
+    while (lamps.length > G.lampN) { const z = lamps.pop(); G.zones.splice(G.zones.indexOf(z), 1); }
   }
-  /* 质变·白夜：光球飞到落点炸开成白昼区（光的效果从此以这片灯为圆心） */
-  if (G.orb) {
-    G.orb.t -= dt; G.orb.x += G.orb.vx * dt; G.orb.y += G.orb.vy * dt;
-    if (G.orb.t <= 0) {
-      const D2 = G.m.day;
-      addZone({ type: "day", x: G.orb.x, y: G.orb.y, r: D2.r, dmg: 0, life: D2.life, heal: D2.heal, col: "255,245,200" });
-      G.dayZ = G.zones[G.zones.length - 1];
-      G.actFx.flare = Math.max(G.actFx.flare, D2.life);
-      burst(G.orb.x, G.orb.y, 40, "255,245,200"); G.flash = Math.max(G.flash, 0.5); SFX.jelly();
-      G.orb = null;
+  /* 质变·光矛：按住 F 蓄力（探照照常亮），松手把蓄好的光打出去 */
+  if (G.m.lance) {
+    if (I.holdF && G.actFx.flare > 0) G.charge = Math.min(G.m.lance.charge, (G.charge || 0) + dt);
+    else if (G.charge > 0) {
+      lanceFire(G.charge / G.m.lance.charge);
+      G.charge = 0;
     }
   }
   /* 质变·审判之光：光照半径里的怪每秒叠 1 层光印，盖满就处决（小怪即死 / 大怪吃断罪伤害）并跳印 */
@@ -1572,21 +1591,16 @@ function stepPlay(dt) {
         if (Math.hypot(e.x - p.x, e.y - p.y) > G.lightR + e.r) continue;
         e.seal = (e.seal || 0) + 1;
         if (e.seal < J.need) continue;
-        const heavy = e.kind === "reaver" || e.kind === "warden";
-        if (!heavy) { popup(e.x, e.y - e.r - 26, "处决!", "255,255,220"); hurtEnt(i, e, e.hp + 1, "255,255,220"); }   // 真斩杀：血量多少都一样死
-        else { popup(e.x, e.y - e.r - 26, "断罪 " + J.exec, "255,255,220"); hurtEnt(i, e, J.exec, "255,255,220"); }
-        if (J.o2 > 0) {
-          const g = o2MaxNow() * J.o2;
-          G.o2 = Math.min(o2MaxNow(), G.o2 + g);
-          popup(p.x, p.y - 70, "断罪回氧 +" + g.toFixed(1), "255,255,220");
-        }
-        let best = null, bd = 300;                             // 跳印：盖到最近的一只身上，滚雪球点杀
-        for (const o of ents) {
-          if (o.dead || o === e || !MOB_SET[o.kind] || o.kind === "bolt") continue;
-          const d = Math.hypot(o.x - e.x, o.y - e.y);
-          if (d < bd) { bd = d; best = o; }
-        }
-        if (best) best.seal = Math.max(best.seal || 0, J.need - 1);
+        /* 玩家口径「审判之光让他没有伤害，但恢复与伤害减免要有」：
+           满印 = 赦免 —— 怪不掉血，你回氧、且叠一层圣光（减伤），印清零继续攒 */
+        e.seal = 0;
+        popup(e.x, e.y - e.r - 26, "赦免", "195,255,235");
+        const g = o2MaxNow() * J.heal;
+        G.o2 = Math.min(o2MaxNow(), G.o2 + g);
+        G.holy = Math.min(J.maxLayer, (G.holy || 0) + 1);
+        G.holyT = J.shieldT;
+        popup(p.x, p.y - 74, "圣光 +1 · 回氧 +" + g.toFixed(1), "195,255,235");
+        burst(e.x, e.y, 16, "195,255,235");
       }
     }
   }
@@ -1642,6 +1656,17 @@ function stepPlay(dt) {
   else if (want < 0) want *= clamp((p.x - CFG.xMin) / CFG.kbSoftEdge, 0, 1);
   p.vx += (want - p.vx) * Math.min(1, dt * (kdir ? CFG.kbAccel : G.m.accel));
   p.x += p.vx * dt;
+  /* 质变·怒涛冲锋：冲刺期间直接按方向向量位移（A/D 让位），冲完把深度缓回原位 */
+  if (G.m.chg && fx.dash > 0 && G.dashVX !== null) {
+    const V = G.m.chg.speed;
+    p.x += G.dashVX * V * dt;
+    p.y += G.dashVY * V * dt;
+  } else if (G.m.chg && Math.abs(p.y - CFG.playerY) > 0.5) {
+    const back = 300 * dt;
+    p.y += clamp(CFG.playerY - p.y, -back, back);
+  }
+  if (p.y < CFG.playerY - 190) p.y = CFG.playerY - 190;
+  if (p.y > CFG.playerY + 190) p.y = CFG.playerY + 190;
   if (p.x < CFG.xMin) { p.x = CFG.xMin; p.vx = 0; }
   if (p.x > CFG.xMax) { p.x = CFG.xMax; p.vx = 0; }
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt);
@@ -1805,7 +1830,9 @@ function stepPlay(dt) {
       if (diedM && G.m.vamp > 0) healVamp(e.x, e.y);
       ramOnHit(e, diedM);
       continue;
-    } else if (d < rr2 && p.invuln <= 0 && !e.hit) {
+    } else if (d < rr2 && p.invuln <= 0 && !e.hit && !(e.pullImm > 0)) {
+      /* pullImm：正被虚空奇点拽着的怪不撞人（玩家口径「拉过来把自己撞死」）；
+         只有「真被拽过来」的才算 —— 血量不够、被奇点直接打死的那些不吃这个豁免 */
       e.hit = true;
       const isMob2 = e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden";
       if (isMob2) {
@@ -1842,6 +1869,20 @@ function update(dt) {
   if (G.state === "play") stepPlay(dt);
   else if (G.state === "over") stepTrail(dt);      // 结算画面：尾流慢慢散干净
   if (G.state === "title" || G.state === "over") { G.speed += (CFG.baseSpeed - G.speed) * Math.min(1, dt * 2); }
+  /* 行灯环：位置放在本体挪完之后再算（早一步算就会慢一帧 —— 探针量出 28~214px 的乱值）。
+     这里在 update() 里，标题页 G.m 还是 null，必须先挡一道。 */
+  if (G.state === "play" && G.m && G.m.lant) {
+    const lamps = [];
+    for (const z of G.zones) if (z.type === "lamp") lamps.push(z);
+    G.lampA = (G.lampA || 0) + G.m.lant.spin * dt;         // 整圈慢慢转
+    for (let k = 0; k < lamps.length; k++) {
+      const a = G.lampA + k * Math.PI * 2 / Math.max(1, lamps.length);
+      const z = lamps[k];
+      z.px = z.x; z.py = z.y;                              // 火线要连「上一帧的那一盏」
+      z.x = p.x + Math.cos(a) * G.m.lant.orbit;
+      z.y = p.y + Math.sin(a) * G.m.lant.orbit * 0.62;      // 压扁成椭圆，像真的绕着船转
+    }
+  }
   SFX.droneUpdate(clamp((G.speed - CFG.baseSpeed) / (CFG.boostSpeed - CFG.baseSpeed), 0, 1));
 }
 
@@ -2679,17 +2720,7 @@ function drawZones() {
     const a = 0.25 + 0.55 * clamp(1 - z.t / z.life, 0, 1);
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    if (z.type === "day") {
-      const rg = ctx.createRadialGradient(z.x, z.y, z.r * 0.15, z.x, z.y, z.r);
-      rg.addColorStop(0, "rgba(255,245,200," + (0.45 * a + 0.18).toFixed(3) + ")");
-      rg.addColorStop(1, "rgba(255,245,200,0)");
-      ctx.fillStyle = rg;
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = "rgba(255,245,200," + (0.55 * a).toFixed(3) + ")";
-      ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r * (0.98 - 0.02 * Math.sin(G.t * 2)), 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-    } else if (z.type === "sing" || z.type === "core") {
+    if (z.type === "sing" || z.type === "core") {
       const c0 = z.type === "sing" ? "190,170,255" : "185,160,255";
       const rg = ctx.createRadialGradient(z.x, z.y, z.r * 0.1, z.x, z.y, z.r);
       rg.addColorStop(0, "rgba(" + c0 + "," + (0.34 * a).toFixed(3) + ")");
@@ -2703,39 +2734,25 @@ function drawZones() {
         const rr2 = z.r * (0.95 - k * 0.24);
         ctx.beginPath(); ctx.arc(z.x, z.y, rr2, spin + k * 2.1, spin + k * 2.1 + 2.2); ctx.stroke();
       }
-    } else if (z.type === "rip") {
-      ctx.strokeStyle = "rgba(150,255,220," + (0.5 * a).toFixed(3) + ")";
-      ctx.lineWidth = 3;
-      for (let k = 0; k < 3; k++) {                    // 三道横流的激流
-        const oy = ((G.t * 120 + k * 40) % (z.r * 2)) - z.r, y1 = z.y + oy * 0.6;
-        ctx.beginPath(); ctx.moveTo(z.x - z.r * 0.8, y1);
-        ctx.bezierCurveTo(z.x - z.r * 0.3, y1 - 12, z.x + z.r * 0.3, y1 + 12, z.x + z.r * 0.8, y1);
-        ctx.stroke();
-      }
     } else if (z.type === "lamp") {
-      const rg = ctx.createRadialGradient(z.x, z.y, 4, z.x, z.y, z.r);
-      rg.addColorStop(0, "rgba(255,240,190," + (0.5 * a).toFixed(3) + ")");
+      /* 环绕成环之后十盏灯的光斑会叠成一张白饼（截图复核抓到的）—— 单盏柔光压薄，
+         把「火线」那条多边形的边提亮：玩家看到的是一圈转着的火，不是一坨白光。 */
+      const rg = ctx.createRadialGradient(z.x, z.y, 4, z.x, z.y, z.r * 0.8);
+      rg.addColorStop(0, "rgba(255,235,180," + (0.17 * a).toFixed(3) + ")");
       rg.addColorStop(1, "rgba(255,225,170,0)");
       ctx.fillStyle = rg;
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r * 0.8, 0, Math.PI * 2); ctx.fill();
       if (z.px !== undefined) {                        // 火线：和上一盏灯连起来
-        ctx.strokeStyle = "rgba(255,190,120," + (0.30 * a).toFixed(3) + ")";
+        ctx.strokeStyle = "rgba(255,175,95," + (0.55 * a).toFixed(3) + ")";
         ctx.lineWidth = z.lineR * 0.5;
+        ctx.beginPath(); ctx.moveTo(z.px, z.py); ctx.lineTo(z.x, z.y); ctx.stroke();
+        ctx.strokeStyle = "rgba(255,245,205," + (0.75 * a).toFixed(3) + ")";
+        ctx.lineWidth = z.lineR * 0.16;
         ctx.beginPath(); ctx.moveTo(z.px, z.py); ctx.lineTo(z.x, z.y); ctx.stroke();
       }
       ctx.fillStyle = "rgba(255,245,205," + (0.85 * a).toFixed(3) + ")";
       ctx.beginPath(); ctx.arc(z.x, z.y, 5 + Math.sin(G.t * 4) * 1.2, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.restore();
-  }
-  if (G.orb) {                                         // 白夜的光球（还没落地）
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    const rg = ctx.createRadialGradient(G.orb.x, G.orb.y, 2, G.orb.x, G.orb.y, 90);
-    rg.addColorStop(0, "rgba(255,250,220,0.85)");
-    rg.addColorStop(1, "rgba(255,245,200,0)");
-    ctx.fillStyle = rg;
-    ctx.beginPath(); ctx.arc(G.orb.x, G.orb.y, 90, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
   if (G.shards.length) {                               // 骨片（鲸骨撞角）
@@ -2748,10 +2765,28 @@ function drawZones() {
       ctx.stroke();
     }
   }
-  if (G.beams.length) for (const b of G.beams) {       // 棱镜折射的光线
+  if (G.beams.length) for (const b of G.beams) {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    ctx.strokeStyle = "rgba(" + b.col + "," + clamp(b.t / 0.22, 0, 1).toFixed(2) + ")";
+    const ba = clamp(b.t / (b.lance ? 0.34 : 0.22), 0, 1);
+    if (b.lance) {                                     // 质变·光矛：粗光带 + 一根白芯 + 矛尖的爆闪
+      const w = b.w || 26, L = Math.hypot(b.x2 - b.x1, b.y2 - b.y1);
+      ctx.translate(b.x1, b.y1); ctx.rotate(Math.atan2(b.y2 - b.y1, b.x2 - b.x1));
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L, -w * 0.42); ctx.lineTo(L * 1.03, 0); ctx.lineTo(L, w * 0.42); ctx.closePath();
+      ctx.fillStyle = "rgba(255,240,190," + (0.34 * ba).toFixed(3) + ")"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, -w * 0.5); ctx.lineTo(L, -w * 0.13); ctx.lineTo(L * 1.01, 0); ctx.lineTo(L, w * 0.13); ctx.lineTo(0, w * 0.5); ctx.closePath();
+      ctx.fillStyle = "rgba(255,253,235," + (0.80 * ba).toFixed(3) + ")"; ctx.fill();
+      const rg = ctx.createRadialGradient(L, 0, 2, L, 0, w * 5);
+      rg.addColorStop(0, "rgba(255,255,240," + (0.85 * ba).toFixed(3) + ")");
+      rg.addColorStop(1, "rgba(255,245,200,0)");
+      ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(L, 0, w * 5, 0, Math.PI * 2); ctx.fill();
+      const rg2 = ctx.createRadialGradient(0, 0, 2, 0, 0, w * 2.4);
+      rg2.addColorStop(0, "rgba(255,255,245," + (0.8 * ba).toFixed(3) + ")");
+      rg2.addColorStop(1, "rgba(255,245,200,0)");
+      ctx.fillStyle = rg2; ctx.beginPath(); ctx.arc(0, 0, w * 2.4, 0, Math.PI * 2); ctx.fill();
+      ctx.restore(); continue;
+    }
+    ctx.strokeStyle = "rgba(" + (b.col || "180,240,255") + "," + ba.toFixed(2) + ")";
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2); ctx.stroke();
     ctx.restore();
@@ -2773,6 +2808,8 @@ function drawStacks() {
   const list = [];
   if (G.m && G.mutate === "bone" && G.m.bone && G.bone > 0) list.push({ n: G.bone, col: "225,240,255", tag: "骨甲" });
   if (G.m && G.m.frenzy && G.frenzy > 0) list.push({ n: G.frenzy, col: "255,150,150", tag: "血怒" });
+  if (G.m && G.m.judge && G.holy > 0) list.push({ n: G.holy, col: "195,255,235", tag: "圣光" });      // 审判之光：减伤层
+  if (G.m && G.m.lant && G.lampN > 0) list.push({ n: G.lampN, col: "255,225,170", tag: "灯蕊" });     // 行灯环：亮了几盏
   if (!list.length) return;
   let r0 = CFG.playerR + 13;
   for (const L of list) {
@@ -3278,13 +3315,17 @@ function drawLevelUp() {
     const dLines = wrapText(dTxt, r.w - 22, 13.5, 500);
     /* 排版：单行描述保持老位置（原基线 172）；两行以上（神器描述长）改成「顶部对齐一条带」，
        行距自适应，压在等级点和你这排之间 —— 之前居中对齐，三行时会顶到 Lv 那行上（截图复核抓到的）。 */
+    /* 质变卡（有副标题、没有等级点和 Lv 行）底下是空的，可以让描述往下铺到 246，行距也就给得开；
+       技能 / 神器卡还得给「Lv x → y」留位置，仍旧压在 164~200 那条窄带里。 */
+    const hasSub = !!s.sub;                                  // 质变卡：副标题顶到 139，描述得从 156 起
     const multi = dLines.length > 1;
-    const band0 = multi ? 164 : 172, band1 = multi ? 200 : 172;
-    const gap = dLines.length > 1 ? Math.min(17, (band1 - band0) / (dLines.length - 1)) : 0;
+    const band0 = multi ? (hasSub ? 156 : 164) : 172;
+    const band1 = multi ? (hasSub ? 204 : 200) : 172;        // 244 - 34(键位方块) = 210 是硬顶
+    const gap = dLines.length > 1 ? Math.min(hasSub ? 17 : 15, (band1 - band0) / (dLines.length - 1)) : 0;
     for (let k = 0; k < dLines.length; k++) {
       text(dLines[k], r.x + r.w / 2, r.y + band0 + k * gap, 13.5, "rgba(205,232,248,0.92)", "center", 500);
     }
-    if (!s.route && !s.cls) text("Lv " + cur + " → " + (cur + 1), r.x + r.w / 2, r.y + (multi ? 200 : 198), 12.5, "rgba(" + col + ",0.85)", "center", 600);
+    if (!s.route && !s.cls) text("Lv " + cur + " → " + (cur + 1), r.x + r.w / 2, r.y + (multi ? 202 : 198), 12.5, "rgba(" + col + ",0.85)", "center", 600);
     /* 数字键提示 */
     ctx.save();
     rrRect(r.x + r.w / 2 - 13, r.y + r.h - 34, 26, 22, 7);
@@ -3478,6 +3519,7 @@ window.addEventListener("keydown", (ev) => {
   else if (k === "ArrowRight" || k === "KeyD") { I.right = true; I.ptrActive = false; ev.preventDefault(); }
   else if (k === "KeyQ" || k === "KeyE" || k === "KeyF") {
     /* 主动技能：自己按才放，而且只认已解锁的那条路线；普攻是自动连发的，两回事 */
+    if (k === "KeyF") I.holdF = true;
     tryActive(k === "KeyQ" ? "q" : k === "KeyE" ? "e" : "f");
     ev.preventDefault();
   }
@@ -3495,6 +3537,7 @@ window.addEventListener("keyup", (ev) => {
   if (k === "Space" || k === "ArrowUp" || k === "KeyW" || k === "Enter" || k === "NumpadEnter") { I.kb = false; syncPointerBoost(); }
   else if (k === "ArrowLeft" || k === "KeyA") I.left = false;
   else if (k === "ArrowRight" || k === "KeyD") I.right = false;
+  else if (k === "KeyF") I.holdF = false;                  // 光矛：松手这一下才是「打出去」
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && G.state === "play") G.state = "pause";
@@ -3633,7 +3676,8 @@ window.__SINK__ = {
                    zones: G.zones.map((z) => z.type + "@" + Math.round(z.x) + "," + Math.round(z.y) + "r" + z.r),
                    zoneN: G.zones.length, shards: G.shards.length, beams: G.beams.length,
                    bone: G.bone || 0, frenzy: G.frenzy || 0, seals: ents.filter((e) => e.seal > 0).length,
-                   whirlT: +(G.whirlT || 0).toFixed(2), orb: !!G.orb })
+                   whirlT: +(G.whirlT || 0).toFixed(2), orb: !!G.orb,
+                   charge: +(G.charge || 0).toFixed(2), holy: G.holy || 0, lampN: G.lampN || 0 })
 };
 
 /* ============================ init ======================================= */
