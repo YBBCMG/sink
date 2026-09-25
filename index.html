@@ -3695,10 +3695,12 @@ function autopilot(dt) {
   if (pk && threat < 0.55) steer += Math.sign(pk.x - p.x) * (1 - Math.min(1, pd / 560)) * 1.1;
   if (p.x < CFG.xMin + 60) steer += 0.5;
   if (p.x > CFG.xMax - 60) steer -= 0.5;
-  /* 瞄准：优先最近的猎食者，其次正前方 —— 脚本 AI 得真的会开枪，局时才有意义 */
+  /* 瞄准：优先最近的猎食者，其次正前方 —— 脚本 AI 得真的会开枪，局时才有意义。
+     收口到 mobKind：以前只认猎手/电袭者，于是脚本 AI 对着三只新怪（尤其熄灯鮟鱇）一枪不开，
+     深段局时会被「假装打不过」地算歪。 */
   let aimT = null, ad = 1e9;
   for (const e of ents) {
-    if (e.kind !== "hunter" && e.kind !== "spitter") continue;
+    if (!mobKind(e.kind)) continue;
     const dd = Math.hypot(e.x - p.x, e.y - p.y);
     if (dd < ad) { ad = dd; aimT = e; }
   }
