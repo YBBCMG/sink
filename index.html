@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head><!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
-     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。-->  <!--/align-pad-->
+     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#02060d" />
@@ -210,7 +210,7 @@ const ARTIFACTS = [
   { id: "t_core", n: "✦ 湮灭核心", r: "mage", t: "神器", d: "冲击波落点留下 3.5s 核心：牵引周围怪 · 灼伤 30/s（外职业：每 4 发普攻留个小核心）", max: 2, minD: 200, w: 1.0 },
   { id: "t_void", n: "✦ 虚空回响", r: "mage", t: "神器", d: "每次击杀让冲击波冷却 −0.7s —— 连杀就无限炸（外职业：击杀 −0.2s 全部技能）", max: 2, minD: 300, w: 1.0 },
   /* 战士：让「撞击」留下东西 */
-  { id: "t_tusk", n: "✦ 鲸骨撞角", r: "warrior", t: "神器", d: "突进撞碎的障碍化成 6 块骨片向上下铺成扇形（各 45 伤害）（外职业：普攻碎障溅 3 块）", max: 2, minD: 200, w: 1.0 },
+  { id: "t_tusk", n: "✦ 鲸骨撞角", r: "warrior", t: "神器", d: "突进撞碎的障碍化成 6 块骨片朝四面八方炸开（每 60° 一块 · 各 45 伤害）（外职业：普攻碎障溅 3 块）", max: 2, minD: 200, w: 1.0 },
   { id: "t_frenzy", n: "✦ 血鲸之牙", r: "warrior", t: "神器", d: "击杀叠「血怒」（上限 15：每层撞击 +3% · 减伤 +1.5%）· 受击掉 3 层（外职业：上限 6 · 半效）", max: 2, minD: 300, w: 1.0 },
   /* 照明使者：让「光」自己打人 */
   { id: "t_prism", n: "✦ 万花棱镜", r: "lamp", t: "神器", d: "探照期间光束在怪之间折射 4 跳（每跳 65% 伤害）（外职业：普攻折射 2 跳 35%）", max: 2, minD: 200, w: 1.0 },
@@ -1644,13 +1644,14 @@ function stepZones(dt) {
 }
 /* ---------- 骨片（鲸骨撞角）：碎障溅出的飞行碎片，撞到怪就结算 ---------- */
 function spawnShards(x, y, n, dmg, o2) {
-  /* 2026-09-25 玩家口径「只能往上飞，应该上面下面都平均铺」：
-     老写法是 -90° 起、每块偏 0.34rad 的窄扇 —— 六块全挤在天上，跟「向前飞」的说明也不符。
-     现在按正上 → 正下的 180° 扇形均分（奇数块正中一块朝前），上下对称、扇面铺满。
-     速度也用同一份，不再叠重力：叠了下半扇会越飞越快，上下就不叫「平均」了。 */
-  const SPAN = Math.PI;
+  /* 2026-09-25 二次口径（玩家截图：骨片只有右边一半）「要 360 度无死角」：
+     更早那版是 -90° 起每块偏 0.34rad 的窄扇（全挤在天上）；上一版改成 -90°→+90° 的
+     180° 扇 —— 看着是「铺满」，但 cos 恒 ≥ 0，所以整扇永远贴在右半屏，怪从背后过来就是白炸。
+     现在整圈均分：起点正上、步长 2π/n（末尾不重复，n=6 就是每 60° 一块），前后左右都铺。
+     速度用同一份、不叠重力，一圈才会真的均匀。 */
+  const SPAN = Math.PI * 2;
   for (let i = 0; i < n; i++) {
-    const a = n === 1 ? 0 : -SPAN / 2 + (i * SPAN) / (n - 1);
+    const a = n === 1 ? 0 : -Math.PI / 2 + (i * SPAN) / n;
     G.shards.push({ x, y, vx: Math.cos(a) * 420, vy: Math.sin(a) * 420, t: 0.7, dmg, o2 });
   }
 }
