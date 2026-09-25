@@ -2205,7 +2205,7 @@ function drawAim() {
 
 function helpBtnRect() {
   const s = clamp(cssPx(22), 26, 52);
-  return { x: W0 / 2 + 128, y: 214 - s * 0.72, w: s, h: s };
+  return { x: W0 / 2 + 168, y: 246 - s * 0.72, w: s, h: s };
 }
 function helpBtnHit(lx, ly) {
   const r = helpBtnRect();
@@ -2217,10 +2217,10 @@ function drawTitle() {
   panel(W0 / 2 - 300, 118, 600, 410);
   ctx.restore();
   ctx.save();
-  ctx.shadowColor = "rgba(110,215,255,0.65)"; ctx.shadowBlur = 28;
-  text("深 潜", W0 / 2, 214, 62, "#e9f9ff", "center", 700);
+  ctx.shadowColor = "rgba(110,215,255,0.65)"; ctx.shadowBlur = 34;
+  text("深 潜", W0 / 2, 250, 92, "#e9f9ff", "center", 700);
   ctx.restore();
-  text("S I N K", W0 / 2, 246, 18, "rgba(140,205,240,0.8)", "center", 600);
+  text("S I N K", W0 / 2, 286, 18, "rgba(140,205,240,0.8)", "center", 600);
   /* 「?」规则按钮：2026-09-25 玩家要求标题只留名字，规则收进这里 */
   {
     const r = helpBtnRect(), hot = helpBtnHit(TOUCH ? G.input.ptrX : G.input.ax, TOUCH ? G.input.ptrY : G.input.ay);
