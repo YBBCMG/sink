@@ -107,6 +107,16 @@ const CFG = {
   mobHpFrom: 1800, mobHpSpan: 1600, mobHpCap: 3,
   reaverHP: 320, reaverEvery: [4.5, 7.5], reaverRush: 95, reaverVX: 265, reaverDmg: 22,
   wardenHP: 260, wardenEvery: [6.0, 9.5], wardenFan: [2.4, 3.4], wardenShieldCut: 0.75, wardenBreakT: 3.5,
+  /* --- 2026-09-25 玩家口径「多加几个怪物，各带一点小机制，3000/4000/5000m 逐千米出现」---
+     裂腹鱼（3000m）：打死不是结束，是一刀两断成两条幼体（幼体快而脆，不再分裂）。
+     吸氧蛭（4000m）：不咬血，贴上来挂在你身上抽氧 —— 突进能当场甩掉，打死也算甩掉。
+     熄灯鮟鱇（5000m）：不追着撞你，它吞你的灯光 —— 活着就按距离压视野，打死才把光还你。 */
+  splitFrom: 3000, splitHP: 210, splitEvery: [5.0, 8.5], splitRush: 88, splitVX: 165, splitDmg: 16,
+  splitKidHP: 0.32, splitKidSpd: 1.55, splitKidDmg: 0.6, splitKidR: 15,
+  leechFrom: 4000, leechHP: 130, leechEvery: [6.5, 10.5], leechRush: 115, leechVX: 125,
+  leechDrain: 0.15, leechHold: 4.5, leechRel: 1.4,
+  lampFrom: 5000, lampHP: 380, lampEvery: [7.5, 12.0], lampRush: 62, lampVX: 95, lampDmg: 20,
+  lampEat: 0.45, lampEatR: 320, lampDrop: 90,
   killScore: 40, breakScore: 6,
   /* --- 击杀回氧：自带被动，不用选技能（回的是「氧气上限的百分比」，不随深度缩水）
      但它天生是「无限刷」：怪随深度变多，回氧速率会超过耗氧 1.12~1.68/s ——
@@ -710,7 +720,7 @@ const G = {
   helpOpen: false,             // 标题页「?」规则弹层
   t: 0, runTime: 0,
   depth: 0, bonus: 0, diff: 0,
-  o2: CFG.o2Max, lightBonus: 0, lightR: CFG.lightNear,
+  o2: CFG.o2Max, lightBonus: 0, lightR: CFG.lightNear, lightEat: 0,
   speed: CFG.baseSpeed, boosting: false, slowT: 0,
   rowT: 0, bubbleT: 0, jellyT: 0, huntT: 0, spitT: 0,
   shakeT: 0, shakeMag: 0, flash: 0, redFlash: 0,
@@ -821,6 +831,7 @@ function startRun(seed) {
   G.lampN = 0; G.lampA = 0; G.charge = 0; G.dashVX = null; G.dashVY = null; G.holy = 0; G.holyT = 0;
   G.judgeTick = 0; G.atkCount = 0;
   G.trail.length = 0; G.trailT = 0; trailSeed = 20260925;   // 拖尾每局清空（种子固定 → 探针可复现）
+  G.splitT = undefined; G.leechT = undefined; G.lampT = undefined; G.introShown = {}; G.lightEat = 0;
   G.lampX = p.x; G.lampY = p.y - 1; G.lampN = 0;
   G.talis = null; G.mutate = null;               // 质变（2000m 三选一）状态清零
   aiRng = mulberry32((G.seed * 7919 + 13) >>> 0);
@@ -916,6 +927,15 @@ function killReward(e) {
   G.bonus += CFG.killScore;
   G.kills += 1;
   /* --- 击杀钩子（新机制都挂这里）--- */
+  if (e.kind === "split" && !e.kid) {                      // 裂腹鱼：一刀两断，断成两条幼体
+    for (const sx of [-1, 1]) spawnSplitKid(e.x + sx * 20, e.y + 6);
+    popup(e.x, e.y - e.r - 46, "裂成两条!", "255,205,150");
+  }
+  if (e.kind === "lamp") {                                 // 熄灯鮟鱇：把它打死，光就还你
+    G.lightBonus = Math.min(CFG.jellyCap, G.lightBonus + CFG.lampDrop);
+    popup(e.x, e.y - e.r - 22, "光还你 +" + CFG.lampDrop, "200,235,255");
+  }
+  if (e.kind === "leech") { e.on = 0; e.relT = 0; }        // 吸氧蛭：死了自然松口
   stackGain(1);                        // 骨甲（鲸落骨甲）/ 血怒（血鲸之牙）
   if (G.m.voidCd > 0) G.act.q = Math.max(0, G.act.q - G.m.voidCd);          // 虚空回响：击杀减冲击波冷却
   if (G.m.voidCdAll > 0) for (const kk in G.act) G.act[kk] = Math.max(0, G.act[kk] - G.m.voidCdAll);
@@ -970,7 +990,7 @@ function hurtEnt(i, e, dmg, tag, raw) {
   e.hp -= dmg; e.flash = 0.16;
   popup(e.x, e.y - e.r - 8, "-" + dmg, tag || "255,175,125");
   if (e.hp > 0) { burst(e.x, e.y, 4, "255,200,150"); return false; }
-  const isMob = e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden";
+      const isMob = mobKind(e.kind);
   e.dead = true;      // 先立牌子再发奖：范围伤害 / 连锁爆炸 / 碎障溅骨片都靠它，怪和障碍一视同仁
   if (isMob) killReward(e); else breakReward(e);
   /* 坑（本轮新机制带来）：killReward 里会连锁爆炸、又会删掉别的实体 —— 索引可能已经错位，
@@ -1312,6 +1332,29 @@ function spawnWarden() {
               hit: false, near: false, flash: 0, fireT: 2.0, fanN: 0, fanT: 0,
               shield: true, shieldHp: 3, breakT: 0 });
 }
+/* 裂腹鱼：3000m+。胖、慢、厚 —— 威胁全在「死」那一刻，一刀两断成两条幼体 */
+function spawnSplit() {
+  ents.push({ kind: "split", x: rr(70, W0 - 70), y: H0 + 50, r: 26,
+              hp: mobHP(CFG.splitHP), maxHp: mobHP(CFG.splitHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0 });
+}
+function spawnSplitKid(x, y) {
+  const hp = Math.max(1, Math.round(mobHP(CFG.splitHP) * CFG.splitKidHP));
+  ents.push({ kind: "split", kid: 1, x, y, r: CFG.splitKidR, hp, maxHp: hp,
+              seed: rnd() * 997, hit: false, near: false, flash: 0 });
+}
+/* 吸氧蛭：4000m+。先游上来贴上你，贴上就抽氧（不咬血）；突进甩 / 打死甩，两种都行 */
+function spawnLeech() {
+  ents.push({ kind: "leech", x: rr(70, W0 - 70), y: H0 + 50, r: 14,
+              hp: mobHP(CFG.leechHP), maxHp: mobHP(CFG.leechHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, on: 0, relT: 0, popT: 0, side: 1 });
+}
+/* 熄灯鮟鱇：5000m+。悬在附近吞你的灯光 —— 它不撞你，它让你看不见 */
+function spawnLamp() {
+  ents.push({ kind: "lamp", x: rr(90, W0 - 90), y: H0 + 55, r: 22,
+              hp: mobHP(CFG.lampHP), maxHp: mobHP(CFG.lampHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, popT: 0 });
+}
 function hurtPlayer(dmg, col) {
   if (p.invuln > 0) return false;
   /* 照明路线·光盾：探照生效期间伤害打折（白夜之后要站在那片白昼区里才算） */
@@ -1642,7 +1685,15 @@ function stepPlay(dt) {
   const lit = Math.max(G.m.lightLock || 0, litBase);
   G.lightBonus = Math.max(0, G.lightBonus - CFG.jellyDecay * dt);
   /* 探照：生效期间把光照半径硬顶到 flare，时间一到自己退回背景值（不是永久加成） */
-  let litTarget = lit + G.lightBonus;
+  /* 熄灯鮟鱇：活着且在 lampEatR 内就按距离吞光（贴脸最多吞 45%） */
+  let eat = 0;
+  for (const e of ents) {
+    if (e.kind !== "lamp" || e.dead) continue;
+    const dd = Math.hypot(e.x - p.x, e.y - p.y);
+    if (dd < CFG.lampEatR) eat = Math.max(eat, CFG.lampEat * (1 - dd / CFG.lampEatR));
+  }
+  G.lightEat = eat;
+  let litTarget = (lit + G.lightBonus) * (1 - eat);
   if (fx.flare > 0) litTarget = Math.max(litTarget, G.m.flare);
   G.lightR += (litTarget - G.lightR) * Math.min(1, dt * 3);
 
@@ -1688,7 +1739,7 @@ function stepPlay(dt) {
     /* 自动瞄准兜底（触屏 / 键盘玩家）：只咬怪物，没怪物就回到正前方 */
     let best = null, bd = 1e9;
     for (const e of ents) {
-      if (e.kind !== "hunter" && e.kind !== "spitter") continue;
+      if (!mobKind(e.kind)) continue;
       const dd = Math.hypot(e.x - p.x, e.y - p.y);
       if (dd < bd) { bd = dd; best = e; }
     }
@@ -1737,6 +1788,25 @@ function stepPlay(dt) {
       G.wardT = (G.wardT === undefined ? rr(6, 10) : G.wardT) - dt * rate;
       if (G.wardT <= 0) { G.wardT = rr(CFG.wardenEvery[0], CFG.wardenEvery[1]); if (live < cap) spawnWarden(); }
     }
+    /* 逐千米加料：3000 裂腹鱼 · 4000 吸氧蛭 · 5000 熄灯鮟鱇（首次过线各播一条提示） */
+    const gate = (cur, t) => { G[t] = (G[t] === undefined ? rr(2.2, 5) : G[t]) - dt * rate; return G[t] <= 0; };
+    if (G.depth >= CFG.splitFrom) {
+      if (gate(0, "splitT")) { G.splitT = rr(CFG.splitEvery[0], CFG.splitEvery[1]); if (live < cap + 1) spawnSplit(); }
+    }
+    if (G.depth >= CFG.leechFrom) {
+      if (gate(0, "leechT")) { G.leechT = rr(CFG.leechEvery[0], CFG.leechEvery[1]); if (live < cap + 1) spawnLeech(); }
+    }
+    if (G.depth >= CFG.lampFrom) {
+      if (gate(0, "lampT")) { G.lampT = rr(CFG.lampEvery[0], CFG.lampEvery[1]); if (live < cap + 1) spawnLamp(); }
+    }
+    G.introShown = G.introShown || {};
+    for (const it of [[CFG.splitFrom, "裂腹鱼：打死会裂成两条"], [CFG.leechFrom, "吸氧蛭：贴上来抽你的氧"], [CFG.lampFrom, "熄灯鮟鱇：活着就吞你的光"]]) {
+      if (G.depth >= it[0] && !G.introShown[it[0]]) {
+        G.introShown[it[0]] = 1;
+        /* 只在「刚过线」那 400m 里播：不然跳深度时 3000/4000/5000 三条提示会叠成一坨糊字 */
+        if (G.depth < it[0] + 400) popup(p.x, p.y - 70, it[0] + "m · " + it[1], "190,235,255");
+      }
+    }
   }
 
   /* --- 实体推进 + 碰撞 --- */
@@ -1758,7 +1828,7 @@ function stepPlay(dt) {
     }
     /* 电袭者是「悬停射手」：不跟着水流一起滚，靠自己慢慢游上来 ——
        否则世界滚动 + 自己的漂移会让它 3 秒穿过整屏，一枪都来不及放 */
-    if (e.kind !== "spitter" && e.kind !== "warden") e.y -= dy;
+    if (e.kind !== "spitter" && e.kind !== "warden" && e.kind !== "lamp") e.y -= dy;
     /* 怪物自己的动作：猎手加速上冲咬人，喷吐者保持距离放冷枪，
        剃刀鲸横冲直撞（撞完不消失），圣盾使悬停 + 三连电球 */
     if (e.kind === "hunter") {
@@ -1795,6 +1865,47 @@ function stepPlay(dt) {
           SFX.zap();
         }
       }
+    } else if (e.kind === "split") {
+      /* 裂腹鱼：猎手的胖版 —— 慢一档，幼体快 1.55 倍（追上来的那两条才是真麻烦） */
+      const sp = e.kid ? CFG.splitKidSpd : 1;
+      e.y -= CFG.splitRush * sp * dt;
+      e.x += clamp(p.x - e.x, -CFG.splitVX * sp * dt, CFG.splitVX * sp * dt);
+    } else if (e.kind === "leech") {
+      /* 吸氧蛭：贴上就抽氧。抽的是「氧气上限的 15%/秒」，所以越到深处越要命；
+         松口条件：计时到 / 你突进（fx.dash）/ 它被打死。甩完有 1.4s 冷却，不许贴脸秒回。 */
+      if (e.on > 0 && e.relT <= 0) {
+        e.on -= dt;
+        const tx2 = p.x + e.side * 17, ty2 = p.y + 7 + Math.sin(G.t * 9 + e.seed) * 3;
+        e.x += (tx2 - e.x) * Math.min(1, dt * 14);
+        e.y += (ty2 - e.y) * Math.min(1, dt * 14);
+        G.o2 -= o2MaxNow() * CFG.leechDrain * dt;
+        e.popT -= dt;
+        if (e.popT <= 0) { e.popT = 0.6; popup(e.x, e.y - 16, "氧 -" + (o2MaxNow() * CFG.leechDrain * 0.6).toFixed(1), "255,140,190"); }
+        if (e.on <= 0 || fx.dash > 0) {
+          const byDash = fx.dash > 0;
+          e.on = 0; e.relT = CFG.leechRel;
+          popup(e.x, e.y - 20, byDash ? "甩掉!" : "松口了", "255,190,220");
+          burst(e.x, e.y, 8, "255,150,200");
+        }
+      } else if (e.relT > 0) {
+        e.relT = Math.max(0, e.relT - dt);          // 刚被甩：往外弹一段再回来
+        e.y -= CFG.leechRush * 0.5 * dt;
+        e.x += e.side * 130 * dt;
+      } else {
+        e.y -= CFG.leechRush * dt;
+        e.x += clamp(p.x - e.x, -CFG.leechVX * dt, CFG.leechVX * dt);
+        if (p.invuln <= 0 && Math.hypot(e.x - p.x, e.y - p.y) < e.r + CFG.playerR + 4) {
+          e.on = CFG.leechHold; e.side = rnd() < 0.5 ? -1 : 1; e.popT = 0;
+          popup(p.x, p.y - 36, "吸附!", "255,140,190");
+          burst(e.x, e.y, 10, "255,150,200"); SFX.zap();
+        }
+      }
+    } else if (e.kind === "lamp") {
+      /* 熄灯鮟鱇：不跟水流滚，慢慢挪到你身边 —— 吞光是按距离算的（见视野那段） */
+      e.y += clamp(p.y + 135 - e.y, -CFG.lampRush * dt, CFG.lampRush * dt);
+      e.x += clamp(p.x - e.x, -CFG.lampVX * dt, CFG.lampVX * dt);
+      e.popT = (e.popT || 0) - dt;
+      if (G.lightEat > 0.05 && e.popT <= 0) { e.popT = 1.4; popup(e.x, e.y - e.r - 26, "吞光 " + Math.round(G.lightEat * 100) + "%", "190,160,255"); }
     }
     if (e.y < -140) { ents.splice(i, 1); continue; }
     /* 磁力：圈内的收集物朝玩家本体整体收拢（x、y 一起动）。
@@ -1830,7 +1941,7 @@ function stepPlay(dt) {
       if (diedO && G.m.vamp > 0) healVamp(e.x, e.y);
       ramOnHit(e, diedO);
       continue;
-    } else if (fx.dash > 0 && (G.m.ramDmg > 0 || G.m.chg) && (e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden")
+    } else if (fx.dash > 0 && (G.m.ramDmg > 0 || G.m.chg) && mobKind(e.kind)
                && Math.hypot(e.x - p.x, e.y - p.y) < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
       /* 基础突进只撞碎障碍物，点了猛撞才能把怪一起撞了 —— 怒涛冲锋自带「撞怪」这一档 */
       e.dashS = G.dashStamp;
@@ -1838,21 +1949,21 @@ function stepPlay(dt) {
       if (diedM && G.m.vamp > 0) healVamp(e.x, e.y);
       ramOnHit(e, diedM);
       continue;
-    } else if (d < rr2 && p.invuln <= 0 && !e.hit && !(e.pullImm > 0)) {
+    } else if (d < rr2 && p.invuln <= 0 && !e.hit && !(e.pullImm > 0) && e.kind !== "leech") {
       /* pullImm：正被虚空奇点拽着的怪不撞人（玩家口径「拉过来把自己撞死」）；
          只有「真被拽过来」的才算 —— 血量不够、被奇点直接打死的那些不吃这个豁免 */
       e.hit = true;
-      const isMob2 = e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden";
+      const isMob2 = mobKind(e.kind);
       if (isMob2) {
         /* 咬人结算：猎手/电袭者同归于尽；剃刀鲸/圣盾使活着走开（e.cd 冷却后再咬） */
-        const dmg = Math.round((e.kind === "reaver" ? CFG.reaverDmg : e.kind === "warden" ? CFG.huntDamage : CFG.huntDamage) * (1 + dk * CFG.hitGain) * G.m.dmg);
+        const dmg = Math.round(contactDmg(e) * (1 + dk * CFG.hitGain) * G.m.dmg);
         hurtPlayer(dmg, e.kind === "reaver" ? "255,190,120" : "255,150,120");
         if (e.kind === "hunter" || e.kind === "spitter") { burst(e.x, e.y, 20, "255,140,110"); ents.splice(i, 1); }
         else e.cd = 1.2;
       } else {
         hurtPlayer(Math.round(CFG.hitDamage * (1 + dk * CFG.hitGain) * G.m.dmg));
       }
-    } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden")) {
+    } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden" || e.kind === "split" || e.kind === "lamp")) {
       e.cd = Math.max(0, e.cd - dt);
       if (e.cd <= 0) e.hit = false;       // 大家伙咬完一口会绕回来再咬：冷却好了才能咬下一口
     } else if (!e.near && (e.kind === "rock" || e.kind === "cable") && d < rr2 + G.m.nearPad) {
@@ -2843,7 +2954,18 @@ function drawJellyGlow(e) {
    而重绘的兜底分支画的是「紫伞 + 5 根触手 + 中央亮核」＝电袭者的样子 ——
    于是每块石头、每条泥鳅在黑暗里都顶着一只紫色水母（探针实测：石头 1479 个紫像素、
    泥鳅 629 个，最亮 rgb(187,159,243) 就是那只假水母的伞边）。 */
-const MOB_SET = { hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1 };
+const MOB_SET = { hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1, split: 1, leech: 1, lamp: 1 };
+/* 怪物判定的唯一入口：加一只怪只改 MOB_SET 一处，不再逐个补手写的 kind 列表
+   （漏一处的老毛病就是「打上去不疼 / 撞了不掉氧」，这种 bug 找起来最费劲） */
+function mobKind(k) { return !!MOB_SET[k] && k !== "bolt"; }
+/* 接触伤害也收口：吸氧蛭返回 0 —— 它不咬血，它抽氧（吸附逻辑在实体推进里） */
+function contactDmg(e) {
+  if (e.kind === "reaver") return CFG.reaverDmg;
+  if (e.kind === "split") return CFG.splitDmg * (e.kid ? CFG.splitKidDmg : 1);
+  if (e.kind === "lamp") return CFG.lampDmg;
+  if (e.kind === "leech") return 0;
+  return CFG.huntDamage;
+}
 /* 猎食者的生物光 + 本体：都画在黑暗层之上，保证光照半径外也看得清（不然深水区纯挨打） */
 function drawCombatGlow(e) {
   const rad = e.r * (e.kind === "hunter" ? 2.8 : e.kind === "bolt" ? 3.4 : 3.0);
@@ -2854,6 +2976,9 @@ function drawCombatGlow(e) {
   else if (e.kind === "spitter") { g.addColorStop(0, "rgba(175,140,255,0.38)"); g.addColorStop(1, "rgba(140,110,255,0)"); }
   else if (e.kind === "reaver") { g.addColorStop(0, "rgba(255,150,80,0.42)"); g.addColorStop(1, "rgba(255,110,40,0)"); }
   else if (e.kind === "warden") { g.addColorStop(0, "rgba(255,225,120,0.45)"); g.addColorStop(1, "rgba(255,190,60,0)"); }
+  else if (e.kind === "split") { g.addColorStop(0, "rgba(150,255,190,0.40)"); g.addColorStop(1, "rgba(90,220,150,0)"); }
+  else if (e.kind === "leech") { g.addColorStop(0, "rgba(255,130,200,0.42)"); g.addColorStop(1, "rgba(220,80,170,0)"); }
+  else if (e.kind === "lamp") { g.addColorStop(0, "rgba(190,150,255,0.44)"); g.addColorStop(1, "rgba(120,70,220,0)"); }
   else { g.addColorStop(0, "rgba(180,225,255,0.45)"); g.addColorStop(1, "rgba(120,180,255,0)"); }
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(e.x, e.y, rad, 0, Math.PI * 2); ctx.fill();
@@ -2929,6 +3054,71 @@ function drawCombatGlow(e) {
         ctx.beginPath(); ctx.arc(x - 10 + k * 10, y - e.r * 1.65 - 8, 3, 0, Math.PI * 2); ctx.fill();
       }
     }
+  } else if (e.kind === "split") {
+    /* 裂腹鱼：鼓肚 + 中间那道裂口（幼体小一圈、裂口更长，一眼看出是刚拆下来的那两条） */
+    const R0 = e.r, kid = e.kid ? 1 : 0;
+    ctx.beginPath();
+    ctx.moveTo(x + R0 * 1.05, y);
+    ctx.quadraticCurveTo(x + R0 * 0.45, y - R0 * (kid ? 1.02 : 1.22), x - R0 * 0.72, y - R0 * 0.55);
+    ctx.quadraticCurveTo(x - R0 * 1.32, y, x - R0 * 0.72, y + R0 * 0.60);
+    ctx.quadraticCurveTo(x + R0 * 0.45, y + R0 * (kid ? 1.0 : 1.2), x + R0 * 1.05, y);
+    ctx.closePath();
+    ctx.fillStyle = e.flash > 0 ? "rgba(240,255,240,0.95)" : "rgba(20,72,56,0.9)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(140,255,190,0.9)"; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.strokeStyle = "rgba(255,225,150,0.9)"; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - R0 * 0.1, y - R0 * 0.98);
+    ctx.quadraticCurveTo(x + R0 * 0.62, y, x - R0 * 0.1, y + R0 * 0.98);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(185,255,215,1)";
+    for (const sx of [-1, 1]) { ctx.beginPath(); ctx.ellipse(x + sx * R0 * 0.44, y - R0 * 0.32, 2.8, 1.9, 0, 0, Math.PI * 2); ctx.fill(); }
+  } else if (e.kind === "leech") {
+    /* 吸氧蛭：一节一节的肉虫；吸住时头节鼓起来、全身泛粉光 */
+    const R0 = e.r, bloat = e.on > 0 ? 1.35 : 1;
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(Math.sin(G.t * 7 + e.seed) * 0.14);
+    for (let i = 0; i < 4; i++) {
+      const rr3 = R0 * (1 - i * 0.15) * (i === 0 ? bloat : 1);
+      ctx.beginPath(); ctx.ellipse(0, -R0 * 0.9 + i * R0 * 0.62, rr3, R0 * 0.44, 0, 0, Math.PI * 2);
+      ctx.fillStyle = e.flash > 0 ? "rgba(255,240,250,0.95)" : "rgba(92,24,62,0.9)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,140,200,0.85)"; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(0, -R0 * 1.06, R0 * 0.3 * bloat, 0, Math.PI * 2);
+    ctx.fillStyle = e.on > 0 ? "rgba(255,195,228,1)" : "rgba(255,110,180,1)"; ctx.fill();
+    ctx.restore();
+  } else if (e.kind === "lamp") {
+    /* 熄灯鮟鱇：一张大嘴 + 头顶那盏「吸光的灯」；吞得越狠灯越亮 */
+    const R0 = e.r, eatK = clamp(G.lightEat / Math.max(0.001, CFG.lampEat), 0, 1);
+    ctx.beginPath();
+    ctx.moveTo(x + R0 * 1.32, y + R0 * 0.12);
+    ctx.quadraticCurveTo(x + R0 * 0.25, y - R0 * 1.12, x - R0 * 1.1, y - R0 * 0.34);
+    ctx.quadraticCurveTo(x - R0 * 1.48, y + R0 * 0.24, x - R0 * 0.5, y + R0 * 0.72);
+    ctx.quadraticCurveTo(x + R0 * 0.5, y + R0 * 1.1, x + R0 * 1.32, y + R0 * 0.12);
+    ctx.closePath();
+    ctx.fillStyle = e.flash > 0 ? "rgba(245,235,255,0.95)" : "rgba(32,16,58,0.93)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(185,150,255,0.9)"; ctx.lineWidth = 1.7; ctx.stroke();
+    ctx.strokeStyle = "rgba(232,214,255,0.85)"; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 4; i++) {
+      const t2 = i / 3.6;
+      ctx.beginPath();
+      ctx.moveTo(x + R0 * (0.78 - t2 * 1.5), y + R0 * (0.52 - t2 * 0.5));
+      ctx.lineTo(x + R0 * (0.62 - t2 * 1.5), y + R0 * (0.14 - t2 * 0.46));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(150,110,255,0.75)"; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x - R0 * 0.22, y - R0 * 0.92);
+    ctx.quadraticCurveTo(x + R0 * 0.35, y - R0 * 1.85, x + R0 * 0.95, y - R0 * 1.46);
+    ctx.stroke();
+    const lx = x + R0 * 1.02, ly = y - R0 * 1.44, lr = R0 * (0.5 + eatK * 0.62);
+    const lg = ctx.createRadialGradient(lx, ly, 0.5, lx, ly, lr);
+    lg.addColorStop(0, "rgba(238,220,255," + (0.72 + 0.28 * eatK).toFixed(2) + ")");
+    lg.addColorStop(1, "rgba(150,90,255,0)");
+    ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2);
+    ctx.fillStyle = lg; ctx.fill();
   } else if (e.kind === "spitter") {
     /* 电袭者（紫伞）：悬停射手 —— 只有它走这套紫伞外观，别的 kind 一律不画 */
     const pulse = 1 + Math.sin(G.t * 4 + e.seed) * 0.10;
@@ -3568,7 +3758,7 @@ window.__SINK__ = {
   startRun, update, simulate, runSelfTest, autopilot,
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
   ents: () => ents, p, probePx, lightR: () => G.lightR,
-  fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, entSegDist, hurtPlayer,
+  fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp, mobKind, contactDmg, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, wrapText, entBodyDist,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
