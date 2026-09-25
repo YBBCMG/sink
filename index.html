@@ -143,6 +143,16 @@ const CFG = {
      2026-09-25 玩家反馈「概率要足够低」：0.22 → 0.09（约每 11 次三选一才见一张）。 */
   artChance: 0.09,
   /* 质变：2000m 后的第一次三选一 = 三条全新方向（MUTATIONS） */
+  /* ---- 精英怪三条线（2026-09-25 玩家口径：怪太弱，要免疫怪、不受控制怪、免无视无敌怪）----
+     免疫怪：吃直伤不吃持续伤害；免控怪：拉不动钉不住；免无视无敌怪：自带无敌壳、咬你无视你的无敌帧 */
+  /* Spd = 上行速度系数（× hunterRush 215）。**必须让 215×系数 明显大于下潜速度 130**，
+     否则怪追不上来、直接滚出屏幕 —— 这是探针实测出来的坑（0.62 ≈ 原地踏步）。
+     铁壳蟹 0.85（净 +53 · 慢）、锚鲸 0.80（净 +42 · 最慢）、破免者 0.95（净 +74 · 追得最紧） */
+  shellFrom: 2200, shellEvery: [6, 11], shellHP: 210, shellDmg: 34, shellSpd: 0.85,
+  anchorFrom: 3100,   // 跟裂腹鱼的 3000m 错开，免得两条过线提示挤在同一帧
+  anchorEvery: [9, 15], anchorHP: 260, anchorDmg: 30, anchorSpd: 0.80,
+  nullifyFrom: 3800, nullifyEvery: [12, 20], nullifyHP: 240, nullifyDmg: 40, nullifySpd: 0.95,
+  nullifyShell: 1.6, nullifyGap: 4.2,
   mutateAt: 2000, t2At: 4000,          // t2At：到这里你那条质变长出两条进阶（二选一）
   /* 神器上限：一局最多持有几张（新神器只在持有数 < 上限时判定） */
   artCap: 3,
@@ -1017,6 +1027,12 @@ function hurtEnt(i, e, dmg, tag, raw) {
     if (dmg >= 60 || e.shieldHp <= 0) { e.shield = false; e.breakT = CFG.wardenBreakT; popup(e.x, e.y - e.r - 20, "破盾!", "255,225,150"); burst(e.x, e.y, 12, "255,220,140"); }
     else { popup(e.x, e.y - e.r - 20, "盾 -" + Math.round(dmg * 0.25), "255,225,150"); burst(e.x, e.y, 4, "255,220,140"); return false; }
   }
+  /* 破免者：壳亮着（1.6s）时任何伤害归零 —— 要等壳碎那一下再砸 */
+  if (e.kind === "nullify" && e.invT > 0) {
+    popup(e.x, e.y - e.r - 20, "免疫", "255,120,200");
+    burst(e.x, e.y, 4, "255,120,200");
+    return false;
+  }
   e.hp -= dmg; e.flash = 0.16;
   popup(e.x, e.y - e.r - 8, "-" + dmg, tag || "255,175,125");
   if (e.hp > 0) { burst(e.x, e.y, 4, "255,200,150"); return false; }
@@ -1482,13 +1498,38 @@ function spawnLamp() {
               hp: mobHP(CFG.lampHP), maxHp: mobHP(CFG.lampHP), seed: rnd() * 997,
               hit: false, near: false, flash: 0, popT: 0 });
 }
-function hurtPlayer(dmg, col) {
-  if (p.invuln > 0) return false;
+/* ============ 精英三线（免疫 / 免控 / 无视无敌）· 2026-09-25 ============ */
+/* 铁壳蟹：外壳把一切「持续伤害」挡在外面（火池 / 伤口带 / 灯环 / 奇点每段都啃不动它），
+   只吃直伤 —— 你那些花活对它无效，得正面砸。 */
+function spawnShell() {
+  ents.push({ kind: "shell", x: rr(80, W0 - 80), y: H0 + 55, r: 26,
+              hp: mobHP(CFG.shellHP), maxHp: mobHP(CFG.shellHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, dotImm: 1, popT: 0 });
+}
+/* 锚鲸：自重太大 —— 牵引 / 钉住 / 眩晕 / 甩飞一概不动它（伤害照吃）。
+   漩涡吸不动、奇点钉不住、回旋鲸吞甩不走。 */
+function spawnAnchor() {
+  ents.push({ kind: "anchor", x: rr(80, W0 - 80), y: H0 + 60, r: 30,
+              hp: mobHP(CFG.anchorHP), maxHp: mobHP(CFG.anchorHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, ctrlImm: 1, popT: 0 });
+}
+/* 破免者：壳一亮（1.6s）打它等于打空气；它咬你的时候**无视你的无敌帧和圣光护罩** ——
+   突进无敌、受伤无敌帧、护罩，在它面前都不作数。 */
+function spawnNullify() {
+  ents.push({ kind: "nullify", x: rr(80, W0 - 80), y: H0 + 60, r: 24,
+              hp: mobHP(CFG.nullifyHP), maxHp: mobHP(CFG.nullifyHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, invT: 0, shellT: CFG.nullifyGap, popT: 0 });
+}
+function hurtPlayer(dmg, col, pierce) {
+  if (p.invuln > 0 && !pierce) return false;
+  /* 破免者的咬：无视无敌帧 —— 突进无敌、受伤无敌帧在它面前都不算 */
+  if (pierce && p.invuln > 0) popup(p.x, p.y - 62, "无视无敌", "255,120,200");
   /* 照明路线·光盾：探照生效期间伤害打折（白夜之后要站在那片白昼区里才算） */
-  if (G.shield3 > 0) {                                    // 进阶·圣光转赐：护罩期间免疫
+  if (G.shield3 > 0 && !pierce) {                         // 进阶·圣光转赐：护罩期间免疫
     popup(p.x, p.y - 60, "护罩", "195,255,235");
     return;
   }
+  if (G.shield3 > 0 && pierce) popup(p.x, p.y - 60, "破免 · 护罩无效", "255,120,200");
   if (G.actFx.flare > 0 && G.m.flareShield > 0 && flareInside()) {
     const cut = Math.round(dmg * G.m.flareShield);
     dmg = Math.max(1, dmg - cut);
@@ -1551,17 +1592,19 @@ function addZone(z) {
 /* 统一的「额外增伤」入口：奇点钉住 / 白昼区。以后再加别的增伤也只改这里；
    场自己的持续伤害走 raw=true，不自己吃自己的加成。 */
 function hitAmp(e) {
+  if (e && e.dotImm) return 1;                   // 铁壳蟹：钉住增伤 / 烙印增伤一概不吃
   let k = 0;
   if (G.m.sing && e && e.pinT > 0) k += G.m.sing.amp;
   if (e && e.vulnT > 0) k += e.vuln || 0;        // 进阶挂的烙印（坍缩余烬 +15% / 光印烙印 +40%）
   return 1 + k;
 }
 /* 范围伤害：先把目标快照下来再逐个结算 —— hurtEnt 里会 splice，边遍历边删会打错人 */
-function aoeHit(x, y, r, dmg, tag, skip) {
+function aoeHit(x, y, r, dmg, tag, skip, isDot) {
   const list = [];
   for (const e of ents) {
     if (e.dead || e === skip) continue;
     if (e.kind !== "rock" && e.kind !== "cable" && !MOB_SET[e.kind]) continue;
+    if (isDot && e.dotImm) continue;                 // 铁壳蟹：场伤害（火池/伤口带/灯环/奇点每段）直接免疫
     if (Math.hypot(e.x - x, e.y - y) > r + e.r) continue;
     list.push(e);
   }
@@ -1585,6 +1628,7 @@ function stepZones(dt) {
           if (e.dead || !MOB_SET[e.kind] || e.kind === "bolt") continue;
           const dx = e.x - z.x, dy = e.y - z.y, d = Math.hypot(dx, dy);
           if (d > z.r + e.r) continue;
+          if (e.ctrlImm) { e.vuln = 0.15; e.vulnT = 6; continue; }   // 锚鲸：甩不动，但烙印照挂
           const ux = d > 0.5 ? dx / d : 1, uy = d > 0.5 ? dy / d : 0;
           e.x = z.x + ux * 260; e.y = z.y + uy * 260;
           e.vuln = 0.15; e.vulnT = 6;
@@ -1603,6 +1647,7 @@ function stepZones(dt) {
              也不给它那份「不撞人」豁免 —— 免得拽着一具尸体冲到自己脸上。 */
           const lethal = z.dmg > 0 && e.hp <= Math.round(z.dmg / 2);
           if (lethal) continue;
+          if (e.ctrlImm) continue;                   // 锚鲸：奇点拉不动也钉不住（伤害照吃）
           /* 豁免必须写在 d<1 的前面：怪被拽到奇点正中心（≈你身上）时也要继续算「被牵着」，
              否则那一瞬间豁免断掉、0.5s 后正好在脸上咬一口（探针 ⑩ 抓到的）。 */
           e.pullImm = 0.5;
@@ -1615,21 +1660,21 @@ function stepZones(dt) {
       z.tick += dt;
       if (z.dmg > 0 && z.tick >= 0.5) {
         z.tick = 0;
-        aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), z.type === "sing" ? "190,170,255" : "210,180,255", null);
+        aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), z.type === "sing" ? "190,170,255" : "210,180,255", null, true);
       }
     } else if (z.type === "wound" || z.type === "fire") {
       /* 进阶·撞角留痕（伤口带）/ 过热核心（火池）：单纯的持续伤害场，不拉不钉 */
       z.tick += dt;
       if (z.tick >= 0.5) {
         z.tick = 0;
-        aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), z.col, null);
+        aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), z.col, null, true);
       }
     } else if (z.type === "lamp") {
       /* 行灯环：每盏灯自己烧一圈（r=118），相邻两盏之间那道火线再补一刀 */
       z.tick += dt;
       if (z.tick >= 0.5) {
         z.tick = 0;
-        aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), "255,225,170", null);
+        aoeHit(z.x, z.y, z.r, Math.round(z.dmg / 2), "255,225,170", null, true);
         if (z.px !== undefined) {
           for (const e of ents) {
             if (e.dead || !MOB_SET[e.kind] || e.kind === "bolt") continue;
@@ -1796,8 +1841,9 @@ function stepPlay(dt) {
       const hold2 = W2b && ph2 === 0 ? 120 : 0;                     // 前半程停在外圈
       /* 回旋鲸吞：这一轮已经被甩走的不再往回吸（甩到身后又拽回来 = 白甩） */
       const flung = G.t2 === "whirlA" && e.whirlS === G.whirlStamp;
+      const heavy = !!e.ctrlImm;                                   // 锚鲸：吸不动、钉不住、甩不走
       const pullK = W2b && ph2 === 1 ? dt * 12 : dt * 6;            // 涡心压缩：后半程收口更狠
-      if (!flung && d > hold2 + e.r + 6) { e.x += dx * Math.min(0.6, pullK); e.y += dy * Math.min(0.6, pullK); }
+      if (!flung && !heavy && d > hold2 + e.r + 6) { e.x += dx * Math.min(0.6, pullK); e.y += dy * Math.min(0.6, pullK); }
       /* 咬合判定：涡心压缩前半程咬外圈（120），后半程咬内圈（贴身 +34，怪会保持站位，纯贴身到不了） */
       const bite2 = W2b ? (ph2 === 0 ? d <= hold2 + e.r + 10 : d <= CFG.playerR + e.r + 34) : d < CFG.playerR + e.r + 12;
       if (bite2 && e.whirlS !== G.whirlStamp) {
@@ -1805,7 +1851,7 @@ function stepPlay(dt) {
         const died = hurtEnt(i, e, W2.d + stackRamBonus(), "135,235,255");
         ramOnHit(e, died);
         /* 进阶·回旋鲸吞：咬完就往身后甩，顺手晕 0.8s —— 拽过来打变成清出一条路 */
-        if (!died && G.t2 === "whirlA" && ents.indexOf(e) >= 0) {
+        if (!died && !heavy && G.t2 === "whirlA" && ents.indexOf(e) >= 0) {
           e.x = p.x - 200; e.y = p.y + (e.y >= p.y ? 70 : -70);
           e.pinT = 0.8;
         }
@@ -2037,8 +2083,20 @@ function stepPlay(dt) {
     if (G.depth >= CFG.lampFrom) {
       if (gate(0, "lampT")) { G.lampT = rr(CFG.lampEvery[0], CFG.lampEvery[1]); if (live < cap + 1) spawnLamp(); }
     }
+    /* 精英三线：免疫 2200 / 免控 3000 / 无视无敌 3800 —— 每只都比普通怪能扛，且各自废掉你一路打法 */
+    if (G.depth >= CFG.shellFrom) {
+      if (gate(0, "shellT")) { G.shellT = rr(CFG.shellEvery[0], CFG.shellEvery[1]); if (live < cap) spawnShell(); }
+    }
+    if (G.depth >= CFG.anchorFrom) {
+      if (gate(0, "anchorT")) { G.anchorT = rr(CFG.anchorEvery[0], CFG.anchorEvery[1]); if (live < cap) spawnAnchor(); }
+    }
+    if (G.depth >= CFG.nullifyFrom) {
+      if (gate(0, "nullifyT")) { G.nullifyT = rr(CFG.nullifyEvery[0], CFG.nullifyEvery[1]); if (live < cap) spawnNullify(); }
+    }
     G.introShown = G.introShown || {};
-    for (const it of [[CFG.splitFrom, "裂腹鱼：打死会裂成两条"], [CFG.leechFrom, "吸氧蛭：贴上来抽你的氧"], [CFG.lampFrom, "熄灯鮟鱇：活着就吞你的光"]]) {
+    for (const it of [[CFG.splitFrom, "裂腹鱼：打死会裂成两条"], [CFG.leechFrom, "吸氧蛭：贴上来抽你的氧"], [CFG.lampFrom, "熄灯鮟鱇：活着就吞你的光"],
+                          [CFG.shellFrom, "铁壳蟹：持续伤害全免疫，只吃直伤"], [CFG.anchorFrom, "锚鲸：拉不动、钉不住、甩不走"],
+                          [CFG.nullifyFrom, "破免者：壳亮时无敌，咬你无视无敌帧"]]) {
       if (G.depth >= it[0] && !G.introShown[it[0]]) {
         G.introShown[it[0]] = 1;
         /* 只在「刚过线」那 400m 里播：不然跳深度时 3000/4000/5000 三条提示会叠成一坨糊字 */
@@ -2138,6 +2196,29 @@ function stepPlay(dt) {
           burst(e.x, e.y, 10, "255,150,200"); SFX.zap();
         }
       }
+    } else if (e.kind === "shell") {
+      /* 铁壳蟹：横着慢慢压过来，懒得追 —— 靠体格和免疫吃你 */
+      const sp2 = CFG.shellSpd;
+      e.y -= CFG.hunterRush * sp2 * dt;
+      e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
+    } else if (e.kind === "anchor") {
+      /* 锚鲸：匀速下坠式逼近，拐弯很笨（免控的代价是它自己也转不动） */
+      const sp2 = CFG.anchorSpd;
+      e.y -= CFG.hunterRush * sp2 * dt;
+      e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * 0.55 * dt, CFG.hunterVX * sp2 * 0.55 * dt);
+    } else if (e.kind === "nullify") {
+      /* 破免者：壳一亮一灭（灭的时候才打得动），追得最紧 */
+      e.shellT -= dt;
+      if (e.invT > 0) {
+        e.invT = Math.max(0, e.invT - dt);
+        if (e.invT === 0) { e.shellT = CFG.nullifyGap; popup(e.x, e.y - e.r - 22, "壳碎了", "255,120,200"); burst(e.x, e.y, 14, "255,120,200"); }
+      } else if (e.shellT <= 0) {
+        e.invT = CFG.nullifyShell;
+        popup(e.x, e.y - e.r - 22, "免伤壳", "255,120,200"); SFX.zap();
+      }
+      const sp2 = CFG.nullifySpd;
+      e.y -= CFG.hunterRush * sp2 * dt;
+      e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
     } else if (e.kind === "lamp") {
       /* 熄灯鮟鱇：不跟水流滚，慢慢挪到你身边 —— 吞光是按距离算的（见视野那段） */
       e.y += clamp(p.y + 135 - e.y, -CFG.lampRush * dt, CFG.lampRush * dt);
@@ -2187,7 +2268,7 @@ function stepPlay(dt) {
       if (diedM && G.m.vamp > 0) healVamp(e.x, e.y);
       ramOnHit(e, diedM);
       continue;
-    } else if (d < rr2 && p.invuln <= 0 && !e.hit && !(e.pullImm > 0) && e.kind !== "leech") {
+    } else if (d < rr2 && (p.invuln <= 0 || e.kind === "nullify") && !e.hit && !(e.pullImm > 0) && e.kind !== "leech") {
       /* pullImm：正被虚空奇点拽着的怪不撞人（玩家口径「拉过来把自己撞死」）；
          只有「真被拽过来」的才算 —— 血量不够、被奇点直接打死的那些不吃这个豁免 */
       e.hit = true;
@@ -2195,13 +2276,13 @@ function stepPlay(dt) {
       if (isMob2) {
         /* 咬人结算：猎手/电袭者同归于尽；剃刀鲸/圣盾使活着走开（e.cd 冷却后再咬） */
         const dmg = Math.round(contactDmg(e) * (1 + dk * CFG.hitGain) * G.m.dmg);
-        hurtPlayer(dmg, e.kind === "reaver" ? "255,190,120" : "255,150,120");
+        hurtPlayer(dmg, e.kind === "reaver" ? "255,190,120" : "255,150,120", e.kind === "nullify");
         if (e.kind === "hunter" || e.kind === "spitter") { burst(e.x, e.y, 20, "255,140,110"); ents.splice(i, 1); }
         else e.cd = 1.2;
       } else {
         hurtPlayer(Math.round(CFG.hitDamage * (1 + dk * CFG.hitGain) * G.m.dmg));
       }
-    } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden" || e.kind === "split" || e.kind === "lamp")) {
+    } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden" || e.kind === "split" || e.kind === "lamp" || e.kind === "shell" || e.kind === "anchor" || e.kind === "nullify")) {
       e.cd = Math.max(0, e.cd - dt);
       if (e.cd <= 0) e.hit = false;       // 大家伙咬完一口会绕回来再咬：冷却好了才能咬下一口
     } else if (!e.near && (e.kind === "rock" || e.kind === "cable") && d < rr2 + G.m.nearPad) {
@@ -3257,7 +3338,8 @@ function drawJellyGlow(e) {
    而重绘的兜底分支画的是「紫伞 + 5 根触手 + 中央亮核」＝电袭者的样子 ——
    于是每块石头、每条泥鳅在黑暗里都顶着一只紫色水母（探针实测：石头 1479 个紫像素、
    泥鳅 629 个，最亮 rgb(187,159,243) 就是那只假水母的伞边）。 */
-const MOB_SET = { hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1, split: 1, leech: 1, lamp: 1 };
+const MOB_SET = { hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1, split: 1, leech: 1, lamp: 1,
+                  shell: 1, anchor: 1, nullify: 1 };   // 后三只是「精英三线」：免疫 / 免控 / 无视无敌
 /* 怪物判定的唯一入口：加一只怪只改 MOB_SET 一处，不再逐个补手写的 kind 列表
    （漏一处的老毛病就是「打上去不疼 / 撞了不掉氧」，这种 bug 找起来最费劲） */
 function mobKind(k) { return !!MOB_SET[k] && k !== "bolt"; }
@@ -3266,6 +3348,9 @@ function contactDmg(e) {
   if (e.kind === "reaver") return CFG.reaverDmg;
   if (e.kind === "split") return CFG.splitDmg * (e.kid ? CFG.splitKidDmg : 1);
   if (e.kind === "lamp") return CFG.lampDmg;
+  if (e.kind === "shell") return CFG.shellDmg;
+  if (e.kind === "anchor") return CFG.anchorDmg;
+  if (e.kind === "nullify") return CFG.nullifyDmg;
   if (e.kind === "leech") return 0;
   return CFG.huntDamage;
 }
@@ -3282,6 +3367,9 @@ function drawCombatGlow(e) {
   else if (e.kind === "split") { g.addColorStop(0, "rgba(150,255,190,0.40)"); g.addColorStop(1, "rgba(90,220,150,0)"); }
   else if (e.kind === "leech") { g.addColorStop(0, "rgba(255,130,200,0.42)"); g.addColorStop(1, "rgba(220,80,170,0)"); }
   else if (e.kind === "lamp") { g.addColorStop(0, "rgba(190,150,255,0.44)"); g.addColorStop(1, "rgba(120,70,220,0)"); }
+  else if (e.kind === "shell") { g.addColorStop(0, "rgba(150,205,215,0.30)"); g.addColorStop(1, "rgba(90,150,165,0)"); }
+  else if (e.kind === "anchor") { g.addColorStop(0, "rgba(255,170,90,0.34)"); g.addColorStop(1, "rgba(190,110,40,0)"); }
+  else if (e.kind === "nullify") { g.addColorStop(0, "rgba(255,110,190,0.44)"); g.addColorStop(1, "rgba(200,40,140,0)"); }
   else { g.addColorStop(0, "rgba(180,225,255,0.45)"); g.addColorStop(1, "rgba(120,180,255,0)"); }
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(e.x, e.y, rad, 0, Math.PI * 2); ctx.fill();
@@ -3332,6 +3420,64 @@ function drawCombatGlow(e) {
     ctx.beginPath(); ctx.ellipse(R0 * 0.85, -R0 * 0.18, 3.6, 2.3, 0, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,225,150,1)"; ctx.fill();
     ctx.restore();
+  } else if (e.kind === "shell") {
+    /* 铁壳蟹：六边形壳 + 横纹 + 两条腿（一眼看出「硬」） */
+    const R0 = e.r;
+    ctx.beginPath();
+    for (let k2 = 0; k2 < 6; k2++) {
+      const a2 = Math.PI / 6 + k2 * Math.PI / 3;
+      const px2 = x + Math.cos(a2) * R0 * 1.12, py2 = y + Math.sin(a2) * R0 * 0.86;
+      if (k2 === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(120,175,190,0.55)"; ctx.fill();
+    ctx.strokeStyle = "rgba(205,245,255,0.95)"; ctx.lineWidth = 2.4; ctx.stroke();
+    ctx.strokeStyle = "rgba(205,245,255,0.55)"; ctx.lineWidth = 1.4;
+    for (let k2 = 1; k2 <= 2; k2++) {
+      ctx.beginPath();
+      ctx.moveTo(x - R0 * (0.75 - k2 * 0.16), y + (k2 - 1.5) * R0 * 0.42);
+      ctx.lineTo(x + R0 * (0.75 - k2 * 0.16), y + (k2 - 1.5) * R0 * 0.42);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(205,245,255,0.8)"; ctx.lineWidth = 2;
+    for (const sg of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(x + sg * R0 * 1.0, y + R0 * 0.35);
+      ctx.lineTo(x + sg * R0 * 1.5, y + R0 * 0.95);
+      ctx.stroke();
+    }
+  } else if (e.kind === "anchor") {
+    /* 锚鲸：钟形大块 + 底部横杠（看着就沉） */
+    const R0 = e.r;
+    ctx.beginPath();
+    ctx.moveTo(x, y - R0 * 1.05);
+    ctx.quadraticCurveTo(x + R0 * 1.25, y - R0 * 0.1, x + R0 * 0.85, y + R0 * 0.75);
+    ctx.lineTo(x - R0 * 0.85, y + R0 * 0.75);
+    ctx.quadraticCurveTo(x - R0 * 1.25, y - R0 * 0.1, x, y - R0 * 1.05);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(190,120,50,0.6)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,215,150,0.95)"; ctx.lineWidth = 2.6; ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x - R0 * 1.15, y + R0 * 0.95); ctx.lineTo(x + R0 * 1.15, y + R0 * 0.95); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y - R0 * 1.05); ctx.lineTo(x, y - R0 * 1.75); ctx.stroke();
+  } else if (e.kind === "nullify") {
+    /* 破免者：圆身 + 尖嘴；壳亮着时套一圈会闪的亮环（打上去是「免疫」） */
+    const R0 = e.r;
+    ctx.beginPath(); ctx.arc(x, y, R0 * 0.92, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(150,40,110,0.7)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,150,215,0.95)"; ctx.lineWidth = 2.2; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + R0 * 0.55, y - R0 * 0.3); ctx.lineTo(x + R0 * 1.65, y); ctx.lineTo(x + R0 * 0.55, y + R0 * 0.3);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,150,215,0.9)"; ctx.fill();
+    if (e.invT > 0) {
+      ctx.beginPath(); ctx.arc(x, y, R0 * 1.5, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,120,200," + (0.55 + 0.35 * Math.sin(G.t * 18)).toFixed(3) + ")";
+      ctx.lineWidth = 3.4; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, R0 * 1.5 + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,200,235,0.35)"; ctx.lineWidth = 1.6; ctx.stroke();
+    }
   } else if (e.kind === "warden") {
     /* 圣盾使：金钟水母 + 一圈护盾弧（盾开着才画）；蓄力时中央亮起 */
     const pulse = 1 + Math.sin(G.t * 3 + e.seed) * 0.08;
@@ -4065,7 +4211,8 @@ window.__SINK__ = {
   startRun, update, simulate, runSelfTest, autopilot,
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
   ents: () => ents, p, probePx, lightR: () => G.lightR,
-  fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp, mobKind, contactDmg, entSegDist, hurtPlayer,
+  fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp,
+  spawnShell, spawnAnchor, spawnNullify, mobKind, contactDmg, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, wrapText, entBodyDist,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
