@@ -4,6 +4,7 @@
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
      下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
 
+
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#02060d" />
@@ -1029,6 +1030,20 @@ function breakReward(e) {
   G.bonus += CFG.breakScore;
   burst(e.x, e.y, 14, "190,205,220");
 }
+/* 进阶·吞噬奇点 的档位表（2026-09-26 玩家口径「每次增加两只，最开始是 5 只」）：
+   第 t 档要多吃的只数 = 5 + 2(t−1) → 5/7/9/11/…；累计到第 t 档 = 5t + t(t−1) → 5/12/21/32/45/60/77/96/117/140。
+   每档 +10 伤害、封顶 +100（10 档）。 */
+function devourTierNeed(t) { return 5 + 2 * (t - 1); }
+function devourTierAt(eat) {
+  let t = 0, need = 0;
+  while (t < 10) { need += devourTierNeed(t + 1); if (eat < need) break; t++; }
+  return t;
+}
+function devourNextNeed(eat) {          // 下一档要累计吃到几只（已满档返回 null）
+  let need = 0;
+  for (let k = 1; k <= 10; k++) { need += devourTierNeed(k); if (eat < need) return need; }
+  return null;
+}
 function hurtEnt(i, e, dmg, tag, raw, isDot) {
   /* 统一增伤入口：奇点钉住 +30% / 白昼区 +35%（场自己的持续伤害走 raw=true，不叠自己） */
   if (!raw && (MOB_SET[e.kind] || e.kind === "rock" || e.kind === "cable")) dmg = Math.round(dmg * hitAmp(e));
@@ -1059,15 +1074,22 @@ function hurtEnt(i, e, dmg, tag, raw, isDot) {
       const isMob = mobKind(e.kind);
   e.dead = true;      // 先立牌子再发奖：范围伤害 / 连锁爆炸 / 碎障溅骨片都靠它，怪和障碍一视同仁
   if (isMob) killReward(e); else breakReward(e);
-  /* 进阶·吞噬奇点（玩家口径「死掉的怪直接吞进黑洞，吞够数量伤害成长，上限 +100」）：
-     死的时候身子还在奇点里 → 被黑洞吃掉，本局每颗奇点的总伤害 +10（累计封顶 +100）。 */
+  /* 进阶·吞噬奇点（玩家口径「死掉的怪直接吞进黑洞，吞够数量伤害成长，上限 +100」；
+     2026-09-26 改档位：吃满 5 只才算第 1 档，之后每档多要 2 只（5/7/9/…），每档 +10 · 封顶 +100）。 */
   if (isMob && G.t2 === "singA" && (G.singGrow || 0) < 100) {
     for (const z of G.zones) {
       if (z.type !== "sing" && z.type !== "singHold") continue;
       if (Math.hypot(e.x - z.x, e.y - z.y) > z.r + e.r) continue;
       G.singEat = (G.singEat || 0) + 1;
-      G.singGrow = Math.min(100, (G.singGrow || 0) + 10);
-      popup(z.x, z.y - 46, "吞噬 ×" + G.singEat + " · 奇点 +" + G.singGrow, "190,170,255");
+      const t0 = devourTierAt(G.singEat - 1), t1 = devourTierAt(G.singEat);
+      /* 取大：档位是唯一真身，重算不许把已经拿到的成长抹回去 */
+      G.singGrow = Math.max(G.singGrow || 0, Math.min(100, 10 * t1));
+      if (t1 > t0) {
+        popup(z.x, z.y - 46, "吞噬达标 ×" + t1 + " 档 · 奇点 +" + G.singGrow, "220,205,255");
+      } else {
+        const nx = devourNextNeed(G.singEat);
+        popup(z.x, z.y - 46, "吞噬 " + G.singEat + "/" + nx + " · 奇点 +" + G.singGrow, "190,170,255");
+      }
       burst(e.x, e.y, 20, "190,170,255");
       break;
     }
@@ -1222,7 +1244,7 @@ function shockwave() {
           (ember ? "（不扣氧）" : "（−" + cost.toFixed(1) + " 氧" + (noHeal ? " · 无吸血" : "") + "）"), "255,140,170");
   }
   /* 虚空奇点：直伤让位给控场 —— 总额 = 冲击波那一发 × k，再按持续时间平分成每段（段数越多每段越薄，总额不变）
-     进阶·吞噬奇点：每吞一只怪给奇点总伤害 +10（本局累计 · 上限 +100） */
+     进阶·吞噬奇点：档位制 —— 第 1 档吃满 5 只，之后每档多要 2 只（5/7/9/…），每档给奇点总伤害 +10（上限 +100） */
   const singTotal = sing ? Math.round(D * sing.k) + (G.singGrow || 0) : 0;
   if (sing) D = singTotal;
   G.actFx.shock = 0.45; G.actFx.sx = p.x; G.actFx.sy = p.y;
@@ -2660,8 +2682,8 @@ const MUT_T2 = {
     { id: "chgB", n: "连涛", col: [150,255,220], d: "冲锋撞死怪就立刻刷新冷却（马上能再冲）—— 有东西可撞就一直冲，冲刺从「3 秒一次的技能」连成一片", sub: "撞死就接着冲" }
   ],
   sing: [
-    { id: "singA", n: "吞噬奇点", col: [190,170,255], d: "死在奇点里的怪会被黑洞吞掉：每吞 1 只，之后每颗奇点的总伤害 +10（本局累计 · 上限 +100）—— 越吃越大", sub: "吃怪长大" },
-    { id: "singB", n: "双生奇点", col: [255,150,255], d: "可以留一颗待炸的奇点（最多一颗 · 10s 不炸就散）：存着时地上是一圈亮紫脉冲＋倒计时弧＋「待炸」两个字，按左键当场引爆 —— 从「一发控场」变成布局博弈", sub: "存一颗再引爆" }
+    { id: "singA", n: "吞噬奇点", col: [190,170,255], d: "死在奇点里的怪被吞掉：吃满 5 只起每档 +10 伤害，之后每档多要 2 只（5/7/9… · 上限 +100）", sub: "吃怪长大" },
+    { id: "singB", n: "双生奇点", col: [255,150,255], d: "可以留一颗待炸的奇点（最多一颗 · 10s 不炸就散）：地上是一圈亮紫脉冲＋倒计时＋「待炸」牌子，按左键当场引爆", sub: "存一颗再引爆" }
   ],
   fis: [
     { id: "fisA", n: "过热核心", col: [255,180,140], d: "每个引爆点留下 3s 火池（每秒 42 伤害）—— 连锁从瞬时变区域封锁", sub: "炸完还在烧" },
@@ -3232,9 +3254,10 @@ function drawZones() {
         const rr2 = z.r * (0.95 - k * 0.24);
         ctx.beginPath(); ctx.arc(z.x, z.y, rr2, spin + k * 2.1, spin + k * 2.1 + 2.2); ctx.stroke();
       }
-      /* 进阶·吞噬奇点：吞了几只写在圈里（成长看得见） */
+      /* 进阶·吞噬奇点：吃到第几只 / 下一档要几只写在圈里（档位成长看得见） */
       if (G.t2 === "singA" && G.singEat > 0) {
-        text("吞噬 ×" + G.singEat + " · 奇点 +" + G.singGrow, z.x, z.y + 4, 12, "rgba(225,215,255," + (0.85 * a).toFixed(2) + ")", "center", 600);
+        const nx = devourNextNeed(G.singEat);
+        text("吞噬 " + G.singEat + (nx ? "/" + nx : " 满") + " · 奇点 +" + G.singGrow, z.x, z.y + 4, 12, "rgba(225,215,255," + (0.85 * a).toFixed(2) + ")", "center", 600);
       }
     } else if (z.type === "wound" || z.type === "fire" || z.type === "wave") {
       /* 横浪（立浪）/ 火池：一圈贴地的光，越旧越淡 */
@@ -3338,7 +3361,7 @@ function drawStacks() {
   const list = [];
   if (G.m && G.mutate === "bone" && G.m.bone && G.bone > 0) list.push({ n: G.bone, col: "225,240,255", tag: "骨甲" });
   if (G.m && G.m.frenzy && G.frenzy > 0) list.push({ n: G.frenzy, col: "255,150,150", tag: "血怒" });
-  if (G.m && G.mutate === "sing" && G.t2 === "singA" && G.singEat > 0) list.push({ n: G.singEat, col: "190,170,255", tag: "吞噬" });  // 吞噬奇点：吃了几只
+  if (G.m && G.mutate === "sing" && G.t2 === "singA" && G.singEat > 0) list.push({ n: devourTierAt(G.singEat), col: "190,170,255", tag: "吞噬" });  // 吞噬奇点：显示到第几档（不是吃了几只，那个数能到 140）
   if (G.t2) {                                       // 进阶：挂在状态栏，一眼看到自己走了哪条
     const T2M = (MUT_T2[G.mutate] || []).filter((m) => m.id === G.t2)[0];
     if (T2M) list.push({ n: T2M.n, col: T2M.col.join(String.fromCharCode(44)), tag: "进阶", txt: true });
@@ -4367,7 +4390,7 @@ window.__SINK__ = {
   fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp,
   spawnShell, spawnAnchor, spawnNullify, mobKind, contactDmg, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
-  rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist,
+  rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
   SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, R,
   trailN: () => G.trail.length, trailStyle: () => trailStyle(), stepTrail, drawTrail,
