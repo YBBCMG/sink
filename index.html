@@ -152,6 +152,10 @@ const CFG = {
   anchorFrom: 3100,   // 跟裂腹鱼的 3000m 错开，免得两条过线提示挤在同一帧
   anchorEvery: [9, 15], anchorHP: 260, anchorDmg: 30, anchorSpd: 0.80,
   nullifyFrom: 3800, nullifyEvery: [12, 20], nullifyHP: 240, nullifyDmg: 40, nullifySpd: 0.95,
+  /* 铁壳蟹不是「一刀切免疫」，而是「有条件的抗性 + 一个能打穿的窗口」（2026-09-25 玩家口径：
+     可以免疫，但不能一刀切）。甲壳期持续伤害只吃 35%、钉住/烙印增伤只吃一半；
+     直伤累到 30% 血就砸开壳，破壳 9s 内 DoT ×1.25、增伤全额 —— 这就是那条「打穿的窗口」。 */
+  shellDotCut: 0.35, shellAmpCut: 0.5, shellOpen: 9, shellBreak: 0.30,
   nullifyShell: 1.6, nullifyGap: 4.2,
   mutateAt: 2000, t2At: 4000,          // t2At：到这里你那条质变长出两条进阶（二选一）
   /* 神器上限：一局最多持有几张（新神器只在持有数 < 上限时判定） */
@@ -1018,7 +1022,7 @@ function breakReward(e) {
   G.bonus += CFG.breakScore;
   burst(e.x, e.y, 14, "190,205,220");
 }
-function hurtEnt(i, e, dmg, tag, raw) {
+function hurtEnt(i, e, dmg, tag, raw, isDot) {
   /* 统一增伤入口：奇点钉住 +30% / 白昼区 +35%（场自己的持续伤害走 raw=true，不叠自己） */
   if (!raw && (MOB_SET[e.kind] || e.kind === "rock" || e.kind === "cable")) dmg = Math.round(dmg * hitAmp(e));
   /* 圣盾使的盾：单次 ≥60 直接破盾；不然挡 75% 并削一层（3 层）。盾碎了 breakT 秒后重开。 */
@@ -1032,6 +1036,15 @@ function hurtEnt(i, e, dmg, tag, raw) {
     popup(e.x, e.y - e.r - 20, "免疫", "255,120,200");
     burst(e.x, e.y, 4, "255,120,200");
     return false;
+  }
+  /* 铁壳蟹：甲壳期的直伤累到 30% 血就砸开壳（破壳 9s 内 DoT ×1.25、增伤全额） */
+  if (e.kind === "shell" && e.shellT <= 0 && !isDot) {
+    e.chip = (e.chip || 0) + dmg;
+    if (e.chip >= e.maxHp * CFG.shellBreak) {
+      e.chip = 0; e.shellT = CFG.shellOpen;
+      popup(e.x, e.y - e.r - 22, "破壳!", "255,214,120");
+      burst(e.x, e.y, 18, "255,214,120"); SFX.zap();
+    }
   }
   e.hp -= dmg; e.flash = 0.16;
   popup(e.x, e.y - e.r - 8, "-" + dmg, tag || "255,175,125");
@@ -1504,7 +1517,7 @@ function spawnLamp() {
 function spawnShell() {
   ents.push({ kind: "shell", x: rr(80, W0 - 80), y: H0 + 55, r: 26,
               hp: mobHP(CFG.shellHP), maxHp: mobHP(CFG.shellHP), seed: rnd() * 997,
-              hit: false, near: false, flash: 0, dotImm: 1, popT: 0 });
+              hit: false, near: false, flash: 0, shellT: 0, chip: 0, popT: 0 });
 }
 /* 锚鲸：自重太大 —— 牵引 / 钉住 / 眩晕 / 甩飞一概不动它（伤害照吃）。
    漩涡吸不动、奇点钉不住、回旋鲸吞甩不走。 */
@@ -1591,11 +1604,16 @@ function addZone(z) {
 }
 /* 统一的「额外增伤」入口：奇点钉住 / 白昼区。以后再加别的增伤也只改这里；
    场自己的持续伤害走 raw=true，不自己吃自己的加成。 */
+/* 持续伤害折减入口：铁壳蟹甲壳期只吃 35%，壳开了反而吃 125% —— 这就是那条「能打穿的窗口」 */
+function dotScale(e) {
+  if (e && e.kind === "shell") return e.shellT > 0 ? 1.25 : CFG.shellDotCut;
+  return 1;
+}
 function hitAmp(e) {
-  if (e && e.dotImm) return 1;                   // 铁壳蟹：钉住增伤 / 烙印增伤一概不吃
   let k = 0;
   if (G.m.sing && e && e.pinT > 0) k += G.m.sing.amp;
   if (e && e.vulnT > 0) k += e.vuln || 0;        // 进阶挂的烙印（坍缩余烬 +15% / 光印烙印 +40%）
+  if (e && e.kind === "shell" && e.shellT <= 0) k *= CFG.shellAmpCut;   // 铁壳蟹甲壳期：钉住/烙印增伤只吃一半
   return 1 + k;
 }
 /* 范围伤害：先把目标快照下来再逐个结算 —— hurtEnt 里会 splice，边遍历边删会打错人 */
@@ -1604,7 +1622,6 @@ function aoeHit(x, y, r, dmg, tag, skip, isDot) {
   for (const e of ents) {
     if (e.dead || e === skip) continue;
     if (e.kind !== "rock" && e.kind !== "cable" && !MOB_SET[e.kind]) continue;
-    if (isDot && e.dotImm) continue;                 // 铁壳蟹：场伤害（火池/伤口带/灯环/奇点每段）直接免疫
     if (Math.hypot(e.x - x, e.y - y) > r + e.r) continue;
     list.push(e);
   }
@@ -1612,7 +1629,8 @@ function aoeHit(x, y, r, dmg, tag, skip, isDot) {
   for (const e of list) {
     const i = ents.indexOf(e);
     if (i < 0 || e.dead) continue;
-    hurtEnt(i, e, dmg, tag);
+    /* 持续伤害走抗性折减（铁壳蟹甲壳期 ×0.35 / 破壳期 ×1.25）—— 不再是「整只免疫」 */
+    hurtEnt(i, e, isDot ? Math.max(1, Math.round(dmg * dotScale(e))) : dmg, tag, false, isDot);
     hit++;
   }
   return hit;
@@ -2095,7 +2113,7 @@ function stepPlay(dt) {
     }
     G.introShown = G.introShown || {};
     for (const it of [[CFG.splitFrom, "裂腹鱼：打死会裂成两条"], [CFG.leechFrom, "吸氧蛭：贴上来抽你的氧"], [CFG.lampFrom, "熄灯鮟鱇：活着就吞你的光"],
-                          [CFG.shellFrom, "铁壳蟹：持续伤害全免疫，只吃直伤"], [CFG.anchorFrom, "锚鲸：拉不动、钉不住、甩不走"],
+                          [CFG.shellFrom, "铁壳蟹：甲壳挡掉六成半持续伤害，砸开壳后 9s 内反而吃更多"], [CFG.anchorFrom, "锚鲸：拉不动、钉不住、甩不走"],
                           [CFG.nullifyFrom, "破免者：壳亮时无敌，咬你无视无敌帧"]]) {
       if (G.depth >= it[0] && !G.introShown[it[0]]) {
         G.introShown[it[0]] = 1;
@@ -2197,7 +2215,11 @@ function stepPlay(dt) {
         }
       }
     } else if (e.kind === "shell") {
-      /* 铁壳蟹：横着慢慢压过来，懒得追 —— 靠体格和免疫吃你 */
+      /* 铁壳蟹：横着慢慢压过来，懒得追 —— 靠体格和甲壳吃你；壳开着的时候反倒更脆 */
+      if (e.shellT > 0) {
+        e.shellT = Math.max(0, e.shellT - dt);
+        if (e.shellT === 0) { popup(e.x, e.y - e.r - 22, "壳重铸", "255,214,120"); burst(e.x, e.y, 10, "255,214,120"); }
+      }
       const sp2 = CFG.shellSpd;
       e.y -= CFG.hunterRush * sp2 * dt;
       e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
@@ -3421,8 +3443,10 @@ function drawCombatGlow(e) {
     ctx.fillStyle = "rgba(255,225,150,1)"; ctx.fill();
     ctx.restore();
   } else if (e.kind === "shell") {
-    /* 铁壳蟹：六边形壳 + 横纹 + 两条腿（一眼看出「硬」） */
-    const R0 = e.r;
+    /* 铁壳蟹：六边形壳 + 横纹 + 两条腿（一眼看出「硬」）。
+       破壳那 9s 壳是「裂的」（暖色 + 裂纹 + 外圈虚光）—— 这段窗口 DoT ×1.25、增伤全额，
+       玩家得看得见才用得上，不能只靠弹字。 */
+    const R0 = e.r, brk = e.shellT > 0;
     ctx.beginPath();
     for (let k2 = 0; k2 < 6; k2++) {
       const a2 = Math.PI / 6 + k2 * Math.PI / 3;
@@ -3430,21 +3454,36 @@ function drawCombatGlow(e) {
       if (k2 === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
     }
     ctx.closePath();
-    ctx.fillStyle = "rgba(120,175,190,0.55)"; ctx.fill();
-    ctx.strokeStyle = "rgba(205,245,255,0.95)"; ctx.lineWidth = 2.4; ctx.stroke();
-    ctx.strokeStyle = "rgba(205,245,255,0.55)"; ctx.lineWidth = 1.4;
+    ctx.fillStyle = brk ? "rgba(150,106,74,0.45)" : "rgba(120,175,190,0.55)"; ctx.fill();
+    ctx.strokeStyle = brk ? "rgba(255,206,140,0.95)" : "rgba(205,245,255,0.95)"; ctx.lineWidth = 2.4; ctx.stroke();
+    if (brk) {                                    // 破壳：外圈虚光，远处也能看出「壳开了」
+      ctx.beginPath(); ctx.arc(x, y, R0 * 1.5, 0, 7);
+      ctx.strokeStyle = "rgba(255,206,140,0.45)"; ctx.lineWidth = 6; ctx.stroke();
+    }
+    ctx.strokeStyle = brk ? "rgba(255,206,140,0.5)" : "rgba(205,245,255,0.55)"; ctx.lineWidth = 1.4;
     for (let k2 = 1; k2 <= 2; k2++) {
       ctx.beginPath();
       ctx.moveTo(x - R0 * (0.75 - k2 * 0.16), y + (k2 - 1.5) * R0 * 0.42);
       ctx.lineTo(x + R0 * (0.75 - k2 * 0.16), y + (k2 - 1.5) * R0 * 0.42);
       ctx.stroke();
     }
-    ctx.strokeStyle = "rgba(205,245,255,0.8)"; ctx.lineWidth = 2;
+    ctx.strokeStyle = brk ? "rgba(255,206,140,0.85)" : "rgba(205,245,255,0.8)"; ctx.lineWidth = 2;
     for (const sg of [-1, 1]) {
       ctx.beginPath();
       ctx.moveTo(x + sg * R0 * 1.0, y + R0 * 0.35);
       ctx.lineTo(x + sg * R0 * 1.5, y + R0 * 0.95);
       ctx.stroke();
+    }
+    if (brk) {                                    // 壳上的裂纹：两道折线，一眼分得出「甲壳期 / 破壳期」
+      ctx.strokeStyle = "rgba(60,40,26,0.85)"; ctx.lineWidth = 2.2;
+      for (const sg of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(x + sg * R0 * 0.15, y - R0 * 0.75);
+        ctx.lineTo(x + sg * R0 * 0.45, y - R0 * 0.22);
+        ctx.lineTo(x + sg * R0 * 0.2, y + R0 * 0.1);
+        ctx.lineTo(x + sg * R0 * 0.5, y + R0 * 0.62);
+        ctx.stroke();
+      }
     }
   } else if (e.kind === "anchor") {
     /* 锚鲸：钟形大块 + 底部横杠（看着就沉） */
