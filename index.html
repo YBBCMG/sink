@@ -1040,7 +1040,7 @@ let ACT_R = 30;
 const ACT_BTN = [
   { k: "q", key: "Q", n: "冲击波", x: W0 - 66, y: H0 - 66, cd: () => G.m.shockCd },
   { k: "e", key: "E", n: "突进", x: W0 - 140, y: H0 - 66, cd: () => G.m.dashCd },
-  { k: "f", key: "F", n: "探照", x: W0 - 214, y: H0 - 66, cd: () => (G.m ? G.m.flareCd : CFG.flareCd) }
+  { k: "f", key: "F", n: "探照", x: W0 - 214, y: H0 - 66, cd: () => (G.m && G.m.lance ? G.m.lance.cd : (G.m ? G.m.flareCd : CFG.flareCd)) }
 ];
 /* 触屏专用控件（桌面不画）：按住「加速」、点「暂停」—— 手机没键盘，这两个原本只能用键 */
 const BOOST_BTN = { x: W0 * 0.5, y: H0 - 66, r: 34, held: null };
@@ -1822,11 +1822,11 @@ function stepPlay(dt) {
       if (diedO && G.m.vamp > 0) healVamp(e.x, e.y);
       ramOnHit(e, diedO);
       continue;
-    } else if (fx.dash > 0 && G.m.ramDmg > 0 && (e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden")
+    } else if (fx.dash > 0 && (G.m.ramDmg > 0 || G.m.chg) && (e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden")
                && Math.hypot(e.x - p.x, e.y - p.y) < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
-      /* 基础突进只撞碎障碍物，点了猛撞才能把怪一起撞了 */
+      /* 基础突进只撞碎障碍物，点了猛撞才能把怪一起撞了 —— 怒涛冲锋自带「撞怪」这一档 */
       e.dashS = G.dashStamp;
-      const diedM = hurtEnt(i, e, G.m.ramDmg + stackRamBonus(), "150,255,220");
+      const diedM = hurtEnt(i, e, G.m.chg ? G.m.chg.dmg + stackRamBonus() : G.m.ramDmg + stackRamBonus(), "150,255,220");
       if (diedM && G.m.vamp > 0) healVamp(e.x, e.y);
       ramOnHit(e, diedM);
       continue;
