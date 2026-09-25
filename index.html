@@ -997,7 +997,7 @@ function chainBoom(e, k, r, jump, depth) {
     for (const o of list) { const oi = ents.indexOf(o); if (oi >= 0) hurtEnt(oi, o, Math.round(D * 1.3), "255,185,130"); }
   } else aoeHit(e.x, e.y, r, D, "255,185,130", e);
   /* 进阶·过热核心：炸完留一池 2.5s 的火（区域封锁） */
-  if (G.t2 === "fisA") addZone({ type: "fire", x: e.x, y: e.y, r: Math.round(r * 0.8), dmg: 30, life: 2.5, tick: 0, col: "255,170,110" });
+  if (G.t2 === "fisA") addZone({ type: "fire", x: e.x, y: e.y, r: Math.round(r * 0.9), dmg: 42, life: 3, tick: 0, col: "255,170,110" });
   if (depth < jump) for (const o of ents) {          // 给下一环挂引信（谁被炸死，谁接着炸）
     if (o.dead || !MOB_SET[o.kind] || o.kind === "bolt") continue;
     if (Math.hypot(o.x - e.x, o.y - e.y) > r + o.r) continue;
@@ -1174,9 +1174,9 @@ function shockwave() {
        段数 nTick 取实际结算次数（life 那一帧先删场，所以 1.5s 只有 2 段），每段 = 总额 / nTick。 */
     const nTick = Math.max(1, Math.floor((sing.life - 1e-6) / 0.5));
     /* 进阶·双生奇点：场上已经有一颗，就存一颗「待炸的」（不拉不结算），按 F 手动引爆 */
-    if (G.t2 === "singB" && G.zones.some((z) => z.type === "sing" || z.type === "singHold")) {
+    if (G.t2 === "singB" && !G.zones.some((z) => z.type === "singHold") && G.zones.some((z) => z.type === "sing")) {
       addZone({ type: "singHold", x: p.x, y: p.y, r: sing.r, dmg: Math.max(1, singTotal * 2 / nTick),
-                total: singTotal, ticks: nTick, life: 1e9, tick: 0, pull: 0, col: "190,170,255" });
+                total: singTotal, ticks: nTick, life: 10, tick: 0, pull: 0, col: "190,170,255" });
       popup(p.x, p.y - 92, "存了一颗奇点 · F 引爆", "190,170,255");
       burst(p.x, p.y, 18, "190,170,255");
       return 0;
@@ -1499,7 +1499,8 @@ function hurtPlayer(dmg, col) {
     const cut = Math.round(dmg * G.m.bone.save);
     G.bone -= 1; dmg = Math.max(1, dmg - cut);
     /* 进阶·骨甲反噬：花掉的这层当场炸成一圈骨刺（挨打反而清场） */
-    if (G.t2 === "boneA") {
+    if (G.t2 === "boneA" && (G.boneACd || 0) <= 0) {
+      G.boneACd = 0.45;                            // 内置冷却：密集挨打不许变成无限骨刺机关枪
       aoeHit(p.x, p.y, 160, 30, "225,240,255", null);
       burst(p.x, p.y, 14, "225,240,255");
     }
@@ -1769,6 +1770,7 @@ function stepPlay(dt) {
   }
   if (G.holy > 0) { G.holyT = Math.max(0, (G.holyT || 0) - dt); if (G.holyT <= 0) G.holy = 0; }   // 圣光：12s 不刷新就散
   if (G.aspBCd > 0) G.aspBCd = Math.max(0, G.aspBCd - dt);                     // 绝息一击：8s 一次
+  if (G.boneACd > 0) G.boneACd = Math.max(0, G.boneACd - dt);                  // 骨甲反噬：0.45s 一次
   if (G.shield3 > 0) G.shield3 = Math.max(0, G.shield3 - dt);                  // 圣光护罩：3s
 
   /* 质变·鲸吞漩涡：张口期间把怪和气泡往身上吸，吸到嘴边结一次撞击伤害 */
@@ -1867,6 +1869,7 @@ function stepPlay(dt) {
         /* 进阶·光印烙印：满印不再换氧，改成把这只怪定住 2s 并挂 6s「受击 +40%」 */
         if (G.t2 === "judgeA") {
           e.pinT = 2; e.vuln = 0.40; e.vulnT = 6;
+          G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * J.heal * 0.5);   // 氧只回一半（3%）：控场为主，不至于断粮
           popup(e.x, e.y - e.r - 26, "烙印 · 定住", "195,255,235");
           burst(e.x, e.y, 18, "195,255,235");
           continue;
@@ -1951,7 +1954,7 @@ function stepPlay(dt) {
       G.woundAcc = (G.woundAcc || 0) + V * dt;
       if (G.woundAcc >= 40) {
         G.woundAcc = 0;
-        addZone({ type: "wound", x: p.x, y: p.y, r: 46, dmg: 35, life: 3, tick: 0, col: "150,255,220" });
+        addZone({ type: "wound", x: p.x, y: p.y, r: 46, dmg: 50, life: 4, tick: 0, col: "150,255,220" });
       }
     }
   } else if (G.m.chg && Math.abs(p.y - CFG.playerY) > 0.5) {
@@ -2495,19 +2498,19 @@ const MUT_T2 = {
     { id: "whirlB", n: "涡心压缩", col: [135,235,255], d: "吸力分两段：先停在 120px 外 0.6s，再二次收口 —— 两段各结算一次撞击伤害", sub: "两段咬合" }
   ],
   bone: [
-    { id: "boneA", n: "骨甲反噬", col: [225,240,255], d: "受伤消耗的每一层骨甲炸成一圈骨刺（每层 30 伤害 · 半径 160）—— 挨打反而清场", sub: "挨打就开刺" },
+    { id: "boneA", n: "骨甲反噬", col: [225,240,255], d: "受伤消耗的每一层骨甲炸成一圈骨刺（每层 30 伤害 · 半径 160 · 0.45s 内只炸一次）—— 挨打反而清场", sub: "挨打就开刺" },
     { id: "boneB", n: "骸骨长矛", col: [225,240,255], d: "E 把全部骨甲射成一排贯穿骨矛（每层一根 · 60 伤害），射完归零 —— 层数终于有出口", sub: "攒层数打出去" }
   ],
   chg: [
     { id: "chgA", n: "回身冲", col: [150,255,220], d: "冲到底不停：0.2s 后朝反方向再冲一次（第二段不吃冷却）—— 一来一回的走位技", sub: "冲过去再冲回来" },
-    { id: "chgB", n: "撞角留痕", col: [150,255,220], d: "冲过的路径留下 3s 伤口带（每秒 35 伤害）—— 把冲锋当画笔用", sub: "路线即伤害" }
+    { id: "chgB", n: "撞角留痕", col: [150,255,220], d: "冲过的路径留下 4s 伤口带（每秒 50 伤害）—— 把冲锋当画笔用", sub: "路线即伤害" }
   ],
   sing: [
     { id: "singA", n: "坍缩余烬", col: [190,170,255], d: "奇点收束时把还钉着的怪甩向外圈 260px，并挂 6s「受击 +15%」—— 控完接着点杀", sub: "控完留伤口" },
-    { id: "singB", n: "双生奇点", col: [190,170,255], d: "可以留一颗待炸的奇点（不结算），按 F 当场引爆 —— 从「一发控场」变成布局博弈", sub: "存一颗再引爆" }
+    { id: "singB", n: "双生奇点", col: [190,170,255], d: "可以留一颗待炸的奇点（最多一颗 · 10s 不炸就散），按 F 当场引爆 —— 从「一发控场」变成布局博弈", sub: "存一颗再引爆" }
   ],
   fis: [
-    { id: "fisA", n: "过热核心", col: [255,180,140], d: "每个引爆点留下 2.5s 火池（每秒 30 伤害）—— 连锁从瞬时变区域封锁", sub: "炸完还在烧" },
+    { id: "fisA", n: "过热核心", col: [255,180,140], d: "每个引爆点留下 3s 火池（每秒 42 伤害）—— 连锁从瞬时变区域封锁", sub: "炸完还在烧" },
     { id: "fisB", n: "定向爆破", col: [255,180,140], d: "爆炸不再是圆：改成朝准星的 90° 扇面（半径 200 · 伤害 +30%）—— 指哪炸哪", sub: "指哪炸哪" }
   ],
   asp: [
@@ -2523,7 +2526,7 @@ const MUT_T2 = {
     { id: "lantB", n: "长明双环", col: [255,225,170], d: "内外双环反向旋转（外 8 盏 / 内 4 盏）—— 火线翻倍，走位就是布阵", sub: "两圈对着转" }
   ],
   judge: [
-    { id: "judgeA", n: "光印烙印", col: [195,255,235], d: "满 4 层光印不再换氧：改为把那只怪定住 2s 并挂 6s「受击 +40%」—— 从回氧变控场", sub: "用印换控场" },
+    { id: "judgeA", n: "光印烙印", col: [195,255,235], d: "满 4 层光印改为定住 2s + 挂 6s「受击 +40%」，氧只回一半（3%）—— 从回氧变控场", sub: "用印换控场" },
     { id: "judgeB", n: "圣光转赐", col: [195,255,235], d: "E 把全部圣光层数换成一个 3s 护罩（免伤 + 撞怪反伤 60）—— 被动变主动", sub: "把圣光拍出去" }
   ]
 };
