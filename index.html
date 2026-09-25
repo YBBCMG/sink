@@ -1095,6 +1095,11 @@ function pauseBtnHit(lx, ly) {
   return TOUCH && G.state === "play" && Math.hypot(lx - PAUSE_BTN.x, ly - PAUSE_BTN.y) <= PAUSE_BTN.r * 1.15;
 }
 /* 冲击波：以本体为圆心清一圈 —— 怪物和障碍一起吃伤害，电球直接吹散 */
+/* 神器·湮灭核心：冲击波落点留一颗牵引+灼伤的场（本职业满档；外职业只在普攻第 4 发掉小核心） */
+function dropCore(x, y) {
+  if (!G.m.core) return;
+  addZone({ type: "core", x: x, y: y, r: G.m.core.r, dmg: G.m.core.d, life: G.m.core.life, pull: 0, col: "185,160,255" });
+}
 function shockwave() {
   const Rr = G.m.shockR;
   const asp = G.m.asp, sing = G.m.sing, fis = G.m.fis;
@@ -1112,6 +1117,7 @@ function shockwave() {
   /* 质变·虚空奇点：不炸 —— 丢一个「拉 + 钉」的场，钉住的怪吃你后面所有伤害 +30% */
   if (sing) {
     addZone({ type: "sing", x: p.x, y: p.y, r: sing.r, dmg: D, life: sing.life, pull: 0, col: "190,170,255" });
+    dropCore(p.x, p.y);                       // 奇点也落核心：控场神器 + 场神器不该互相抵消
     burst(p.x, p.y, 26, "190,170,255"); G.shakeT = 0.3; G.shakeMag = 10; SFX.zap();
     return 0;
   }
@@ -1137,7 +1143,7 @@ function shockwave() {
     if (e.hp !== before || e.dead) n++;
   }
   /* 神器·湮灭核心（法师专属）：落点留下一颗持续工作的核心 */
-  if (G.m.core) addZone({ type: "core", x: p.x, y: p.y, r: G.m.core.r, dmg: G.m.core.d, life: G.m.core.life, pull: G.m.core.pull, col: "185,160,255" });
+  dropCore(p.x, p.y);                       // 普通爆发也一样落核心（同一个函数，两条路不会走岔）
   /* 质变·窒息燃烧：命中回氧（打中越多回得越多） */
   if (asp && n > 0) {
     const g = o2MaxNow() * asp.heal * n;
