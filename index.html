@@ -1402,17 +1402,20 @@ function stepZones(dt) {
       for (const e of ents) {                       /* 牵引 / 钉住 */
         if (e.dead || !MOB_SET[e.kind] || e.kind === "bolt") continue;
         const dx = z.x - e.x, dy = z.y - e.y, d = Math.hypot(dx, dy);
-        if (d > z.r + e.r || d < 1) continue;
+        if (d > z.r + e.r) continue;
         if (z.type === "sing") {
           /* 玩家口径：血量不足、这一下就会被奇点打死的怪「只造成伤害，不造成牵引」，
              也不给它那份「不撞人」豁免 —— 免得拽着一具尸体冲到自己脸上。 */
           const lethal = z.dmg > 0 && e.hp <= Math.round(z.dmg / 2);
           if (lethal) continue;
+          /* 豁免必须写在 d<1 的前面：怪被拽到奇点正中心（≈你身上）时也要继续算「被牵着」，
+             否则那一瞬间豁免断掉、0.5s 后正好在脸上咬一口（探针 ⑩ 抓到的）。 */
           e.pullImm = 0.5;
-        }
+          e.pinT = 0.25;
+          if (d < 1) continue;                       // 已经到中心了，不用再挪
+        } else if (d < 1) continue;
         const k = Math.min(0.5, dt * (z.type === "sing" ? 6.5 : 3.0));
         e.x += dx * k; e.y += dy * k;
-        if (z.type === "sing") e.pinT = 0.25;
       }
       z.tick += dt;
       if (z.dmg > 0 && z.tick >= 0.5) {
