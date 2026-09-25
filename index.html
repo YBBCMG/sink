@@ -221,23 +221,65 @@ function routeNow() { return G.route ? ROUTE_MAP[G.route] : null; }
    不是流派牌也不是基础牌：这是第二次「选路」，选完拥有全新的被动特殊效果，
    并且之后的卡池里会混进这条质变路线自己的强化牌（每条 3 张，max 5）。
    玩家给的样例是战士方向：冲锋吃伤，但敌人被吸过来 + 自身防御/撞击/吸血全抬。 */
+/* ---------- 质变（2026-09-25 玩家要求）：2000m 的第一次三选一，每局只能选这一次 ----------
+   不是流派牌也不是基础牌：这是第二次「选路」，选完拥有全新的被动特殊效果，
+   并且之后的卡池里会混进这条质变路线自己的强化牌（每条 3 张，max 5）。
+   口径（玩家原话）：「是每个角色三种质变方向，而不是一共三个质变」
+   —— 角色 = 法师 / 照明使者 / 战士 这三条路线，所以一共 9 条方向；
+   到 2000m 只端上「你这个角色」的那三条，另外六条压根不出现。 */
 const MUTATIONS = [
-  { id: "bulwark", n: "巨鲸崩涛", col: [150,255,220], d: "突进吸敌贴身 · 受击 −25% · 撞击 +80 · 吸血 +2%", sub: "越撞越硬" },
-  { id: "typhoon", n: "台风眼",    col: [255,170,240], d: "冲击波标记 5s：目标受伤 +35% · 半径 +60", sub: "伤口撒盐" },
-  { id: "abyss",   n: "深灯火环",  col: [210,240,255], d: "240px 光环：灼伤 22/s · 回氧 +0.15%/s", sub: "行走的光" }
+  /* —— 战士（E 突进）—— */
+  { id: "bulwark", r: "warrior", n: "巨鲸崩涛", col: [150,255,220], d: "突进吸敌贴身 · 受击 −25% · 撞击 +80 · 吸血 +2%", sub: "越撞越硬" },
+  { id: "rampage", r: "warrior", n: "破浪无阻", col: [170,255,205], d: "突进冷却 −35% · 无敌更久 · 撞碎障碍回氧", sub: "一路撞过去" },
+  { id: "harpoon", r: "warrior", n: "鲸吞",     col: [135,235,255], d: "撞击击杀引爆 160px · 每次撞击回氧",     sub: "撞到就炸" },
+  /* —— 法师（Q 冲击波）—— */
+  { id: "typhoon", r: "mage", n: "台风眼",   col: [255,170,240], d: "冲击波标记 5s：目标受伤 +35% · 半径 +60", sub: "伤口撒盐" },
+  { id: "storm",   r: "mage", n: "雷暴二响", col: [185,190,255], d: "冲击波 0.55s 后再炸一响（70% 伤害）",     sub: "炸两下" },
+  { id: "siphon",  r: "mage", n: "电流虹吸", col: [140,220,255], d: "冲击波每命中一只回氧 0.5% · 冷却 −20%",  sub: "打到就续命" },
+  /* —— 照明使者（F 探照）—— */
+  { id: "abyss",     r: "lamp", n: "深灯火环", col: [210,240,255], d: "240px 光环：灼伤 22/s · 回氧 +0.15%/s",     sub: "行走的光" },
+  { id: "beacon",    r: "lamp", n: "灯塔长明", col: [255,235,170], d: "视野锁定 360 不随深度收窄 · 探照灼伤 +80%", sub: "一直亮着" },
+  { id: "starlight", r: "lamp", n: "星光灼穿", col: [195,255,235], d: "光照半径内的怪灼伤 14/s · 灼死回氧",       sub: "你的光会咬人" }
 ];
 const MUT_MAP = {}; for (const m of MUTATIONS) MUT_MAP[m.id] = m;
 /* 质变路线的强化牌（t = 质变；只有定了对应质变才进池） */
 const MUT_SKILLS = [
+  /* 巨鲸崩涛（战士） */
   { id: "b_arm",  n: "崩甲", t: "质变", r: "bulwark", d: "受击减免 +8%（最高 60% 封顶）",     max: 5, minD: 2000, w: 1.7 },
   { id: "b_ram",  n: "崩山", t: "质变", r: "bulwark", d: "撞击伤害 +60 · 突进吸血 +1.5%/次",  max: 5, minD: 2100, w: 1.7 },
   { id: "b_pull", n: "崩引", t: "质变", r: "bulwark", d: "突进吸引半径 +80px · 吸力 +30%",   max: 5, minD: 2200, w: 1.7 },
+  /* 破浪无阻（战士） */
+  { id: "r_cd",   n: "顺流", t: "质变", r: "rampage", d: "突进冷却 ×0.92 · 突进时长 +0.08s",   max: 5, minD: 2000, w: 1.7 },
+  { id: "r_o2",   n: "破浪", t: "质变", r: "rampage", d: "撞碎障碍回氧 +0.7%（占氧上限）",     max: 5, minD: 2100, w: 1.7 },
+  { id: "r_inv",  n: "不碎", t: "质变", r: "rampage", d: "突进期间受击减免 +15%",              max: 5, minD: 2200, w: 1.7 },
+  /* 鲸吞（战士） */
+  { id: "h_boom", n: "吞爆", t: "质变", r: "harpoon", d: "撞击引爆伤害 +50%",                  max: 5, minD: 2000, w: 1.7 },
+  { id: "h_rng",  n: "吞域", t: "质变", r: "harpoon", d: "引爆半径 +60px",                     max: 5, minD: 2100, w: 1.7 },
+  { id: "h_heal", n: "吞氧", t: "质变", r: "harpoon", d: "每次撞击回氧 +0.6%（占氧上限）",     max: 5, minD: 2200, w: 1.7 },
+  /* 台风眼（法师） */
   { id: "t_mark", n: "裂痕", t: "质变", r: "typhoon", d: "标记增伤 +10% · 标记时长 +1s",      max: 5, minD: 2000, w: 1.7 },
   { id: "t_rng",  n: "风圈", t: "质变", r: "typhoon", d: "冲击波半径 +40 · 命中回氧 +0.3%/次", max: 5, minD: 2100, w: 1.7 },
   { id: "t_cd",   n: "风息", t: "质变", r: "typhoon", d: "冲击波冷却 ×0.90",                 max: 5, minD: 2200, w: 1.7 },
+  /* 雷暴二响（法师） */
+  { id: "s_2nd",  n: "二响", t: "质变", r: "storm", d: "第二响伤害比例 +15%",                  max: 5, minD: 2000, w: 1.7 },
+  { id: "s_fast", n: "急雷", t: "质变", r: "storm", d: "第二响间隔 −0.12s（最快 0.20s）",      max: 5, minD: 2100, w: 1.7 },
+  { id: "s_rng",  n: "雷域", t: "质变", r: "storm", d: "第二响半径 +50px",                     max: 5, minD: 2200, w: 1.7 },
+  /* 电流虹吸（法师） */
+  { id: "y_hit",  n: "虹吸", t: "质变", r: "siphon", d: "冲击波每命中回氧 +0.25%",              max: 5, minD: 2000, w: 1.7 },
+  { id: "y_many", n: "洪吸", t: "质变", r: "siphon", d: "一次命中 ≥3 只：额外回氧 +1.5%",       max: 5, minD: 2100, w: 1.7 },
+  { id: "y_cd",   n: "静息", t: "质变", r: "siphon", d: "冲击波冷却 ×0.90",                    max: 5, minD: 2200, w: 1.7 },
+  /* 深灯火环（照明使者） */
   { id: "a_dmg",  n: "灯焰", t: "质变", r: "abyss",   d: "光环灼伤 +8/s · 光环半径 +30px",     max: 5, minD: 2000, w: 1.7 },
   { id: "a_o2",   n: "灯供", t: "质变", r: "abyss",   d: "光环回氧 +0.10%/s",                 max: 5, minD: 2100, w: 1.7 },
-  { id: "a_light",n: "灯距", t: "质变", r: "abyss",   d: "视野半径 +60（永久）",               max: 5, minD: 2200, w: 1.7 }
+  { id: "a_light",n: "灯距", t: "质变", r: "abyss",   d: "视野半径 +60（永久）",               max: 5, minD: 2200, w: 1.7 },
+  /* 灯塔长明（照明使者） */
+  { id: "k_rng",  n: "长明", t: "质变", r: "beacon", d: "视野锁定值 +60 · 探照半径 +60",        max: 5, minD: 2000, w: 1.7 },
+  { id: "k_burn", n: "灯塔", t: "质变", r: "beacon", d: "探照灼伤 +25%",                       max: 5, minD: 2100, w: 1.7 },
+  { id: "k_heal", n: "塔供", t: "质变", r: "beacon", d: "探照期间回氧 +0.4%/s",                max: 5, minD: 2200, w: 1.7 },
+  /* 星光灼穿（照明使者） */
+  { id: "g_dot",  n: "星芒", t: "质变", r: "starlight", d: "星光灼伤 +7/s",                    max: 5, minD: 2000, w: 1.7 },
+  { id: "g_o2",   n: "星供", t: "质变", r: "starlight", d: "灼死回氧 +0.7%（占氧上限）",        max: 5, minD: 2100, w: 1.7 },
+  { id: "g_rng",  n: "星域", t: "质变", r: "starlight", d: "星光判定半径 +80px",               max: 5, minD: 2200, w: 1.7 }
 ];
 const KIND_COL = { 收益: [255, 208, 120], 生存: [140, 255, 200], 机动: [140, 205, 255], 采集: [205, 165, 255], 战斗: [255, 150, 130], 主动: [255, 170, 240], 神器: [255, 226, 130] };
 function lvNeed(_l) { return CFG.lvEvery; }   // 每 100m 一次（恒定；原来是 lvBase + lvStep*(l-1) 递增）
@@ -291,6 +333,41 @@ function recalcMods() {
     flare: CFG.flareLight + 120 * skLv("lumen"),
     flareCd: Math.max(3.0, CFG.flareCd)
   };
+  /* --- 质变专属系数：9 条方向各自的被动数值都从这里出（没选 = 中性值）。
+     玩法里只读 G.m.xxx，不在各处再写一遍 if (G.mutate === ...)。 --- */
+  const mu = G.mutate || "", M = G.m;
+  /* 战士：破浪无阻 —— 突进更勤、撞碎障碍回氧、突进期间有减伤 */
+  if (mu === "rampage") {
+    M.dashCd = Math.max(1.2, M.dashCd * 0.65 * Math.pow(0.92, skLv("r_cd")));
+    M.dashT += 0.20 + 0.08 * skLv("r_cd");
+    M.smashO2 = 0.007 * skLv("r_o2");
+    M.dashCut = 0.15 * skLv("r_inv");
+  }
+  /* 战士：鲸吞 —— 撞击击杀引爆 + 每次撞击回氧 */
+  if (mu === "harpoon") {
+    M.boom = { r: 160 + 60 * skLv("h_rng"), k: 0.60 + 0.50 * skLv("h_boom") };
+    M.ramO2 = 0.006 * skLv("h_heal");
+  }
+  /* 法师：雷暴二响 —— 冲击波到点再炸一响 */
+  if (mu === "storm") M.pulse = { t: Math.max(0.20, 0.55 - 0.12 * skLv("s_fast")), d: 0.70 + 0.15 * skLv("s_2nd"), add: 50 * skLv("s_rng") };
+  /* 法师：电流虹吸 —— 命中回氧 + 冷却缩短 */
+  if (mu === "siphon") {
+    M.shockCd = Math.max(1.2, M.shockCd * 0.80 * Math.pow(0.90, skLv("y_cd")));
+    M.shockO2 = 0.005 + 0.0025 * skLv("y_hit");
+    M.shockO2Big = skLv("y_many") ? 0.015 : 0;
+  }
+  /* 照明使者：灯塔长明 —— 视野锁死不再随深度收窄，探照更凶 */
+  if (mu === "beacon") {
+    M.lightLock = 360 + 60 * skLv("k_rng");
+    M.flareDotMul = 1.8 + 0.25 * skLv("k_burn");
+    M.flareHeal2 = 0.4 * skLv("k_heal");
+  }
+  /* 照明使者：星光灼穿 —— 光照半径内的怪一直挨烧 */
+  if (mu === "starlight") {
+    M.starDot = 14 + 7 * skLv("g_dot");
+    M.starO2 = 0.007 * skLv("g_o2");
+    M.starR = 80 * skLv("g_rng");
+  }
 }
 /* 三选一抽卡：独立 RNG（不动玩法随机流，同一 seed 的障碍布局不会因为抽卡而改变） */
 function combatOwned() {
@@ -299,8 +376,12 @@ function combatOwned() {
   return n;
 }
 function rollChoices() {
-  /* 质变：2000m 后的第一次强化 = 三条质变方向（别的牌一律不给；不可刷新，和选流派同规） */
-  if (!G.mutate && G.depth >= CFG.mutateAt && G.route) return MUTATIONS.map((m) => ({ id: m.id, n: m.n, t: "质变", route: m, mutate: m, d: m.d, sub: m.sub, max: 1, minD: 0, w: 0 }));
+  /* 质变：2000m 后的第一次强化 = 你这个角色的三条质变方向（别的牌一律不给；不可刷新，和选流派同规）
+     角色 = 路线（法师 / 照明使者 / 战士）：一人三条，一共 9 条 —— 另外六条这辈子不会出现在你面前。
+     每局只能选这一次（选完 G.mutate 定住，这段分支再也不进）。 */
+  if (!G.mutate && G.depth >= CFG.mutateAt && G.route) {
+    return MUTATIONS.filter((m) => m.r === G.route).map((m) => ({ id: m.id, n: m.n, t: "质变", route: m, mutate: m, d: m.d, sub: m.sub, max: 1, minD: 0, w: 0 }));
+  }
   /* 第二次强化：三条路线一起端上来，别的牌一律不给 */
   if (G.level === 2 && !G.route) return ROUTES.map((r) => ({ id: r.id, n: r.n, t: "路线", route: r, d: r.d, sub: r.s, max: 1, minD: 0, w: 0 }));
   /* 刷新必须换一批牌：种子带上 rerollN（否则重抽回来还是同样三张） */
@@ -675,6 +756,7 @@ function startRun(seed) {
   G.comboN = 0; G.comboT = -99;                  // 连杀回氧递减：计数 + 上一只的时间戳
   G.amuT = 0; G.amuCd = 0; G.amuHits = 0;        // 护心符：生效计时 / 冷却 / 命中计数（探针核对用）
   G.talis = null; G.mutate = null;               // 质变（2000m 三选一）状态清零
+  G.pulseQ = null; G.starTick = 0;               // 质变·雷暴二响 / 星光灼穿 的计时清零
   aiRng = mulberry32((G.seed * 7919 + 13) >>> 0);
   G.speed = CFG.baseSpeed; G.boosting = false; G.slowT = 0;
   G.rowT = 0.9; G.bubbleT = 0.8; G.jellyT = rr(CFG.jellyEvery[0], CFG.jellyEvery[1]);
@@ -721,13 +803,34 @@ function distToSeg(px, py, ax, ay, bx, by) {
   t = clamp(t, 0, 1);
   return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
 }
-function obstacleDist(e) {
-  if (e.kind === "cable") return distToSeg(p.x, p.y, e.x, e.y - e.len / 2, e.x, e.y + e.len / 2) - e.r;
-  return Math.hypot(e.x - p.x, e.y - p.y) - e.r;
+/* 点到「实体整条身子」的距离（再扣掉半径）。
+   泥鳅（cable）身子是一条竖着的线，判定必须是整条线 —— 玩家口径：「改成一条全是」。
+   坑（2026-09-25 玩家反馈）：原来石头/泥鳅之外的判定各写各的（光束只认身子顶端那个点、
+   冲击波只认圆心到身子中点），结果同一条泥鳅「哪一段算数」全看不出来。 */
+function entBodyDist(e, x, y) {
+  if (e.kind === "cable") return distToSeg(x, y, e.x, e.y - e.len / 2, e.x, e.y + e.len / 2) - e.r;
+  return Math.hypot(e.x - x, e.y - y) - e.r;
 }
-/* 实体到「任意一条线段」的距离（普攻光束判定用；泥鳅按整条身子算） */
+function obstacleDist(e) { return entBodyDist(e, p.x, p.y); }
+/* 两条线段是否相交（真交点，不含平行重合） */
+function segHit(ax, ay, bx, by, cx, cy, dx2, dy2) {
+  const d = (bx - ax) * (dy2 - cy) - (by - ay) * (dx2 - cx);
+  if (Math.abs(d) < 1e-9) return false;
+  const t = ((cx - ax) * (dy2 - cy) - (cy - ay) * (dx2 - cx)) / d;
+  const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / d;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+/* 两条线段的最短距离：相交为 0，否则必在某个端点取到（四个「点到线段」取最小即可） */
+function segSegDist(ax, ay, bx, by, cx, cy, dx2, dy2) {
+  if (segHit(ax, ay, bx, by, cx, cy, dx2, dy2)) return 0;
+  return Math.min(distToSeg(ax, ay, cx, cy, dx2, dy2), distToSeg(bx, by, cx, cy, dx2, dy2),
+                  distToSeg(cx, cy, ax, ay, bx, by), distToSeg(dx2, dy2, ax, ay, bx, by));
+}
+/* 实体到「任意一条线段」的距离（普攻光束判定用）。
+   坑（2026-09-25）：原来 cable 分支是 distToSeg(身子顶端那个点, 光束) —— 只认顶端，
+   从侧面打身子中段/下段完全没伤害（探针实测 上=75 中=0 下=0）。现在按两条线段算。 */
 function entSegDist(e, ax, ay, bx, by) {
-  if (e.kind === "cable") return distToSeg(e.x, e.y - e.len / 2, ax, ay, bx, by) - e.r;
+  if (e.kind === "cable") return segSegDist(e.x, e.y - e.len / 2, e.x, e.y + e.len / 2, ax, ay, bx, by) - e.r;
   return distToSeg(e.x, e.y, ax, ay, bx, by) - e.r;
 }
 
@@ -906,7 +1009,7 @@ function shockwave() {
     const e = ents[i];
     if (e.kind === "bubble" || e.kind === "jelly") continue;
     if (e.kind === "bolt") { ents.splice(i, 1); n++; continue; }
-    if (Math.hypot(e.x - p.x, e.y - p.y) > Rr + e.r) continue;
+    if (entBodyDist(e, p.x, p.y) > Rr) continue;
     const isObst = e.kind === "rock" || e.kind === "cable";
     const before = e.hp;
     hurtEnt(i, e, isObst ? Math.round(D * 1.3) : D, "255,220,160");
@@ -916,10 +1019,62 @@ function shockwave() {
     n++;
   }
   echoHit(n);
+  /* 质变·雷暴二响：到点在同一片地方再炸一响（法师的第二响是独立于冷却的额外收益） */
+  if (G.m.pulse) G.pulseQ = { t: G.m.pulse.t, x: p.x, y: p.y, r: G.m.shockR + G.m.pulse.add, d: Math.round(G.m.shockD * G.m.pulse.d) };
+  /* 质变·电流虹吸：每命中一只回氧，一次打到 3 只以上额外回氧 */
+  if (G.m.shockO2 > 0 && n > 0) {
+    const g = o2MaxNow() * (G.m.shockO2 * n + (n >= 3 ? G.m.shockO2Big : 0));
+    G.o2 = Math.min(o2MaxNow(), G.o2 + g);
+    popup(p.x, p.y - 70, "虹吸 +" + g.toFixed(1), "140,220,255");
+  }
   G.shakeT = 0.35; G.shakeMag = 12;
   burst(p.x, p.y, 30, "180,240,255");
   SFX.zap();
   return n;
+}
+/* 质变·雷暴二响：第二响 —— 同一片地方再炸一次（70% 伤害起步，半径也按自己的算） */
+function pulseBoom(q) {
+  G.actFx.shock2 = { x: q.x, y: q.y, r: q.r, t: 0.42 };
+  let n = 0;
+  for (let i = ents.length - 1; i >= 0; i--) {
+    const e = ents[i];
+    if (e.kind === "bubble" || e.kind === "jelly") continue;
+    if (e.kind === "bolt") { ents.splice(i, 1); n++; continue; }
+    if (Math.hypot(e.x - q.x, e.y - q.y) > q.r + e.r) continue;
+    const isObst = e.kind === "rock" || e.kind === "cable";
+    hurtEnt(i, e, isObst ? Math.round(q.d * 1.3) : q.d, "185,190,255");
+    n++;
+  }
+  echoHit(n);
+  burst(q.x, q.y, 24, "185,190,255");
+  G.shakeT = Math.max(G.shakeT, 0.22); G.shakeMag = Math.max(G.shakeMag, 6);
+  return n;
+}
+/* 战士质变公共结算：撞击命中之后 —— 撞碎障碍回氧（破浪无阻）/ 每次撞击回氧 + 撞死引爆（鲸吞） */
+function ramOnHit(e, died) {
+  const M = G.m;
+  if (M.smashO2 > 0 && died) {
+    const g = o2MaxNow() * M.smashO2;
+    G.o2 = Math.min(o2MaxNow(), G.o2 + g);
+    popup(p.x, p.y - 70, "破浪 +" + g.toFixed(1), "170,255,205");
+  }
+  if (M.ramO2 > 0) {
+    const g = o2MaxNow() * M.ramO2;
+    G.o2 = Math.min(o2MaxNow(), G.o2 + g);
+    popup(p.x, p.y - 70, "吞氧 +" + g.toFixed(1), "135,235,255");
+  }
+  if (!died || !M.boom) return;
+  /* 鲸吞：撞死的家伙当场引爆，周围一起吃伤害（障碍物额外 ×1.3，和冲击波同一口径） */
+  const Rr = M.boom.r, D2 = Math.round((CFG.dashDmg + M.ramDmg) * M.boom.k);
+  burst(e.x, e.y, 26, "255,190,120");
+  G.shakeT = Math.max(G.shakeT, 0.25); G.shakeMag = Math.max(G.shakeMag, 7);
+  SFX.zap();
+  for (let k = ents.length - 1; k >= 0; k--) {
+    const o = ents[k];
+    if (o.kind === "bubble" || o.kind === "jelly") continue;
+    if (Math.hypot(o.x - e.x, o.y - e.y) > Rr + o.r) continue;
+    hurtEnt(k, o, D2, "255,205,140");
+  }
 }
 /* 照明路线·灼光：探照半径内的怪持续挨烧（0.25s 一跳，不然每帧刷飘字） */
 function flareBurn() {
@@ -929,7 +1084,8 @@ function flareBurn() {
     const e = ents[i];
     if (e.kind !== "hunter" && e.kind !== "spitter" && e.kind !== "reaver" && e.kind !== "warden") continue;
     if (Math.hypot(e.x - p.x, e.y - p.y) > Rr + e.r) continue;
-    hurtEnt(i, e, Math.round(D / 4), "210,240,255");
+    /* 质变·灯塔长明（+灯塔）：探照灼伤倍率 */
+    hurtEnt(i, e, Math.round(D / 4 * (G.m.flareDotMul || 1)), "210,240,255");
     n++;
   }
   echoHit(n);
@@ -958,7 +1114,11 @@ function tryActive(k) {
     G.act.e = G.m.dashCd;
     G.actFx.dash = G.m.dashT;
     G.dashStamp = (G.dashStamp || 0) + 1;                // 一次突进对每个障碍只算一次账
-    p.invuln = Math.max(p.invuln, G.m.dashT);            // 突进期间无敌（撞怪不挨咬）
+    /* 突进期间无敌（撞怪不挨咬）—— 但战士选了质变之后这条无敌取消：
+       玩家口径「虽然冲锋期间会受到伤害，但敌人被吸过来，自身防御/撞击/吸血全抬」。
+       换成减伤（巨鲸崩涛 25% 起 · 破浪无阻 15%/级），撞进去是要付代价的。 */
+    const warriorMut = !!(G.mutate && MUT_MAP[G.mutate] && MUT_MAP[G.mutate].r === "warrior");
+    if (!warriorMut) p.invuln = Math.max(p.invuln, G.m.dashT);
     burst(p.x, p.y, 16, "150,255,220"); SFX.zap();
   } else if (k === "f") {
     G.act.f = G.m.flareCd;
@@ -1010,6 +1170,11 @@ function hurtPlayer(dmg, col) {
     const cut = Math.round(dmg * cutK);
     if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(p.x, p.y - 60, "崩涛 -" + cut, "150,255,220"); }
   }
+  /* 质变·破浪无阻（+不碎）：突进期间的额外减伤 —— 战士质变没有无敌，靠这个顶住 */
+  if (G.m.dashCut > 0 && G.actFx.dash > 0) {
+    const cut = Math.round(dmg * G.m.dashCut);
+    if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(p.x, p.y - 74, "破浪 -" + cut, "170,255,205"); }
+  }
   G.o2 -= dmg;
   p.invuln = G.m.invuln; p.hurtT = 0.4; G.slowT = CFG.hitSlowTime;
   G.shakeT = 0.45; G.shakeMag = 13; G.redFlash = 0.9;
@@ -1046,6 +1211,9 @@ function stepPlay(dt) {
   if (fx.dash > 0) fx.dash = Math.max(0, fx.dash - dt);
   if (fx.flare > 0) fx.flare = Math.max(0, fx.flare - dt);
   if (fx.shock > 0) fx.shock = Math.max(0, fx.shock - dt);
+  if (fx.shock2 && fx.shock2.t > 0) { fx.shock2.t = Math.max(0, fx.shock2.t - dt); if (fx.shock2.t <= 0) fx.shock2 = null; }
+  /* 质变·雷暴二响：等那一响落地 */
+  if (G.pulseQ) { G.pulseQ.t -= dt; if (G.pulseQ.t <= 0) { pulseBoom(G.pulseQ); G.pulseQ = null; } }
 
   /* --- 照明路线：探照生效期间 灼伤 + 回氧（护盾在 hurtPlayer 里结算） --- */
   if (fx.flare > 0) {
@@ -1054,6 +1222,8 @@ function stepPlay(dt) {
       if (G.dotT >= 0.25) { G.dotT = 0; flareBurn(); }
     }
     if (G.m.flareHeal > 0) G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * G.m.flareHeal / 100 * dt);
+    /* 质变·灯塔长明（+塔供）：探照期间额外回氧 */
+    if (G.m.flareHeal2 > 0) G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * G.m.flareHeal2 / 100 * dt);
   } else G.dotT = 0;
 
   /* --- 被动神器 & 质变：默认生效，不用玩家按（2026-09-25 玩家口径） --- */
@@ -1099,6 +1269,28 @@ function stepPlay(dt) {
       echoHit(hits);
     }
   } else G.haloR = 0;
+  /* 质变·星光灼穿：光照半径内的怪一直挨烧（默认生效，不用按 F），灼死回氧 */
+  if (G.m.starDot > 0) {
+    G.starTick = (G.starTick || 0) + dt;
+    if (G.starTick >= 0.5) {
+      G.starTick = 0;
+      const starR = G.lightR + G.m.starR;
+      let hits = 0;
+      for (let i = ents.length - 1; i >= 0; i--) {
+        const e = ents[i];
+        if (!MOB_SET[e.kind] || e.kind === "bolt") continue;
+        if (Math.hypot(e.x - p.x, e.y - p.y) > starR + e.r) continue;
+        const died = hurtEnt(i, e, Math.round(G.m.starDot / 2), "200,255,235");
+        if (died && G.m.starO2 > 0) {
+          const gm = o2MaxNow() * G.m.starO2;
+          G.o2 = Math.min(o2MaxNow(), G.o2 + gm);
+          popup(p.x, p.y - 70, "星供 +" + gm.toFixed(1), "200,255,235");
+        }
+        hits++;
+      }
+      echoHit(hits);
+    }
+  }
   /* 质变·巨鲸崩涛：突进期间把周围怪往身边拽（撞进去喂猛撞/荆棘/光环） */
   if (G.mutate === "bulwark" && fx.dash > 0) {
     const pullR = 260 + 80 * skLv("b_pull"), pullK = Math.min(1, dt * (7 * (1 + 0.3 * skLv("b_pull"))));
@@ -1133,7 +1325,9 @@ function stepPlay(dt) {
   G.o2 -= drain * dt;
 
   /* --- 视野 --- */
-  const lit = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1)) + CFG.lightMut * skLv("a_light");
+  /* 视野：质变·灯塔长明把下限锁死（不再随深度收窄 —— 深水里视野是最贵的资源） */
+  const litBase = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1)) + CFG.lightMut * skLv("a_light");
+  const lit = Math.max(G.m.lightLock || 0, litBase);
   G.lightBonus = Math.max(0, G.lightBonus - CFG.jellyDecay * dt);
   /* 探照：生效期间把光照半径硬顶到 flare，时间一到自己退回背景值（不是永久加成） */
   let litTarget = lit + G.lightBonus;
@@ -1308,13 +1502,17 @@ function stepPlay(dt) {
          dashS 是「哪一次突进已经打过它」的戳记 —— 不加就会每帧（120/s）扣一次 80 血。 */
       e.dashS = G.dashStamp;
       /* 战士·猛撞：撞击伤害加成 */
-      if (hurtEnt(i, e, CFG.dashDmg + G.m.ramDmg, "150,255,220") && G.m.vamp > 0) healVamp(e.x, e.y);
+      const diedO = hurtEnt(i, e, CFG.dashDmg + G.m.ramDmg, "150,255,220");
+      if (diedO && G.m.vamp > 0) healVamp(e.x, e.y);
+      ramOnHit(e, diedO);
       continue;
     } else if (fx.dash > 0 && G.m.ramDmg > 0 && (e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden")
                && Math.hypot(e.x - p.x, e.y - p.y) < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
       /* 基础突进只撞碎障碍物，点了猛撞才能把怪一起撞了 */
       e.dashS = G.dashStamp;
-      if (hurtEnt(i, e, G.m.ramDmg, "150,255,220") && G.m.vamp > 0) healVamp(e.x, e.y);
+      const diedM = hurtEnt(i, e, G.m.ramDmg, "150,255,220");
+      if (diedM && G.m.vamp > 0) healVamp(e.x, e.y);
+      ramOnHit(e, diedM);
       continue;
     } else if (d < rr2 && p.invuln <= 0 && !e.hit) {
       e.hit = true;
@@ -1373,6 +1571,22 @@ function text(s, x, y, size, color, align, weight) {
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = color;
   ctx.fillText(s, x, y);
+}
+/* 卡面描述换行（2026-09-25 玩家截图：护心符那条描述 336px，卡面只有 252px，直接冲出卡边）。
+   贪心断行：中文按字断，连续英文/数字/符号（35 10s 之类）当一个整块，不拆开。
+   maxW 是「每一行都不许超过的宽度」，字体必须和真正画的时候一致，量了才算数。 */
+function wrapText(str, maxW, size, weight) {
+  ctx.font = (weight || 600) + " " + size + 'px "PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,sans-serif';
+  const toks = String(str).match(/[A-Za-z0-9+×.\-%/]+|\s+|[\s\S]/g) || [];
+  const lines = [];
+  let line = "";
+  for (const tk of toks) {
+    if (tk === "\n") { lines.push(line); line = ""; continue; }
+    if (line && ctx.measureText(line + tk).width > maxW) { lines.push(line); line = tk.replace(/^\s+/, ""); }
+    else line += tk;
+  }
+  lines.push(line);
+  return lines;
 }
 function panel(x, y, w, h) {
   rrRect(x, y, w, h, 18);
@@ -1932,8 +2146,9 @@ function drawWorld() {
   ctx.fillRect(0, 0, W0, H0);
   /* 水母例外：它是光源，得在黑暗层之上重绘一遍，否则一样被吞进纯黑 */
   for (const e of ents) if (e.kind === "jelly") drawJellyGlow(e);
-  /* 猎食者/电球也是生物光：不在光照半径内照样看得见它们扑过来（否则 1000m 以下纯挨打） */
-  for (const e of ents) if (e.kind !== "bubble" && e.kind !== "jelly") drawCombatGlow(e);
+  /* 猎食者/电球也是生物光：不在光照半径内照样看得见它们扑过来（否则 1000m 以下纯挨打）；
+     但障碍物不是光源 —— 光照半径外它就该是黑的（玩家口径：半径外啥也看不见） */
+  for (const e of ents) if (MOB_SET[e.kind]) drawCombatGlow(e);
   for (const e of ents) drawHpBar(e);
   drawActiveFx();
   drawAim();
@@ -1957,6 +2172,19 @@ function drawActiveFx() {
     ctx.strokeStyle = "rgba(170,240,255,0.95)"; ctx.lineWidth = 1.5 + 6 * (1 - k); ctx.stroke();
     ctx.beginPath(); ctx.arc(fx.sx, fx.sy, Rr * 0.72, 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(255,225,170,0.7)"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+  }
+  if (fx.shock2 && fx.shock2.t > 0) {
+    /* 质变·雷暴二响：第二响的环（画在原地，不是玩家脚下） */
+    const k2 = clamp(1 - fx.shock2.t / 0.42, 0, 1);
+    const R2 = fx.shock2.r * (0.25 + 0.85 * k2);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = Math.max(0, 1 - k2) * 0.9;
+    ctx.beginPath(); ctx.arc(fx.shock2.x, fx.shock2.y, R2, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(195,200,255,0.95)"; ctx.lineWidth = 1.5 + 6 * (1 - k2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(fx.shock2.x, fx.shock2.y, R2 * 0.7, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(220,235,255,0.6)"; ctx.lineWidth = 1.6; ctx.stroke();
     ctx.restore();
   }
   if (fx.dash > 0) {
@@ -2036,6 +2264,12 @@ function drawJellyGlow(e) {
   ctx.restore();
 }
 
+/* 黑暗层之上重绘的「生物光」白名单：只有真会扑上来咬人的家伙自带光。
+   坑（2026-09-25 玩家截图）：调用点原来写的是「不是气泡、不是水母就重绘一笔」，
+   而重绘的兜底分支画的是「紫伞 + 5 根触手 + 中央亮核」＝电袭者的样子 ——
+   于是每块石头、每条泥鳅在黑暗里都顶着一只紫色水母（探针实测：石头 1479 个紫像素、
+   泥鳅 629 个，最亮 rgb(187,159,243) 就是那只假水母的伞边）。 */
+const MOB_SET = { hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1 };
 /* 猎食者的生物光 + 本体：都画在黑暗层之上，保证光照半径外也看得清（不然深水区纯挨打） */
 function drawCombatGlow(e) {
   const rad = e.r * (e.kind === "hunter" ? 2.8 : e.kind === "bolt" ? 3.4 : 3.0);
@@ -2121,7 +2355,8 @@ function drawCombatGlow(e) {
         ctx.beginPath(); ctx.arc(x - 10 + k * 10, y - e.r * 1.65 - 8, 3, 0, Math.PI * 2); ctx.fill();
       }
     }
-  } else {
+  } else if (e.kind === "spitter") {
+    /* 电袭者（紫伞）：悬停射手 —— 只有它走这套紫伞外观，别的 kind 一律不画 */
     const pulse = 1 + Math.sin(G.t * 4 + e.seed) * 0.10;
     const ch = clamp(1 - e.fireT / 0.9, 0, 1);
     ctx.beginPath();
@@ -2245,7 +2480,7 @@ function drawTitle() {
       ["技能", "Q 冲击波　E 突进　F 探照 —— 三条路线选一条，选定后右键放的就是它", 13, "rgba(255,175,235,0.9)", 500],
       ["回氧", "击杀怪物回 " + Math.round(CFG.killO2 * 100) + "% 氧气（自带；连杀递减，停手重置）", 12.5, "rgba(150,255,210,0.85)", 500],
       ["神器", "三选一里小概率混入 ✦ 神器：被动生效、不用按；可升级，一局最多 3 张", 12.5, "rgba(255,226,130,0.9)", 500],
-      ["质变", CFG.mutateAt + "m 后的第一次强化：三条全新的质变方向，从此长出自己的牌", 12.5, "rgba(200,190,255,0.92)", 500],
+      ["质变", CFG.mutateAt + "m 后的第一次强化：每个角色三条质变方向（选一次定终身），从此长出自己的牌", 12.5, "rgba(200,190,255,0.92)", 500],
       ["换肤", "下方点一条鱼，或按 S 循环（选择会记住）", 12.5, "rgba(140,190,220,0.85)", 500]
     ];
     let y = 162;
@@ -2407,8 +2642,13 @@ function drawLevelUp() {
       else if (k === cur) { ctx.strokeStyle = "rgba(" + col + ",0.95)"; ctx.lineWidth = 1.6; ctx.stroke(); }
       else { ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fill(); }
     }
-    /* 效果（神器 Lv2 强化牌：描述换成强化说明，一眼看出这是升级不是复刻） */
-    text(s.id in ARTIFACT_UP && cur > 0 ? ARTIFACT_UP[s.id] : s.d, r.x + r.w / 2, r.y + 172, 13.5, "rgba(205,232,248,0.92)", "center", 500);
+    /* 效果（神器 Lv2 强化牌：描述换成强化说明，一眼看出这是升级不是复刻）
+       换行居中：整块垂直居中在原基线处，单行卡位置和以前一模一样 */
+    const dTxt = s.id in ARTIFACT_UP && cur > 0 ? ARTIFACT_UP[s.id] : s.d;
+    const dLines = wrapText(dTxt, r.w - 22, 13.5, 500);
+    for (let k = 0; k < dLines.length; k++) {
+      text(dLines[k], r.x + r.w / 2, r.y + 172 + (k - (dLines.length - 1) / 2) * 17, 13.5, "rgba(205,232,248,0.92)", "center", 500);
+    }
     if (!s.route) text("Lv " + cur + " → " + (cur + 1), r.x + r.w / 2, r.y + 198, 12.5, "rgba(" + col + ",0.85)", "center", 600);
     /* 数字键提示 */
     ctx.save();
@@ -2736,13 +2976,13 @@ function probePx(x, y) {
   return [d[0], d[1], d[2]];
 }
 window.__SINK__ = {
-  version: SELFTEST.version, CFG, G, diffK, state: () => G.state,
+  version: SELFTEST.version, CFG, G, diffK, recalcMods, state: () => G.state,
   startRun, update, simulate, runSelfTest, autopilot,
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
   ents: () => ents, p, probePx, lightR: () => G.lightR,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH,
-  rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_SKILLS,
+  rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, wrapText, pulseBoom, entBodyDist,
   SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, R,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
