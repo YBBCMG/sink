@@ -73,6 +73,7 @@ const CFG = {
   hitSlowTime: 0.65, hitSlowMul: 0.45,
   nearMissBonus: 5, nearMissPad: 22,
   lightNear: 360, lightFar: 150, lightSpan: 900,
+  lightMut: 60,                        // 质变·灯距：每级 +60（永久视野）
   jellyLight: 200, jellyDecay: 9, jellyCap: 560,   // 捡一只：视野 +200，约 22s 才衰减干净（原来 90/26，两秒就没了）
   rowNear: 0.72, rowFar: 0.34, rowSpan: 1300,   // 障碍行间隔随深度收紧
   gapNear: 330, gapFar: 215,                    // 安全走廊宽度
@@ -99,6 +100,13 @@ const CFG = {
   hunterHP: 150, hunterEvery: [2.1, 3.7], hunterRush: 215, hunterVX: 200, huntDamage: 18,
   spitterHP: 90, spitterEvery: [2.8, 4.6], spitterRush: 70, spitterVX: 130,
   boltEvery: [1.3, 2.0], boltDmg: 12, boltSpeed: 235, boltR: 8,
+  /* --- 2026-09-25 玩家反馈：后期怪太软（照明使者原地放技能就能躺赢） ---
+     两手：① 1800m 起所有怪物血量爬坡（×2 → ×3 封顶）；② 2000m 起新增两种猎食者。
+     剃刀鲸：斜插猛冲的大家伙，撞完不消失，逼你真的挪位置；
+     圣盾使：金钟水母放三连电球，盾开着减伤 75%，盾碎 3.5s 才能重开 —— 先破盾再输出。 */
+  mobHpFrom: 1800, mobHpSpan: 1600, mobHpCap: 3,
+  reaverHP: 320, reaverEvery: [4.5, 7.5], reaverRush: 95, reaverVX: 265, reaverDmg: 22,
+  wardenHP: 260, wardenEvery: [6.0, 9.5], wardenFan: [2.4, 3.4], wardenShieldCut: 0.75, wardenBreakT: 3.5,
   killScore: 40, breakScore: 6,
   /* --- 击杀回氧：自带被动，不用选技能（回的是「氧气上限的百分比」，不随深度缩水）
      但它天生是「无限刷」：怪随深度变多，回氧速率会超过耗氧 1.12~1.68/s ——
@@ -121,8 +129,15 @@ const CFG = {
      2026-09-25 玩家要求：原来 100/180/260… 越往后越稀，1km 才强化 4~5 次，深水压力直接糊脸。
      现在恒定 100m 一次：到 1km 正好 10 次，前段攒得出东西，深水反而好玩。 */
   lvEvery: 100,
-  /* 神器牌：稀有档 —— 每次三选一按这个概率「混进来一张」，整局每张只出一次（不按权重稀释） */
-  artChance: 0.22,
+  /* 神器牌：稀有档 —— 每次三选一按这个概率「混进来一张」，命中就占掉一个卡位。
+     2026-09-25 玩家反馈「概率要足够低」：0.22 → 0.09（约每 11 次三选一才见一张）。 */
+  artChance: 0.09,
+  /* 质变：2000m 后的第一次三选一 = 三条全新方向（MUTATIONS） */
+  mutateAt: 2000,
+  /* 神器上限：一局最多持有几张（新神器只在持有数 < 上限时判定） */
+  artCap: 3,
+  /* 护心符（被动神器）：符咒环绕，触敌灼伤 */
+  amuDmg: 35, amuCd: 10.0, amuT: 3.0, amuR: 58, amuSpeed: 2.2,
   /* 刷新：每局可以重抽几次三选一（2026-09-25 玩家要求：两次，每次重抽都还是三张） */
   rerollPerRun: 2,
   /* 流派纯度：1000m 之前、选定流派之后，三选一只给自己的流派牌（基础牌一张不掺） */
@@ -171,17 +186,26 @@ const SKILLS = [
   { id: "l_shield", n: "光盾", t: "主动", r: "lamp",    d: "探照期间 受伤 -35%",          max: 5, minD: 500, w: 1.7 }
 ];
 
-/* ---------- 神器牌：稀有档（2026-09-25 玩家要求）----------
-   和普通牌的「低概率」不是一个机制：普通牌每次都进池比权重，神器是**单独一次稀有判定**
-   （每次三选一 CFG.artChance 概率混进来一张，命中就占掉一个卡位），且每张整局只出一次。
+/* ---------- 神器牌：稀有档（2026-09-25 玩家要求重做）----------
+   机制（这轮按玩家口径改了三处）：
+   ① 更稀有：artChance 0.22 → 0.09（抽到本身就是事件）；
+   ② 神器 = 被动生效的技能，不用玩家按 —— 效果全部写进 recalcMods / stepPlay；
+   ③ 每张可拿两次：Lv1 本体，Lv2 是「神器的强化」（专属强化牌只在持有后混进池）；
+   ④ 每局最多持有 3 张神器（新神器只在你持有 <3 时判定）。
    选流派那次（Lv2）不给神器 —— 那一次是「定流派」，端上来的就是那三条路。 */
 const ARTIFACTS = [
-  { id: "a_core",  n: "✦ 永动核心", t: "神器", d: "耗氧 ×0.80（永久）",              max: 1, minD: 150, w: 1.0 },
-  { id: "a_heart", n: "✦ 鲸落之心", t: "神器", d: "氧气上限 +40（立刻补满）",          max: 1, minD: 150, w: 1.0 },
-  { id: "a_grav",  n: "✦ 深海引力", t: "神器", d: "气泡吸附半径 +140px",             max: 1, minD: 200, w: 1.0 },
-  { id: "a_clock", n: "✦ 时间之锚", t: "神器", d: "冲击波/突进/探照 冷却 ×0.72",       max: 1, minD: 250, w: 1.0 },
-  { id: "a_lens",  n: "✦ 聚光透镜", t: "神器", d: "普攻伤害 +40 · 光束 +8px",          max: 1, minD: 300, w: 1.0 }
+  { id: "a_amulet", n: "✦ 护心符",   t: "神器", d: "被动：3 枚符咒环绕自身，触敌灼伤 35，冷 10s 持续 3s", max: 2, minD: 200, w: 1.0 },
+  { id: "a_thorn",  n: "✦ 荆棘甲",   t: "神器", d: "被动：被撞反伤 45（同归于尽的猎手先死）",            max: 2, minD: 250, w: 1.0 },
+  { id: "a_duel",   n: "✦ 双生光束", t: "神器", d: "被动：普攻分出第二条光束，射向另一个目标",            max: 2, minD: 300, w: 1.0 },
+  { id: "a_reb",    n: "✦ 深渊回响", t: "神器", d: "被动：技能伤害命中回氧 +0.5%/次",                    max: 2, minD: 250, w: 1.0 }
 ];
+/* 神器 Lv2 强化：只有「已持有该神器」才会抽到（二选一式升级，不占独立卡池） */
+const ARTIFACT_UP = {
+  a_amulet:"符咒 +2 枚 · 灼伤 +20",
+  a_thorn: "反伤 +45 · 反伤命中回氧 +1%",
+  a_duel:  "第三条光束 · 每条光束伤害 ×1.25",
+  a_reb:   "回氧翻倍（+1.0%/次）"
+};
 
 /* ---------- 三条路线：第二次强化时三选一，选完另外两条永久关闭 ----------
    选路线只给「技能本身」；冷却 / 伤害 / 范围这些数值要靠之后的路线牌一级一级点出来。
@@ -193,50 +217,79 @@ const ROUTES = [
 ];
 const ROUTE_MAP = {}; for (const r of ROUTES) ROUTE_MAP[r.id] = r;
 function routeNow() { return G.route ? ROUTE_MAP[G.route] : null; }
+/* ---------- 质变（2026-09-25 玩家要求）：2000m 的第一次三选一 = 三条全新方向 ----------
+   不是流派牌也不是基础牌：这是第二次「选路」，选完拥有全新的被动特殊效果，
+   并且之后的卡池里会混进这条质变路线自己的强化牌（每条 3 张，max 5）。
+   玩家给的样例是战士方向：冲锋吃伤，但敌人被吸过来 + 自身防御/撞击/吸血全抬。 */
+const MUTATIONS = [
+  { id: "bulwark", n: "巨鲸崩涛", col: [150,255,220], d: "突进吸敌贴身 · 受击 −25% · 撞击 +80 · 吸血 +2%", sub: "越撞越硬" },
+  { id: "typhoon", n: "台风眼",    col: [255,170,240], d: "冲击波标记 5s：目标受伤 +35% · 半径 +60", sub: "伤口撒盐" },
+  { id: "abyss",   n: "深灯火环",  col: [210,240,255], d: "240px 光环：灼伤 22/s · 回氧 +0.15%/s", sub: "行走的光" }
+];
+const MUT_MAP = {}; for (const m of MUTATIONS) MUT_MAP[m.id] = m;
+/* 质变路线的强化牌（t = 质变；只有定了对应质变才进池） */
+const MUT_SKILLS = [
+  { id: "b_arm",  n: "崩甲", t: "质变", r: "bulwark", d: "受击减免 +8%（最高 60% 封顶）",     max: 5, minD: 2000, w: 1.7 },
+  { id: "b_ram",  n: "崩山", t: "质变", r: "bulwark", d: "撞击伤害 +60 · 突进吸血 +1.5%/次",  max: 5, minD: 2100, w: 1.7 },
+  { id: "b_pull", n: "崩引", t: "质变", r: "bulwark", d: "突进吸引半径 +80px · 吸力 +30%",   max: 5, minD: 2200, w: 1.7 },
+  { id: "t_mark", n: "裂痕", t: "质变", r: "typhoon", d: "标记增伤 +10% · 标记时长 +1s",      max: 5, minD: 2000, w: 1.7 },
+  { id: "t_rng",  n: "风圈", t: "质变", r: "typhoon", d: "冲击波半径 +40 · 命中回氧 +0.3%/次", max: 5, minD: 2100, w: 1.7 },
+  { id: "t_cd",   n: "风息", t: "质变", r: "typhoon", d: "冲击波冷却 ×0.90",                 max: 5, minD: 2200, w: 1.7 },
+  { id: "a_dmg",  n: "灯焰", t: "质变", r: "abyss",   d: "光环灼伤 +8/s · 光环半径 +30px",     max: 5, minD: 2000, w: 1.7 },
+  { id: "a_o2",   n: "灯供", t: "质变", r: "abyss",   d: "光环回氧 +0.10%/s",                 max: 5, minD: 2100, w: 1.7 },
+  { id: "a_light",n: "灯距", t: "质变", r: "abyss",   d: "视野半径 +60（永久）",               max: 5, minD: 2200, w: 1.7 }
+];
 const KIND_COL = { 收益: [255, 208, 120], 生存: [140, 255, 200], 机动: [140, 205, 255], 采集: [205, 165, 255], 战斗: [255, 150, 130], 主动: [255, 170, 240], 神器: [255, 226, 130] };
 function lvNeed(_l) { return CFG.lvEvery; }   // 每 100m 一次（恒定；原来是 lvBase + lvStep*(l-1) 递增）
 let aiRng = mulberry32(1);                       // 脚本选牌用的独立随机流（自检/截图可复现）
 const aiRnd = () => aiRng();
 function skLv(id) { return G.sk[id] || 0; }
-function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal") + 22 * skLv("w_hp") + 40 * skLv("a_heart"); }
+function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal") + 22 * skLv("w_hp"); }
 function boostMulNow() { return CFG.boostMul + 0.30 * skLv("greed"); }
 /* 所有强化在这里汇总成一份系数表，玩法里只读 G.m —— 改数值不用翻遍 stepPlay */
 function recalcMods() {
   const rd = skLv("rudder");
-  const cdMul = Math.pow(0.72, skLv("a_clock"));      // 神器·时间之锚：三条技能冷却一起乘
   G.m = {
-    drain: Math.pow(0.90, skLv("eco")) * Math.pow(0.80, skLv("a_core")),
+    drain: Math.pow(0.90, skLv("eco")),
     dmg: Math.pow(0.85, skLv("plate")),
     invuln: CFG.invulnTime + 0.30 * skLv("shell"),
     base: CFG.baseSpeed * (1 + 0.08 * skLv("stream")),
     boost: CFG.boostSpeed * (1 + 0.08 * skLv("thrust")),
     steer: CFG.steerK * (1 + 0.22 * rd),
     accel: CFG.accelK * (1 + 0.22 * rd),
-    magnet: 55 * skLv("magnet") + 140 * skLv("a_grav"),
+    magnet: 55 * skLv("magnet"),
     bubble: CFG.bubbleO2 + 4 * skLv("haul"),
     nearBonus: CFG.nearMissBonus + 6 * skLv("edge"),
     nearPad: CFG.nearMissPad + 4 * skLv("edge"),
     jellyLight: CFG.jellyLight + 60 * skLv("bloom"),
     jellyFreq: Math.pow(0.85, skLv("bloom")),
     /* 战斗 */
-    atkDmg: CFG.atkDmg + 25 * skLv("power") + 40 * skLv("a_lens"),
+    atkDmg: CFG.atkDmg + 25 * skLv("power"),
     atkEvery: CFG.atkEvery * Math.pow(0.82, skLv("rapid")),
     atkObst: 50 * skLv("crusher"),          // 只对障碍物追加的伤害：Lv1 起 50+50=100 → 石头一发碎
-    atkHalfW: CFG.atkHalfW + 16 * skLv("spread") + 8 * skLv("a_lens"),
+    atkHalfW: CFG.atkHalfW + 16 * skLv("spread"),
+    duelBeams: skLv("a_duel") ? 1 + skLv("a_duel") : 0,   // 双生光束：Lv1 = 2 条，Lv2 = 3 条
+    /* 护心符（被动神器）：符咒环绕，触敌灼伤 */
+    amu: skLv("a_amulet") ? { n: 3 + 2 * (skLv("a_amulet") - 1), d: CFG.amuDmg + 20 * (skLv("a_amulet") - 1),
+                               cd: CFG.amuCd, t: CFG.amuT, r: CFG.amuR, sp: CFG.amuSpeed } : null,
+    /* 荆棘甲（被动神器）：被撞反伤 */
+    thorn: skLv("a_thorn") ? { d: 45 + 45 * (skLv("a_thorn") - 1), heal: skLv("a_thorn") > 1 ? 0.01 : 0 } : null,
+    /* 深渊回响（被动神器）：技能伤害命中回氧 */
+    echo: skLv("a_reb") ? 0.005 * skLv("a_reb") * (skLv("a_reb") > 1 ? 2 : 1) : 0,
     /* 主动技能（Q/E/F）——冷却和强度都从这里读，激活时不直接看 CFG */
     killO2: CFG.killO2,
-    shockCd: Math.max(1.5, CFG.shockCd * Math.pow(0.88, skLv("m_cd")) * cdMul),
+    shockCd: Math.max(1.5, CFG.shockCd * Math.pow(0.88, skLv("m_cd")) * Math.pow(0.90, skLv("t_cd"))),
     shockR: CFG.shockR + 40 * skLv("overload") + 45 * skLv("m_rng"),
     shockD: CFG.shockMob + 30 * skLv("overload") + 40 * skLv("m_dmg"),
     ramDmg: 50 * skLv("w_ram"), vamp: 0.025 * skLv("w_vamp"),
     flareDot: 30 * skLv("l_dot"),
     flareHeal: 1.0 * skLv("l_heal"),
     flareShield: Math.min(0.75, 0.35 * skLv("l_shield")),
-    dashCd: Math.max(1.8, (CFG.dashCd - 1.0 * skLv("afterburn")) * cdMul),
+    dashCd: Math.max(1.8, CFG.dashCd - 1.0 * skLv("afterburn")),
     dashT: CFG.dashT + 0.25 * skLv("afterburn"),
     flareT: CFG.flareT + 2 * skLv("lumen"),
     flare: CFG.flareLight + 120 * skLv("lumen"),
-    flareCd: Math.max(3.0, CFG.flareCd * cdMul)     // 探照冷却也走系数表（神器要能改它）
+    flareCd: Math.max(3.0, CFG.flareCd)
   };
 }
 /* 三选一抽卡：独立 RNG（不动玩法随机流，同一 seed 的障碍布局不会因为抽卡而改变） */
@@ -246,12 +299,14 @@ function combatOwned() {
   return n;
 }
 function rollChoices() {
+  /* 质变：2000m 后的第一次强化 = 三条质变方向（别的牌一律不给；不可刷新，和选流派同规） */
+  if (!G.mutate && G.depth >= CFG.mutateAt && G.route) return MUTATIONS.map((m) => ({ id: m.id, n: m.n, t: "质变", route: m, mutate: m, d: m.d, sub: m.sub, max: 1, minD: 0, w: 0 }));
   /* 第二次强化：三条路线一起端上来，别的牌一律不给 */
   if (G.level === 2 && !G.route) return ROUTES.map((r) => ({ id: r.id, n: r.n, t: "路线", route: r, d: r.d, sub: r.s, max: 1, minD: 0, w: 0 }));
   /* 刷新必须换一批牌：种子带上 rerollN（否则重抽回来还是同样三张） */
   const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761 + (G.rerollN | 0) * 0x9e3779b1) >>> 0);
-  /* 带 r 的是路线专属牌：选了哪条路，才抽得到哪条路的牌 */
-  let pool = SKILLS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route));
+  /* 带 r 的是路线专属牌：选了哪条路，才抽得到哪条路的牌。质变牌同理（r = 质变 id）。 */
+  let pool = SKILLS.concat(MUT_SKILLS).filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route || s.r === G.mutate));
   /* 流派纯度（2026-09-25 玩家要求）：1km 之前、选定流派之后，三选一只给自己那条的牌，
      基础牌一张都不掺。流派牌不足 3 张就先放宽深度门槛（宁可给早），再不够才退回混池 —— 不开天窗。 */
   const routeOnly = !!G.route && G.depth < CFG.routeOnlyUntil;
@@ -261,16 +316,29 @@ function rollChoices() {
     if (own.length) pool = own;
   }
   const out = [];
-  /* 神器：稀有档单独判一次（不跟普通牌比权重）。选流派那次（Lv2）不给 —— 见 ARTIFACTS 注释 */
+  /* 神器：稀有档单独判一次（不跟普通牌比权重）。
+     2026-09-25 重做：① 持有数 < CFG.artCap 才判新神器；② 已持有的神器可能出「Lv2 强化」
+     （描述换成 ARTIFACT_UP 的那行，效果随等级走 recalcMods）；③ 选流派那次（Lv2）不给。 */
   let artifact = null;
   {
-    const arts = ARTIFACTS.filter((s) => skLv(s.id) < 1 && G.depth >= s.minD);
+    const ownedN = ARTIFACTS.reduce((n, s) => n + Math.min(1, skLv(s.id)), 0);
+    const arts = ARTIFACTS.filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (skLv(s.id) > 0 || ownedN < CFG.artCap));
     if (arts.length && G.level !== 2 && rg() < CFG.artChance) {
       let at = 0; for (const s of arts) at += s.w;
       let ax = rg() * at, ak = 0;
       for (; ak < arts.length - 1; ak++) { ax -= arts[ak].w; if (ax <= 0) break; }
       artifact = arts[ak];
       out.push(artifact);
+    }
+  }
+  /* 质变纯度：定了质变、还没拿满第一轮质变牌时，三选一里保底混一张质变牌
+     （不学流派那样 100% 纯 —— 质变之后基础牌也该有出场机会，只保证「新的特殊效果」能长出来） */
+  if (G.mutate) {
+    const mutOwned = MUT_SKILLS.reduce((n, s) => n + Math.min(skLv(s.id), 1), 0);
+    if (mutOwned < 3 && !out.some((s) => s.r === G.mutate) && G.level !== 2) {
+      let own = MUT_SKILLS.filter((s) => s.r === G.mutate && skLv(s.id) < s.max && G.depth >= s.minD);
+      if (!own.length) own = MUT_SKILLS.filter((s) => s.r === G.mutate && skLv(s.id) < s.max);
+      if (own.length && out.length < 3) out.push(own[ri(0, own.length - 1)]);
     }
   }
   /* 保底：战斗牌总共不到 2 级时，每次普通三选一必带一张战斗牌 ——
@@ -299,14 +367,16 @@ function rollChoices() {
     for (; k < pool.length - 1; k++) { x -= pool[k].w; if (x <= 0) break; }
     out.push(pool.splice(k, 1)[0]);
   }
-  return out;
+  /* 同名卡去重：保底混进来的牌可能正好和权重抽到的撞上（三张里出现两张「裂痕」看着像 bug） */
+  const seen = new Set();
+  return out.filter((s) => !seen.has(s.id) && seen.add(s.id));
 }
 /* 刷新（reroll）：每局 CFG.rerollPerRun 次，重抽三张牌 ——
    抽卡种子带上 rerollN，所以重抽一定换一批，不会原样端回来。
    选流派那次不给刷：三张就是那三条路，刷了还是它们。 */
 function rerollChoices() {
   if (G.state !== "levelup" || !G.choices) return false;
-  if (G.choices.some((s) => s.route)) return false;
+  if (G.choices.some((s) => s.route)) return false;      // 路线 / 质变都不给刷：选完才继续
   if (G.rerolls <= 0) return false;
   G.rerolls -= 1; G.rerollN += 1;
   const c = rollChoices();
@@ -330,12 +400,12 @@ function applyPick(i) {
   if (G.state !== "levelup" || !G.choices) return false;
   const s = G.choices[i];
   if (!s) return false;
-  if (s.route) {                        // 路线：选一条，另外两条从此不再出现
-    G.route = s.route.id;
+  if (s.route) {                        // 路线 / 质变：选一条，另外两条从此不再出现
+    if (s.mutate) { G.mutate = s.route.id; popup(p.x, p.y - 44, "质变 · " + s.route.n, s.route.col.join(",")); }
+    else { G.route = s.route.id; popup(p.x, p.y - 44, s.route.n, s.route.col.join(",")); }
     recalcMods();
     G.choices = null; G.state = "play";
     G.flash = 0.7;
-    popup(p.x, p.y - 44, s.route.n, s.route.col.join(","));
     burst(p.x, p.y, 28, s.route.col.join(","));
     SFX.pick();
     return true;
@@ -345,8 +415,8 @@ function applyPick(i) {
   G.choices = null; G.state = "play";
   const col = KIND_COL[s.t] || [190, 240, 255];
   if (s.id === "seal") G.o2 = Math.min(o2MaxNow(), G.o2 + 18);
-  if (s.id === "a_heart") G.o2 = o2MaxNow();          // 神器·鲸落之心：上限 +40 且立刻补满
-  popup(p.x, p.y - 48, s.n + " Lv" + G.sk[s.id], col.join(","));
+  if (s.id === "a_amulet") G.amuT = 0;                // 护心符：拿到当场就转起来（默认生效，不用按）
+  popup(p.x, p.y - 48, s.n + (s.max > 1 ? " Lv" + G.sk[s.id] : ""), col.join(","));
   burst(p.x, p.y, 20, col.join(","));
   G.shakeT = 0.2; G.shakeMag = 5;
   SFX.pick();
@@ -501,6 +571,7 @@ const p = { x: W0 / 2, y: CFG.playerY, vx: 0, invuln: 0, hurtT: 0 };
 let ents = [];
 const G = {
   state: "title",              // title | play | pause | over
+  helpOpen: false,             // 标题页「?」规则弹层
   t: 0, runTime: 0,
   depth: 0, bonus: 0, diff: 0,
   o2: CFG.o2Max, lightBonus: 0, lightR: CFG.lightNear,
@@ -513,7 +584,7 @@ const G = {
   input: { left: false, right: false, boost: false, kb: false, ptrActive: false, ptrX: W0 / 2, ptrY: H0 / 2, mouseDown: false, touches: 0,
            aimActive: false, ax: W0 / 2, ay: CFG.playerY + CFG.atkReach },
   /* --- 战斗：准星（鼠标准心管打哪）+ 普攻冷却 --- */
-  aim: { x: W0 / 2, y: CFG.playerY + CFG.atkReach, tx: W0 / 2, ty: CFG.playerY + CFG.atkReach, idle: 99, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0 },
+  aim: { x: W0 / 2, y: CFG.playerY + CFG.atkReach, tx: W0 / 2, ty: CFG.playerY + CFG.atkReach, idle: 99, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0, extra: [], beamDmg: 0 },
   /* --- 深渊馈赠（割草式三选一） --- */
   level: 0, nextLv: 0, sk: {}, choices: null, m: null, rerolls: 2, rerollN: 0,
   /* --- 主动技能：act = 剩余冷却，actFx = 正在生效的持续时间；kills/o2Kill 供探针核对 --- */
@@ -602,6 +673,8 @@ function startRun(seed) {
   G.actFx.sx = G.actFx.sy = 0;
   G.kills = 0; G.o2Kill = 0; G.dashStamp = 0;
   G.comboN = 0; G.comboT = -99;                  // 连杀回氧递减：计数 + 上一只的时间戳
+  G.amuT = 0; G.amuCd = 0; G.amuHits = 0;        // 护心符：生效计时 / 冷却 / 命中计数（探针核对用）
+  G.talis = null; G.mutate = null;               // 质变（2000m 三选一）状态清零
   aiRng = mulberry32((G.seed * 7919 + 13) >>> 0);
   G.speed = CFG.baseSpeed; G.boosting = false; G.slowT = 0;
   G.rowT = 0.9; G.bubbleT = 0.8; G.jellyT = rr(CFG.jellyEvery[0], CFG.jellyEvery[1]);
@@ -698,10 +771,17 @@ function breakReward(e) {
   burst(e.x, e.y, 14, "190,205,220");
 }
 function hurtEnt(i, e, dmg, tag) {
+  /* 圣盾使的盾：单次 ≥60 直接破盾；不然挡 75% 并削一层（3 层）。盾碎了 breakT 秒后重开。 */
+  if (e.kind === "warden" && e.shield && e.breakT <= 0) {
+    e.shieldHp -= 1;
+    if (dmg >= 60 || e.shieldHp <= 0) { e.shield = false; e.breakT = CFG.wardenBreakT; popup(e.x, e.y - e.r - 20, "破盾!", "255,225,150"); burst(e.x, e.y, 12, "255,220,140"); }
+    else { popup(e.x, e.y - e.r - 20, "盾 -" + Math.round(dmg * 0.25), "255,225,150"); burst(e.x, e.y, 4, "255,220,140"); return false; }
+  }
   e.hp -= dmg; e.flash = 0.16;
   popup(e.x, e.y - e.r - 8, "-" + dmg, tag || "255,175,125");
   if (e.hp > 0) { burst(e.x, e.y, 4, "255,200,150"); return false; }
-  if (e.kind === "hunter" || e.kind === "spitter") killReward(e); else breakReward(e);
+  const isMob = e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden";
+  if (isMob) killReward(e); else breakReward(e);
   ents.splice(i, 1);
   return true;
 }
@@ -712,14 +792,37 @@ function fireAttack() {
   A.beam = CFG.beamT;
   const halfw = G.m.atkHalfW;
   let hits = 0;
-  for (let i = ents.length - 1; i >= 0; i--) {
-    const e = ents[i];
+  /* 双生光束（被动神器）：主光束之外，再挑另一个活着的目标各射一条。
+     Lv1 = 2 条，Lv2 = 3 条；每条都是全额普攻伤害（Lv2 起每条 ×1.25 已经乘进 atkDmg）。 */
+  const extra = Math.max(0, G.m.duelBeams - 1);
+  const targets = [];
+  for (const e of ents) {
     if (e.kind === "bubble" || e.kind === "jelly" || e.kind === "bolt") continue;
-    if (entSegDist(e, p.x, p.y, bx, by) > halfw) continue;
-    const isObst = e.kind === "rock" || e.kind === "cable";
-    hurtEnt(i, e, G.m.atkDmg + (isObst ? G.m.atkObst : 0));
-    hits++;
+    if (entSegDist(e, p.x, p.y, bx, by) <= halfw) continue;   // 主光束会打到的，不重复挑
+    targets.push(e);
   }
+  targets.sort((a, b) => (Math.hypot(a.x - p.x, a.y - p.y)) - (Math.hypot(b.x - p.x, b.y - p.y)));
+  const extraPts = [];
+  for (let k = 0; k < extra && k < targets.length; k++) extraPts.push([targets[k].x, targets[k].y]);
+  A.extra = extraPts;
+  let totalDmg = 0, totalHits = 0;
+  const shootSeg = (ex, ey) => {
+    for (let i = ents.length - 1; i >= 0; i--) {
+      const e = ents[i];
+      if (e.kind === "bubble" || e.kind === "jelly" || e.kind === "bolt") continue;
+      if (entSegDist(e, p.x, p.y, ex, ey) > halfw) continue;
+      const isObst = e.kind === "rock" || e.kind === "cable";
+      let d2 = G.m.atkDmg + (isObst ? G.m.atkObst : 0);
+      if (e.markT > 0) d2 = Math.round(d2 * (1 + (e.markK || 0.35)));   // 台风眼·裂痕标记：增伤
+      const before = e.hp;
+      hurtEnt(i, e, d2);
+      if (e.hp !== before) { hits++; totalDmg += d2; totalHits++; }
+    }
+  };
+  shootSeg(bx, by);
+  for (const pt of extraPts) shootSeg(pt[0], pt[1]);
+  A.beamDmg = totalDmg;
+  /* 深渊回响只认「技能伤害」，普攻不回 —— 这条是神器定位（被动技能），不是普攻强化 */
   SFX.shoot();
   return hits;
 }
@@ -805,9 +908,14 @@ function shockwave() {
     if (e.kind === "bolt") { ents.splice(i, 1); n++; continue; }
     if (Math.hypot(e.x - p.x, e.y - p.y) > Rr + e.r) continue;
     const isObst = e.kind === "rock" || e.kind === "cable";
+    const before = e.hp;
     hurtEnt(i, e, isObst ? Math.round(D * 1.3) : D, "255,220,160");
+    if (e.hp !== before || !ents.includes(e)) n++;      // 打中就算（护盾挡掉的也标记：台风眼靠这个上标记）
+    /* 质变·台风眼：被冲击波打中的怪挂 5 秒「裂痕」标记，期间受到的所有伤害 +35% */
+    if (G.mutate === "typhoon" && ents.includes(e)) { e.markT = 5 + skLv("t_mark"); e.markK = 0.35 + 0.10 * skLv("t_mark"); }
     n++;
   }
+  echoHit(n);
   G.shakeT = 0.35; G.shakeMag = 12;
   burst(p.x, p.y, 30, "180,240,255");
   SFX.zap();
@@ -819,11 +927,12 @@ function flareBurn() {
   let n = 0;
   for (let i = ents.length - 1; i >= 0; i--) {
     const e = ents[i];
-    if (e.kind !== "hunter" && e.kind !== "spitter") continue;
+    if (e.kind !== "hunter" && e.kind !== "spitter" && e.kind !== "reaver" && e.kind !== "warden") continue;
     if (Math.hypot(e.x - p.x, e.y - p.y) > Rr + e.r) continue;
     hurtEnt(i, e, Math.round(D / 4), "210,240,255");
     n++;
   }
+  echoHit(n);
   return n;
 }
 /* 没解锁时给一句人话，不然玩家以为按键坏了 */
@@ -860,10 +969,32 @@ function tryActive(k) {
 }
 
 function spawnHunter() {
-  ents.push({ kind: "hunter", x: rr(60, W0 - 60), y: H0 + 50, r: 20, hp: CFG.hunterHP, maxHp: CFG.hunterHP, seed: rnd() * 997, hit: false, near: false, flash: 0 });
+  ents.push({ kind: "hunter", x: rr(60, W0 - 60), y: H0 + 50, r: 20, hp: mobHP(CFG.hunterHP), maxHp: mobHP(CFG.hunterHP), seed: rnd() * 997, hit: false, near: false, flash: 0 });
 }
 function spawnSpitter() {
-  ents.push({ kind: "spitter", x: rr(60, W0 - 60), y: H0 + 50, r: 17, hp: CFG.spitterHP, maxHp: CFG.spitterHP, seed: rnd() * 997, hit: false, near: false, flash: 0, fireT: 1.3 });
+  ents.push({ kind: "spitter", x: rr(60, W0 - 60), y: H0 + 50, r: 17, hp: mobHP(CFG.spitterHP), maxHp: mobHP(CFG.spitterHP), seed: rnd() * 997, hit: false, near: false, flash: 0, fireT: 1.3 });
+}
+/* 2026-09-25 玩家反馈「后期敌人数值太低」：1800m 起全怪物血量线性爬坡，2400m 后 ×3 封顶 */
+function mobHP(base) {
+  const k = clamp((G.depth - CFG.mobHpFrom) / CFG.mobHpSpan, 0, 1);
+  const mul = 1 + k * (CFG.mobHpCap - 1);
+  return Math.round(base * mul);
+}
+/* 剃刀鲸：2000m+。体型大、血厚、斜插猛冲，撞完不消失 —— 逼你真的挪位置，
+   原地站桩放技能会先被它撞掉一层氧。 */
+function spawnReaver() {
+  const fromLeft = rnd() < 0.5;
+  ents.push({ kind: "reaver", x: fromLeft ? -60 : W0 + 60, y: H0 + rr(40, 160), r: 30,
+              hp: mobHP(CFG.reaverHP), maxHp: mobHP(CFG.reaverHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, vx: (fromLeft ? 1 : -1) * CFG.reaverVX * rr(0.8, 1.2) });
+}
+/* 圣盾使：2000m+。金钟水母，贴近了放三连电球；盾开着减伤 75%，
+   盾被打破（单次伤害 ≥60 或累计 3 次命中）后 3.5s 内不重开 —— 先破盾再输出。 */
+function spawnWarden() {
+  ents.push({ kind: "warden", x: rr(120, W0 - 120), y: H0 + 40, r: 22,
+              hp: mobHP(CFG.wardenHP), maxHp: mobHP(CFG.wardenHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, fireT: 2.0, fanN: 0, fanT: 0,
+              shield: true, shieldHp: 3, breakT: 0 });
 }
 function hurtPlayer(dmg, col) {
   if (p.invuln > 0) return false;
@@ -873,6 +1004,12 @@ function hurtPlayer(dmg, col) {
     dmg = Math.max(1, dmg - cut);
     popup(p.x, p.y - 46, "光盾 -" + cut, "210,240,255");
   }
+  /* 质变·巨鲸崩涛（+崩甲）：固定百分比减伤（基础 25%，崩甲每级 +8%，60% 封顶） */
+  if (G.mutate === "bulwark") {
+    const cutK = Math.min(0.60, 0.25 + 0.08 * skLv("b_arm"));
+    const cut = Math.round(dmg * cutK);
+    if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(p.x, p.y - 60, "崩涛 -" + cut, "150,255,220"); }
+  }
   G.o2 -= dmg;
   p.invuln = G.m.invuln; p.hurtT = 0.4; G.slowT = CFG.hitSlowTime;
   G.shakeT = 0.45; G.shakeMag = 13; G.redFlash = 0.9;
@@ -880,6 +1017,23 @@ function hurtPlayer(dmg, col) {
   popup(p.x, p.y - 26, "-" + dmg + " 氧", "255,160,160");
   SFX.hit();
   return true;
+}
+/* 荆棘甲（被动神器）：被咬时反伤；Lv2 起反伤命中回氧 +1% */
+function thornHit(i, e) {
+  const died = hurtEnt(i, e, G.m.thorn.d, "180,255,190");
+  G.thornHits = (G.thornHits || 0) + 1;
+  if (died && G.m.thorn.heal > 0) {
+    const gain = o2MaxNow() * G.m.thorn.heal;
+    G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+    popup(p.x, p.y - 70, "荆棘回氧 +" + gain.toFixed(1), "150,255,200");
+  }
+}
+/* 深渊回响（被动神器）：冲击波 / 灼光 / 符咒 / 光环这类「技能伤害」命中时回氧 */
+function echoHit(n) {
+  if (!G.m.echo || n <= 0) return;
+  const gain = o2MaxNow() * G.m.echo * n;
+  G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+  G.o2Echo = (G.o2Echo || 0) + gain;
 }
 
 function stepPlay(dt) {
@@ -902,6 +1056,62 @@ function stepPlay(dt) {
     if (G.m.flareHeal > 0) G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * G.m.flareHeal / 100 * dt);
   } else G.dotT = 0;
 
+  /* --- 被动神器 & 质变：默认生效，不用玩家按（2026-09-25 玩家口径） --- */
+  /* 护心符：冷却 → 转起来灼敌 → 收工。amuT 是剩余生效时间，amuCd 是冷却 */
+  if (G.m.amu) {
+    G.amuCd = Math.max(0, (G.amuCd || 0) - dt);
+    if (G.amuT > 0) {
+      G.amuT = Math.max(0, G.amuT - dt);
+      G.amuAng = (G.amuAng || 0) + G.m.amu.sp * dt;
+      G.amuTick = (G.amuTick || 0) + dt;
+      if (G.amuTick >= 0.25) {                    // 0.25s 一跳，跟灼光同节奏，不刷屏
+        G.amuTick = 0;
+        let hits = 0;
+        for (let i = ents.length - 1; i >= 0; i--) {
+          const e = ents[i];
+          if (e.kind !== "hunter" && e.kind !== "spitter" && e.kind !== "reaver" && e.kind !== "warden") continue;
+          if (Math.hypot(e.x - p.x, e.y - p.y) > G.m.amu.r + e.r) continue;
+          const before = { hp: e.hp, sh: e.shieldHp };
+          hurtEnt(i, e, Math.round(G.m.amu.d / 4), "255,235,180");
+          if (e.hp !== before.hp || e.shieldHp !== before.sh) { hits++; G.amuHits++; }   // 打在盾上也算命中
+        }
+        echoHit(hits);
+      }
+    } else if (G.amuCd <= 0) { G.amuT = G.m.amu.t; G.amuCd = G.m.amu.cd; G.flash = Math.max(G.flash, 0.18); }
+  }
+  /* 质变·深灯火环：常亮光环，环内怪每秒灼伤、自己每秒回氧 */
+  if (G.mutate === "abyss") {
+    const hR = 240 + 30 * skLv("a_dmg"), hD = 22 + 8 * skLv("a_dmg"), hO = 0.15 + 0.10 * skLv("a_o2");
+    G.haloR = hR;
+    G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * hO / 100 * dt);
+    G.haloTick = (G.haloTick || 0) + dt;
+    if (G.haloTick >= 0.5) {
+      G.haloTick = 0;
+      let hits = 0;
+      for (let i = ents.length - 1; i >= 0; i--) {
+        const e = ents[i];
+        if (e.kind !== "hunter" && e.kind !== "spitter" && e.kind !== "reaver" && e.kind !== "warden") continue;
+        if (Math.hypot(e.x - p.x, e.y - p.y) > hR + e.r) continue;
+        const before = { hp: e.hp, sh: e.shieldHp };
+        hurtEnt(i, e, Math.round(hD / 2), "210,240,255");
+        if (e.hp !== before.hp || e.shieldHp !== before.sh) hits++;   // 打在盾上也算命中
+      }
+      echoHit(hits);
+    }
+  } else G.haloR = 0;
+  /* 质变·巨鲸崩涛：突进期间把周围怪往身边拽（撞进去喂猛撞/荆棘/光环） */
+  if (G.mutate === "bulwark" && fx.dash > 0) {
+    const pullR = 260 + 80 * skLv("b_pull"), pullK = Math.min(1, dt * (7 * (1 + 0.3 * skLv("b_pull"))));
+    for (const e of ents) {
+      if (e.kind !== "hunter" && e.kind !== "spitter" && e.kind !== "reaver" && e.kind !== "warden") continue;
+      const dx = p.x - e.x, dy2 = p.y - e.y, dd = Math.hypot(dx, dy2);
+      if (dd < pullR && dd > 1) { e.x += dx / dd * Math.min(dd, 220 * dt); e.y += dy2 / dd * Math.min(dd, 220 * dt); e.pulled = 0.3; }
+      else if (e.pulled > 0) e.pulled = Math.max(0, e.pulled - dt);
+    }
+  }
+  /* 台风眼标记：到点自己掉 */
+  for (const e of ents) if (e.markT > 0) e.markT = Math.max(0, e.markT - dt);
+
   /* --- 加速：只有还有氧气才能踩 --- */
   G.boosting = I.boost && G.o2 > 0;
   if (G.slowT > 0) G.slowT = Math.max(0, G.slowT - dt);
@@ -923,7 +1133,7 @@ function stepPlay(dt) {
   G.o2 -= drain * dt;
 
   /* --- 视野 --- */
-  const lit = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1));
+  const lit = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1)) + CFG.lightMut * skLv("a_light");
   G.lightBonus = Math.max(0, G.lightBonus - CFG.jellyDecay * dt);
   /* 探照：生效期间把光照半径硬顶到 flare，时间一到自己退回背景值（不是永久加成） */
   let litTarget = lit + G.lightBonus;
@@ -992,17 +1202,24 @@ function stepPlay(dt) {
     G.jellyT = rr(CFG.jellyEvery[0], CFG.jellyEvery[1]) * G.m.jellyFreq;
     ents.push({ kind: "jelly", x: rr(70, W0 - 70), y: H0 + 40, r: rr(14, 19), seed: rnd() * 997 });
   }
-  /* --- 深海猎食者：1000m 以下才出现；刚过线有适应期，越深才越凶 --- */
+  /* --- 深海猎食者：1000m 以下才出现；刚过线有适应期，越深才越凶 ---
+     2026-09-25：2000m 起加入剃刀鲸（近身冲撞）与圣盾使（三连电球 + 护盾）。 */
   if (G.depth >= CFG.mobFrom) {
     const intro = clamp((G.depth - CFG.mobFrom) / CFG.mobRamp, 0, 1);
     const rate = (CFG.mobIntro + (1 - CFG.mobIntro) * intro) * (CFG.mobDeepen[0] + CFG.mobDeepen[1] * dk);
-    const cap = CFG.mobCapBase + Math.round(CFG.mobCapGain * dk);
+    const cap = CFG.mobCapBase + Math.round(CFG.mobCapGain * dk) + (G.depth >= 2000 ? 1 : 0);
     let live = 0;
-    for (const e of ents) if (e.kind === "hunter" || e.kind === "spitter") live++;
+    for (const e of ents) if (e.kind !== "bubble" && e.kind !== "jelly" && e.kind !== "bolt" && e.kind !== "rock" && e.kind !== "cable") live++;
     G.huntT -= dt * rate;
     if (G.huntT <= 0) { G.huntT = rr(CFG.hunterEvery[0], CFG.hunterEvery[1]); if (live < cap) spawnHunter(); }
     G.spitT -= dt * rate;
     if (G.spitT <= 0) { G.spitT = rr(CFG.spitterEvery[0], CFG.spitterEvery[1]); if (live < cap) spawnSpitter(); }
+    if (G.depth >= 2000) {
+      G.reavT = (G.reavT === undefined ? rr(3, 6) : G.reavT) - dt * rate;
+      if (G.reavT <= 0) { G.reavT = rr(CFG.reaverEvery[0], CFG.reaverEvery[1]); if (live < cap) spawnReaver(); }
+      G.wardT = (G.wardT === undefined ? rr(6, 10) : G.wardT) - dt * rate;
+      if (G.wardT <= 0) { G.wardT = rr(CFG.wardenEvery[0], CFG.wardenEvery[1]); if (live < cap) spawnWarden(); }
+    }
   }
 
   /* --- 实体推进 + 碰撞 --- */
@@ -1023,8 +1240,9 @@ function stepPlay(dt) {
     }
     /* 电袭者是「悬停射手」：不跟着水流一起滚，靠自己慢慢游上来 ——
        否则世界滚动 + 自己的漂移会让它 3 秒穿过整屏，一枪都来不及放 */
-    if (e.kind !== "spitter") e.y -= dy;
-    /* 怪物自己的动作：猎手加速上冲咬人，喷吐者保持距离放冷枪 */
+    if (e.kind !== "spitter" && e.kind !== "warden") e.y -= dy;
+    /* 怪物自己的动作：猎手加速上冲咬人，喷吐者保持距离放冷枪，
+       剃刀鲸横冲直撞（撞完不消失），圣盾使悬停 + 三连电球 */
     if (e.kind === "hunter") {
       e.y -= CFG.hunterRush * dt;
       e.x += clamp(p.x - e.x, -CFG.hunterVX * dt, CFG.hunterVX * dt);
@@ -1037,6 +1255,27 @@ function stepPlay(dt) {
         const a = Math.atan2(p.y - e.y, p.x - e.x);
         ents.push({ kind: "bolt", x: e.x, y: e.y, r: CFG.boltR, vx: Math.cos(a) * CFG.boltSpeed, vy: Math.sin(a) * CFG.boltSpeed, life: 4.5, seed: rnd() * 997 });
         SFX.zap();
+      }
+    } else if (e.kind === "reaver") {
+      /* 剃刀鲸：横着冲过屏幕 + 缓慢上移，撞到人也不消失（冷却 1.2s 后再撞） */
+      e.x += e.vx * dt;
+      e.y -= 42 * dt;
+      if (e.x < -90 || e.x > W0 + 90) { ents.splice(i, 1); continue; }
+    } else if (e.kind === "warden") {
+      /* 圣盾使：悬停射手，慢慢飘上来；三连电球一轮，轮间隔 wardenFan */
+      e.y -= CFG.spitterRush * 0.5 * dt;
+      e.x += Math.sin(G.t * 1.4 + e.seed) * 24 * dt;
+      e.fireT -= dt;
+      if (e.breakT > 0) e.breakT = Math.max(0, e.breakT - dt); else if (e.shieldHp <= 0) { e.shield = true; e.shieldHp = 3; }
+      if (e.fireT <= 0 && e.fanN <= 0 && e.y > p.y + 90 && e.y < H0 + 10) { e.fanN = 3; e.fanT = 0; e.fireT = rr(CFG.wardenFan[0], CFG.wardenFan[1]); }
+      if (e.fanN > 0) {
+        e.fanT -= dt;
+        if (e.fanT <= 0) {
+          e.fanT = 0.22; e.fanN -= 1;
+          const a = Math.atan2(p.y - e.y, p.x - e.x) + rr(-0.16, 0.16);
+          ents.push({ kind: "bolt", x: e.x, y: e.y, r: CFG.boltR, vx: Math.cos(a) * CFG.boltSpeed, vy: Math.sin(a) * CFG.boltSpeed, life: 4.5, seed: rnd() * 997 });
+          SFX.zap();
+        }
       }
     }
     if (e.y < -140) { ents.splice(i, 1); continue; }
@@ -1071,7 +1310,7 @@ function stepPlay(dt) {
       /* 战士·猛撞：撞击伤害加成 */
       if (hurtEnt(i, e, CFG.dashDmg + G.m.ramDmg, "150,255,220") && G.m.vamp > 0) healVamp(e.x, e.y);
       continue;
-    } else if (fx.dash > 0 && G.m.ramDmg > 0 && (e.kind === "hunter" || e.kind === "spitter")
+    } else if (fx.dash > 0 && G.m.ramDmg > 0 && (e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden")
                && Math.hypot(e.x - p.x, e.y - p.y) < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
       /* 基础突进只撞碎障碍物，点了猛撞才能把怪一起撞了 */
       e.dashS = G.dashStamp;
@@ -1079,14 +1318,20 @@ function stepPlay(dt) {
       continue;
     } else if (d < rr2 && p.invuln <= 0 && !e.hit) {
       e.hit = true;
-      if (e.kind === "hunter" || e.kind === "spitter") {
-        /* 咬一口就同归于尽：不给它反复贴脸刷伤害的机会 */
-        hurtPlayer(Math.round(CFG.huntDamage * (1 + dk * CFG.hitGain) * G.m.dmg), "255,150,120");
-        burst(e.x, e.y, 20, "255,140,110");
-        ents.splice(i, 1);
+      const isMob2 = e.kind === "hunter" || e.kind === "spitter" || e.kind === "reaver" || e.kind === "warden";
+      if (isMob2) {
+        /* 咬人结算：猎手/电袭者同归于尽；剃刀鲸/圣盾使活着走开（e.cd 冷却后再咬） */
+        const dmg = Math.round((e.kind === "reaver" ? CFG.reaverDmg : e.kind === "warden" ? CFG.huntDamage : CFG.huntDamage) * (1 + dk * CFG.hitGain) * G.m.dmg);
+        hurtPlayer(dmg, e.kind === "reaver" ? "255,190,120" : "255,150,120");
+        if (G.m.thorn && G.m.thorn.d > 0) thornHit(i, e);          // 荆棘甲：反伤（可能反死它）
+        if (e.kind === "hunter" || e.kind === "spitter") { burst(e.x, e.y, 20, "255,140,110"); ents.splice(i, 1); }
+        else e.cd = 1.2;
       } else {
         hurtPlayer(Math.round(CFG.hitDamage * (1 + dk * CFG.hitGain) * G.m.dmg));
       }
+    } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden")) {
+      e.cd = Math.max(0, e.cd - dt);
+      if (e.cd <= 0) e.hit = false;       // 大家伙咬完一口会绕回来再咬：冷却好了才能咬下一口
     } else if (!e.near && (e.kind === "rock" || e.kind === "cable") && d < rr2 + G.m.nearPad) {
       e.near = true;
       G.bonus += G.m.nearBonus;
@@ -1156,33 +1401,62 @@ const SKINS = [
   },
   {
     id: "fatfish", name: "蓝色大肥鱼", desc: "我本人",
+    /* 2026-09-25 玩家给了官方二创立绘要求 8 分像：蓝身白肚 + 女仆白头箍 + 超大蓝瞳 + 腮红 + 小虎牙 */
     paint(c, t, s, wig) {
+      /* 尾鳍：深蓝，随摆尾晃 */
       c.beginPath();
-      c.moveTo(-11 * s, 0); c.lineTo(-31 * s, (-12 + wig * 7) * s);
-      c.lineTo(-24 * s, 0); c.lineTo(-31 * s, (12 + wig * 7) * s); c.closePath();
-      c.fillStyle = "#2c5cae"; c.fill();
-      c.beginPath(); c.moveTo(-5 * s, -12 * s);
-      c.quadraticCurveTo(1 * s, -25 * s, 11 * s, -13 * s); c.closePath();
-      c.fillStyle = "#3f77cf"; c.fill();
+      c.moveTo(-12 * s, 0); c.lineTo(-32 * s, (-13 + wig * 7) * s);
+      c.lineTo(-25 * s, 0); c.lineTo(-32 * s, (13 + wig * 7) * s); c.closePath();
+      c.fillStyle = "#2b57a8"; c.fill();
+      /* 背鳍：蓝色小三角 */
+      c.beginPath(); c.moveTo(-4 * s, -13 * s);
+      c.quadraticCurveTo(2 * s, -24 * s, 12 * s, -12 * s); c.closePath();
+      c.fillStyle = "#3d6fc4"; c.fill();
+      /* 身体：上亮下深的蓝渐变（立绘的蓝色本体） */
       const bg = c.createLinearGradient(0, -16 * s, 0, 16 * s);
-      bg.addColorStop(0, "#9ccdff"); bg.addColorStop(0.45, "#4a86e0"); bg.addColorStop(1, "#274f9e");
-      c.beginPath(); c.ellipse(0, 0, 20 * s, 15 * s, 0, 0, Math.PI * 2);
+      bg.addColorStop(0, "#7db4f2"); bg.addColorStop(0.5, "#4a7fd6"); bg.addColorStop(1, "#2b57a8");
+      c.beginPath(); c.ellipse(0, 0, 21 * s, 15.5 * s, 0, 0, Math.PI * 2);
       c.fillStyle = bg; c.fill();
-      c.beginPath(); c.ellipse(3 * s, 6 * s, 13 * s, 7 * s, 0, 0, Math.PI * 2);
-      c.fillStyle = "rgba(242,251,255,0.93)"; c.fill();
-      c.beginPath(); c.moveTo(3 * s, 5 * s);
-      c.quadraticCurveTo(-1 * s, 15 * s, -9 * s, 10 * s); c.closePath();
-      c.fillStyle = "#2c5cae"; c.fill();
-      c.beginPath(); c.arc(11 * s, -4.5 * s, 4.4 * s, 0, Math.PI * 2);
-      c.fillStyle = "#f6fcff"; c.fill();
-      c.beginPath(); c.arc(12.2 * s, -4.5 * s, 2.7 * s, 0, Math.PI * 2);
-      c.fillStyle = "#0a1c33"; c.fill();
-      c.beginPath(); c.arc(11 * s, -5.8 * s, 1 * s, 0, Math.PI * 2);
-      c.fillStyle = "rgba(255,255,255,0.95)"; c.fill();
-      c.beginPath(); c.arc(17.5 * s, 2.5 * s, 1.7 * s, 0.15, Math.PI - 0.15);
-      c.strokeStyle = "rgba(10,28,51,0.8)"; c.lineWidth = 1.1 * s; c.stroke();
-      c.beginPath(); c.ellipse(22 * s, 4 * s, 2.6 * s, 1.5 * s, 0.45, 0, Math.PI * 2);
-      c.fillStyle = "#fffdf5"; c.fill();
+      /* 白肚皮：立绘的浅色脸部/腹部 */
+      c.beginPath(); c.ellipse(5 * s, 6 * s, 13.5 * s, 8 * s, 0.08, 0, Math.PI * 2);
+      c.fillStyle = "rgba(235,247,255,0.96)"; c.fill();
+      /* 女仆头箍：头顶一圈白色褶边（三段扇形）+ 小蓝蝴蝶结 */
+      c.save();
+      c.beginPath(); c.ellipse(2 * s, -14 * s, 15 * s, 5.5 * s, -0.12, Math.PI, 0);
+      c.fillStyle = "#f4f9ff"; c.fill();
+      c.strokeStyle = "rgba(160,190,230,0.8)"; c.lineWidth = 0.8 * s; c.stroke();
+      for (const k of [0, 1, 2]) {          // 褶边：三个鼓包
+        c.beginPath();
+        c.arc((-6 + k * 8) * s, -16.5 * s, 3.4 * s, Math.PI, 0);
+        c.fillStyle = "#f4f9ff"; c.fill();
+      }
+      c.beginPath();                          // 头箍正中的小蓝结
+      c.moveTo(9 * s, -17 * s); c.lineTo(14 * s, -20 * s); c.lineTo(13.5 * s, -15 * s); c.closePath();
+      c.moveTo(9 * s, -17 * s); c.lineTo(4.5 * s, -20.5 * s); c.lineTo(4.5 * s, -15.5 * s); c.closePath();
+      c.fillStyle = "#5f8fd8"; c.fill();
+      c.restore();
+      /* 侧鳍：浅蓝小翅膀 */
+      c.beginPath(); c.moveTo(-2 * s, 4 * s);
+      c.quadraticCurveTo(-10 * s, 10 * s, -4 * s, 14 * s);
+      c.quadraticCurveTo(2 * s, 11 * s, 3 * s, 5 * s); c.closePath();
+      c.fillStyle = "rgba(160,205,250,0.92)"; c.fill();
+      /* 大眼睛：占半张脸的深蓝瞳 + 双高光（立绘的灵魂） */
+      c.beginPath(); c.arc(11.5 * s, -3 * s, 6.2 * s, 0, Math.PI * 2);
+      c.fillStyle = "#12275e"; c.fill();
+      c.beginPath(); c.arc(12.8 * s, -1.6 * s, 2.6 * s, 0, Math.PI * 2);   // 下部反光
+      c.fillStyle = "rgba(120,180,255,0.85)"; c.fill();
+      c.beginPath(); c.arc(13.4 * s, -4.8 * s, 2.1 * s, 0, Math.PI * 2);   // 主高光
+      c.fillStyle = "#ffffff"; c.fill();
+      c.beginPath(); c.arc(9.8 * s, -5.6 * s, 1 * s, 0, Math.PI * 2);      // 小高光
+      c.fillStyle = "rgba(255,255,255,0.9)"; c.fill();
+      /* 腮红：粉色椭圆 */
+      c.beginPath(); c.ellipse(7.5 * s, 3.5 * s, 2.6 * s, 1.4 * s, 0.2, 0, Math.PI * 2);
+      c.fillStyle = "rgba(255,160,175,0.75)"; c.fill();
+      /* 小嘴 + 虎牙 */
+      c.beginPath(); c.arc(18.2 * s, 1.2 * s, 1.9 * s, 0.15, Math.PI - 0.5);
+      c.strokeStyle = "rgba(20,40,80,0.85)"; c.lineWidth = 1.1 * s; c.stroke();
+      c.beginPath(); c.moveTo(17.4 * s, 1.8 * s); c.lineTo(18.5 * s, 1.8 * s); c.lineTo(17.95 * s, 3.1 * s); c.closePath();
+      c.fillStyle = "#ffffff"; c.fill();
     }
   },
   {
@@ -1659,7 +1933,7 @@ function drawWorld() {
   /* 水母例外：它是光源，得在黑暗层之上重绘一遍，否则一样被吞进纯黑 */
   for (const e of ents) if (e.kind === "jelly") drawJellyGlow(e);
   /* 猎食者/电球也是生物光：不在光照半径内照样看得见它们扑过来（否则 1000m 以下纯挨打） */
-  for (const e of ents) if (e.kind === "hunter" || e.kind === "spitter" || e.kind === "bolt") drawCombatGlow(e);
+  for (const e of ents) if (e.kind !== "bubble" && e.kind !== "jelly") drawCombatGlow(e);
   for (const e of ents) drawHpBar(e);
   drawActiveFx();
   drawAim();
@@ -1710,6 +1984,39 @@ function drawActiveFx() {
     ctx.fillRect(0, 0, W0, 10); ctx.fillRect(0, H0 - 10, W0, 10);
     ctx.restore();
   }
+  /* 质变·深灯火环：常亮光环（被动，不用按）。画在黑暗层之上，深水里也得看得见自己在发光 */
+  if (G.haloR > 0 && (G.state === "play" || G.state === "pause")) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(p.x, p.y, G.haloR * 0.55, p.x, p.y, G.haloR);
+    g.addColorStop(0, "rgba(150,215,255,0)");
+    g.addColorStop(0.85, "rgba(150,215,255," + (0.10 + 0.03 * Math.sin(G.t * 3)).toFixed(3) + ")");
+    g.addColorStop(1, "rgba(190,235,255,0.02)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, p.y, G.haloR, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(190,235,255,0.35)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, G.haloR, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  /* 护心符：符咒环绕（被动神器，默认生效）。生效期间转圈，冷却期间收进本体 */
+  if (G.m && G.m.amu && G.amuT > 0 && (G.state === "play" || G.state === "pause")) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const a = clamp(G.amuT / G.m.amu.t, 0, 1);
+    for (let k = 0; k < G.m.amu.n; k++) {
+      const ang = (G.amuAng || 0) + k * Math.PI * 2 / G.m.amu.n;
+      const fx2 = p.x + Math.cos(ang) * G.m.amu.r, fy2 = p.y + Math.sin(ang) * G.m.amu.r;
+      const g = ctx.createRadialGradient(fx2, fy2, 1, fx2, fy2, 14);
+      g.addColorStop(0, "rgba(255,235,170," + (0.85 * a).toFixed(2) + ")");
+      g.addColorStop(1, "rgba(255,200,90,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(fx2, fy2, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,246,210," + (0.95 * a).toFixed(2) + ")";
+      ctx.font = "700 11px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("符", fx2, fy2 + 1);
+    }
+    ctx.restore();
+  }
 }
 /* 水母是光源：黑暗层之上重画一遍（加色），保证光照半径外仍看得见它游过来 */
 function drawJellyGlow(e) {
@@ -1737,6 +2044,8 @@ function drawCombatGlow(e) {
   const g = ctx.createRadialGradient(e.x, e.y, 1, e.x, e.y, rad);
   if (e.kind === "hunter") { g.addColorStop(0, "rgba(255,95,70,0.38)"); g.addColorStop(1, "rgba(255,60,40,0)"); }
   else if (e.kind === "spitter") { g.addColorStop(0, "rgba(175,140,255,0.38)"); g.addColorStop(1, "rgba(140,110,255,0)"); }
+  else if (e.kind === "reaver") { g.addColorStop(0, "rgba(255,150,80,0.42)"); g.addColorStop(1, "rgba(255,110,40,0)"); }
+  else if (e.kind === "warden") { g.addColorStop(0, "rgba(255,225,120,0.45)"); g.addColorStop(1, "rgba(255,190,60,0)"); }
   else { g.addColorStop(0, "rgba(180,225,255,0.45)"); g.addColorStop(1, "rgba(120,180,255,0)"); }
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(e.x, e.y, rad, 0, Math.PI * 2); ctx.fill();
@@ -1762,6 +2071,56 @@ function drawCombatGlow(e) {
     for (const sx of [-1, 1]) {
       ctx.beginPath(); ctx.ellipse(x + sx * R0 * 0.34, y - R0 * 0.62, 3.4, 2.2, 0, 0, Math.PI * 2); ctx.fill();
     }
+  } else if (e.kind === "reaver") {
+    /* 剃刀鲸：横着的巨型刀鱼，冲撞方向朝前，背部一排利鳍 */
+    const R0 = e.r, dir = e.vx >= 0 ? 1 : -1;
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(dir, 1);
+    ctx.beginPath();
+    ctx.moveTo(R0 * 1.5, 0);
+    ctx.quadraticCurveTo(R0 * 0.4, -R0 * 0.75, -R0 * 1.35, -R0 * 0.28);
+    ctx.quadraticCurveTo(-R0 * 0.9, 0, -R0 * 1.35, R0 * 0.34);
+    ctx.quadraticCurveTo(R0 * 0.4, R0 * 0.72, R0 * 1.5, 0);
+    ctx.closePath();
+    ctx.fillStyle = e.flash > 0 ? "rgba(255,240,225,0.95)" : "rgba(84,38,8,0.88)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,170,90,0.95)"; ctx.lineWidth = 1.8; ctx.stroke();
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(-R0 * 0.9 + i * R0 * 0.55, -R0 * 0.42);
+      ctx.lineTo(-R0 * 0.65 + i * R0 * 0.55, -R0 * 0.95);
+      ctx.lineTo(-R0 * 0.45 + i * R0 * 0.55, -R0 * 0.40);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255,150,80,0.85)"; ctx.fill();
+    }
+    ctx.beginPath(); ctx.ellipse(R0 * 0.85, -R0 * 0.18, 3.6, 2.3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,225,150,1)"; ctx.fill();
+    ctx.restore();
+  } else if (e.kind === "warden") {
+    /* 圣盾使：金钟水母 + 一圈护盾弧（盾开着才画）；蓄力时中央亮起 */
+    const pulse = 1 + Math.sin(G.t * 3 + e.seed) * 0.08;
+    const sh = e.shield && e.breakT <= 0;
+    ctx.beginPath();
+    ctx.ellipse(x, y, e.r * pulse, e.r * 0.9 * pulse, 0, Math.PI, 0);
+    ctx.fillStyle = e.flash > 0 ? "rgba(255,250,230,0.95)" : "rgba(120,95,20,0.85)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,225,120,0.95)"; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.strokeStyle = "rgba(255,215,110,0.8)"; ctx.lineWidth = 2;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + i * e.r * 0.36, y + e.r * 0.1);
+      ctx.quadraticCurveTo(x + i * e.r * 0.36 + Math.sin(G.t * 5 + i + e.seed) * 5, y + e.r * 0.85, x + i * e.r * 0.36, y + e.r * 1.4);
+      ctx.stroke();
+    }
+    if (sh) {
+      ctx.beginPath(); ctx.arc(x, y, e.r * 1.65, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,235,150," + (0.35 + 0.2 * Math.sin(G.t * 6)).toFixed(2) + ")";
+      ctx.lineWidth = 2.4; ctx.stroke();
+      ctx.fillStyle = "rgba(255,225,120,0.6)";
+      for (let k = 0; k < e.shieldHp; k++) {
+        ctx.beginPath(); ctx.arc(x - 10 + k * 10, y - e.r * 1.65 - 8, 3, 0, Math.PI * 2); ctx.fill();
+      }
+    }
   } else {
     const pulse = 1 + Math.sin(G.t * 4 + e.seed) * 0.10;
     const ch = clamp(1 - e.fireT / 0.9, 0, 1);
@@ -1780,6 +2139,15 @@ function drawCombatGlow(e) {
     ctx.beginPath(); ctx.arc(x, y + e.r * 0.3, 3 + ch * 4.5, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255," + Math.round(205 - ch * 130) + ",125," + (0.55 + ch * 0.45).toFixed(2) + ")";
     ctx.fill();
+  }
+  /* 台风眼·裂痕标记：一个转圈的紫金色角标，一眼看出「这货正在挨额外打」 */
+  if (e.markT > 0) {
+    ctx.save();
+    ctx.translate(x, y - e.r - 14);
+    ctx.rotate(G.t * 2.4);
+    ctx.strokeStyle = "rgba(255,170,240,0.95)"; ctx.lineWidth = 2.2;
+    for (let k = 0; k < 3; k++) { ctx.rotate(Math.PI * 2 / 3); ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI / 2.6); ctx.stroke(); }
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -1809,12 +2177,16 @@ function drawAim() {
     const a = A.beam / CFG.beamT;                       // 1 → 0 的视觉残留
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(255,190,120," + (0.50 * a).toFixed(3) + ")";
-    ctx.lineWidth = 12 * a + 3;
-    ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(A.ex, A.ey); ctx.stroke();
-    ctx.strokeStyle = "rgba(255,246,228," + (0.92 * a).toFixed(3) + ")";
-    ctx.lineWidth = 3.5 * a + 1;
-    ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(A.ex, A.ey); ctx.stroke();
+    const beams = [[A.ex, A.ey]].concat(A.extra || []);
+    for (let k = 0; k < beams.length; k++) {
+      const [tx, ty] = beams[k];
+      ctx.strokeStyle = "rgba(255,190,120," + (0.50 * a).toFixed(3) + ")";
+      ctx.lineWidth = 12 * a + 3;
+      ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.strokeStyle = k === 0 ? "rgba(255,246,228," + (0.92 * a).toFixed(3) + ")" : "rgba(210,235,255," + (0.85 * a).toFixed(3) + ")";
+      ctx.lineWidth = 3.5 * a + 1;
+      ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(tx, ty); ctx.stroke();
+    }
     ctx.globalCompositeOperation = "source-over";
   }
   /* 准星本体：一直在，方便把「AD 推的是它」看明白 */
@@ -1831,6 +2203,14 @@ function drawAim() {
   ctx.restore();
 }
 
+function helpBtnRect() {
+  const s = clamp(cssPx(22), 26, 52);
+  return { x: W0 / 2 + 128, y: 214 - s * 0.72, w: s, h: s };
+}
+function helpBtnHit(lx, ly) {
+  const r = helpBtnRect();
+  return lx >= r.x - 6 && lx <= r.x + r.w + 6 && ly >= r.y - 6 && ly <= r.y + r.h + 6;
+}
 function drawTitle() {
   ctx.save();
   ctx.globalAlpha = 0.92;
@@ -1841,14 +2221,46 @@ function drawTitle() {
   text("深 潜", W0 / 2, 214, 62, "#e9f9ff", "center", 700);
   ctx.restore();
   text("S I N K", W0 / 2, 246, 18, "rgba(140,205,240,0.8)", "center", 600);
-  text("「越贪越快，越快越瞎」", W0 / 2, 296, 17, "rgba(160,215,245,0.9)", "center", 600);
-  text("加速下潜：得分 ×" + CFG.boostMul + "　氧气消耗 ×" + CFG.boostDrainMul + "　视野更小", W0 / 2, 326, 14, "rgba(130,180,210,0.8)", "center", 500);
-  text("越深越要命：耗氧↑　障碍更密　撞击更痛　·　每段路三选一强化", W0 / 2, 350, 13, "rgba(255,190,160,0.72)", "center", 500);
-  text(TOUCH
-    ? "拖动屏幕转向（普攻自动连发）　·　" + CFG.mobFrom + "m 以下有东西会还手"
-    : "A / D 转向　·　鼠标准星就是普攻落点（" + CFG.mobFrom + "m 以下有东西会还手）", W0 / 2, 372, 13, "rgba(255,170,140,0.82)", "center", 500);
-  text("Q 冲击波　E 突进　F 探照　—— 三条路线选一条，选定后右键放的就是它", W0 / 2, 394, 13, "rgba(255,175,235,0.85)", "center", 500);
-  text("击杀怪物回 " + Math.round(CFG.killO2 * 100) + "% 氧气（自带，不用选；连杀递减，停手重置）", W0 / 2, 414, 12.5, "rgba(150,255,210,0.8)", "center", 500);
+  /* 「?」规则按钮：2026-09-25 玩家要求标题只留名字，规则收进这里 */
+  {
+    const r = helpBtnRect(), hot = helpBtnHit(TOUCH ? G.input.ptrX : G.input.ax, TOUCH ? G.input.ptrY : G.input.ay);
+    ctx.save();
+    rrRect(r.x, r.y, r.w, r.h, r.h / 2);
+    ctx.fillStyle = hot ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.85)"; ctx.fill();
+    ctx.strokeStyle = "rgba(140,215,255,0.75)"; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.restore();
+    text("?", r.x + r.w / 2, r.y + r.h * 0.76, r.h * 0.62, "#cfeeff", "center", 700);
+  }
+  if (G.helpOpen) {
+    /* 规则弹层：把原来糊在标题上的一屏字全搬进来 */
+    ctx.save();
+    ctx.globalAlpha = 0.97;
+    panel(W0 / 2 - 320, 120, 640, 406);
+    ctx.restore();
+    const L = [
+      ["", "「越贪越快，越快越瞎」", 17, "rgba(160,215,245,0.95)", 700],
+      ["", "加速下潜：得分 ×" + CFG.boostMul + "　氧气消耗 ×" + CFG.boostDrainMul + "　视野更小", 13.5, "rgba(130,180,210,0.9)", 500],
+      ["", "越深越要命：耗氧↑　障碍更密　撞击更痛　·　每 " + CFG.lvEvery + "m 三选一强化", 13, "rgba(255,190,160,0.85)", 500],
+      ["操作", (TOUCH ? "拖动屏幕转向（普攻自动连发）" : "A / D 转向　·　鼠标准星就是普攻落点") + "（" + CFG.mobFrom + "m 以下有东西会还手）", 13, "rgba(255,170,140,0.88)", 500],
+      ["技能", "Q 冲击波　E 突进　F 探照 —— 三条路线选一条，选定后右键放的就是它", 13, "rgba(255,175,235,0.9)", 500],
+      ["回氧", "击杀怪物回 " + Math.round(CFG.killO2 * 100) + "% 氧气（自带；连杀递减，停手重置）", 12.5, "rgba(150,255,210,0.85)", 500],
+      ["神器", "三选一里小概率混入 ✦ 神器：被动生效、不用按；可升级，一局最多 3 张", 12.5, "rgba(255,226,130,0.9)", 500],
+      ["质变", CFG.mutateAt + "m 后的第一次强化：三条全新的质变方向，从此长出自己的牌", 12.5, "rgba(200,190,255,0.92)", 500],
+      ["换肤", "下方点一条鱼，或按 S 循环（选择会记住）", 12.5, "rgba(140,190,220,0.85)", 500]
+    ];
+    let y = 162;
+    for (const [tag, s, sz, col, wt] of L) {
+      if (tag) {
+        ctx.save(); rrRect(W0 / 2 - 300, y - 12, 44, 20, 9);
+        ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fill(); ctx.restore();
+        text(tag, W0 / 2 - 278, y + 2, 11.5, "rgba(255,225,170,0.9)", "center", 700);
+        text(s, W0 / 2 - 244, y + 2, sz, col, "left", wt);
+      } else text(s, W0 / 2, y, sz, col, "center", wt);
+      y += 40;
+    }
+    text("点击任意处关闭", W0 / 2, 508, 12, "rgba(140,190,220,0.6)", "center", 500);
+    return;
+  }
   const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
   ctx.globalAlpha = pulse;
   /* 触屏把「最佳深度」并进这一行，给下面那条皮肤留出 44 屏幕像素的高度（手指按得着） */
@@ -1995,8 +2407,8 @@ function drawLevelUp() {
       else if (k === cur) { ctx.strokeStyle = "rgba(" + col + ",0.95)"; ctx.lineWidth = 1.6; ctx.stroke(); }
       else { ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fill(); }
     }
-    /* 效果 */
-    text(s.d, r.x + r.w / 2, r.y + 172, 13.5, "rgba(205,232,248,0.92)", "center", 500);
+    /* 效果（神器 Lv2 强化牌：描述换成强化说明，一眼看出这是升级不是复刻） */
+    text(s.id in ARTIFACT_UP && cur > 0 ? ARTIFACT_UP[s.id] : s.d, r.x + r.w / 2, r.y + 172, 13.5, "rgba(205,232,248,0.92)", "center", 500);
     if (!s.route) text("Lv " + cur + " → " + (cur + 1), r.x + r.w / 2, r.y + 198, 12.5, "rgba(" + col + ",0.85)", "center", 600);
     /* 数字键提示 */
     ctx.save();
@@ -2132,7 +2544,9 @@ canvas.addEventListener("pointerdown", (ev) => {
   else { G.input.mouseDown = true; G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y; }
   syncPointerBoost();
   if (G.state === "over" && homeBtnHit(q.x, q.y)) { G.state = "title"; return; }
-  if (G.state === "title") {                       // 标题页先认皮肤条，再认「开始下潜」
+  if (G.state === "title") {                       // 标题页先认规则弹层 → 皮肤条 → 「开始下潜」
+    if (G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }   // 弹层开着：点哪都是关
+    if (helpBtnHit(q.x, q.y)) { G.helpOpen = true; ev.preventDefault(); return; }
     const si = skinHit(q.x, q.y);
     if (si >= 0) { setSkin(si); ev.preventDefault(); return; }
   }
@@ -2182,6 +2596,7 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if (k === "Space" || k === "ArrowUp" || k === "KeyW" || k === "Enter" || k === "NumpadEnter") {
+    if (G.state === "title" && G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }
     if (G.state === "title" || G.state === "over") { startRun(); ev.preventDefault(); return; }
     I.kb = true; syncPointerBoost(); ev.preventDefault();
   } else if (k === "ArrowLeft" || k === "KeyA") { I.left = true; I.ptrActive = false; ev.preventDefault(); }
@@ -2192,6 +2607,7 @@ window.addEventListener("keydown", (ev) => {
     ev.preventDefault();
   }
   else if (k === "KeyP" || k === "Escape") {
+    if (k === "Escape" && G.state === "title" && G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }
     if (k === "Escape" && G.state !== "play") { G.state = "title"; return; }
     if (G.state === "play") G.state = "pause"; else if (G.state === "pause") G.state = "play";
   } else if (k === "KeyS") {                        // 换皮肤：标题页 / 暂停页循环
@@ -2324,9 +2740,9 @@ window.__SINK__ = {
   startRun, update, simulate, runSelfTest, autopilot,
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
   ents: () => ents, p, probePx, lightR: () => G.lightR,
-  fireAttack, aimPoint, spawnHunter, spawnSpitter, entSegDist, hurtPlayer,
+  fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH,
-  rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS,
+  rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_SKILLS,
   SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, R,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
@@ -2335,7 +2751,8 @@ window.__SINK__ = {
   stats: () => ({ state: G.state, depth: Math.floor(G.depth), o2: +G.o2.toFixed(2), ents: ents.length, best: G.best, speed: +G.speed.toFixed(1), level: G.level, route: G.route, sk: Object.assign({}, G.sk), choices: G.choices ? G.choices.map((s) => s.id) : null,
                    act: { q: +G.act.q.toFixed(2), e: +G.act.e.toFixed(2), f: +G.act.f.toFixed(2) },
                    actFx: { dash: +G.actFx.dash.toFixed(2), flare: +G.actFx.flare.toFixed(2), shock: +G.actFx.shock.toFixed(2) },
-                   kills: G.kills, o2Kill: +G.o2Kill.toFixed(1), lightR: +G.lightR.toFixed(0), invuln: +p.invuln.toFixed(2) })
+                   kills: G.kills, o2Kill: +G.o2Kill.toFixed(1), lightR: +G.lightR.toFixed(0), invuln: +p.invuln.toFixed(2),
+                   mutate: G.mutate, amuT: +(G.amuT || 0).toFixed(2), amuCd: +(G.amuCd || 0).toFixed(2), amuHits: G.amuHits || 0, haloR: Math.round(G.haloR || 0) })
 };
 
 /* ============================ init ======================================= */
@@ -2441,6 +2858,34 @@ function init() {
     tryActive("f");
     for (let i = 0; i < 90; i++) update(STEP);      // 让光照过渡到位
     for (const e of ents) if (e.kind === "hunter") e.x = clamp(e.x, 90, W0 - 90);
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "mutate") {
+    /* 质变验收截图：跑到 2000m 停在质变三选一卡面上（挂机 AI 撑不到 2km：保氧不死） */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    let guard = 0;
+    while ((G.state === "play" || G.state === "levelup") && guard++ < 120 * 2400) {
+      if (G.state === "levelup") { if (!aiPick()) break; }
+      G.o2 = Math.max(G.o2, 90);
+      autopilot(STEP); update(STEP);
+      if (!G.mutate && G.route && G.depth >= CFG.mutateAt && G.state === "levelup") break;
+    }
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "deepmob") {
+    /* 深水怪验收截图：2000m 场地摆一只剃刀鲸 + 一只开盾的圣盾使 + 护心符转着 */
+    startRun(q.get("seed") === null ? 7 : +q.get("seed"));
+    G.depth = 2100; G.route = "mage"; recalcMods();
+    ents.length = 0; G.particles.length = 0; G.popups.length = 0;
+    const py = p.y + 170;
+    ents.push({ kind: "reaver", x: p.x - 210, y: py + 40, r: 30, hp: 320, maxHp: 320, seed: 7, hit: false, near: false, flash: 0, vx: 200 });
+    ents.push({ kind: "warden", x: p.x + 180, y: py + 20, r: 22, hp: 260, maxHp: 260, seed: 15, hit: false, near: false, flash: 0, fireT: 1.6, fanN: 0, fanT: 0, shield: true, shieldHp: 3, breakT: 0 });
+    ents.push({ kind: "hunter", x: p.x + 40, y: py + 130, r: 20, hp: 300, maxHp: 300, seed: 21, hit: false, near: false, flash: 0 });
+    G.sk = { a_amulet: 1 }; recalcMods();
+    G.amuT = G.m.amu.t; G.amuCd = G.m.amu.cd; G.amuAng = 0.6;      // 符咒当场转起来
+    G.lightR = 560; G.lightBonus = 0; G.o2 = 72;
+    freezeClean(); AUTO_FREEZE = true;
+  } else if (q.get("scenario") === "help") {
+    /* 规则弹层截图：标题页点「?」之后的样子 */
+    G.helpOpen = true;
     freezeClean(); AUTO_FREEZE = true;
   } else if (q.get("auto") !== null) {
     startRun(q.get("seed") === null ? 7 : +q.get("seed"));
