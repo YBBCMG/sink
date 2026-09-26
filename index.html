@@ -3248,9 +3248,8 @@ function netPanelInit2() {
     + '<b id="netRoomCode" style="font:700 22px ui-monospace,SFMono-Regular,monospace;letter-spacing:3px;color:#dff6ff">----</b>'
     + '<button id="netCopyBtn">复制</button>'
     + '<button id="netPubBtn">发布到联机大厅</button></div>'
-    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">'
-    + '<div id="netRoomMe" style="flex:1;min-width:150px"></div>'
-    + '<div id="netRoomMate" style="flex:1;min-width:150px"></div></div>'
+    + '<div id="netRoomMe"></div>'
+    + '<div id="netRoomMate" style="color:#8fb6cf">队友：—</div>'
     + '<div id="netRoomHint" style="color:#9fe3c0;min-height:18px">—</div>'
     + '<div style="display:flex;gap:8px">'
     + '<button id="netStartBtn" style="flex:1">开始游戏（双方从水面一起下）</button>'
@@ -3287,7 +3286,8 @@ function netPanelInit2() {
   btn("netLobbyBack", () => { netPanelShowView(NET.on ? "room" : "home"); });
   btn("netLobbyRefresh", async () => { await lobbyPoll(); netLobbyRender(); });
 }
-/* 准备室里那两张状态卡：每 200ms 刷一次（面板没开 / 不在准备室就是一次字符串比较） */
+/* 准备室：我那张状态卡 + 一行队友加入状态，每 200ms 刷一次（面板没开 / 不在准备室就是一次字符串比较）。
+   队友那栏**故意只报「已加入」**，不报氧/深度/延迟 —— 2026-09-26 玩家口径「不用加查看队友状态的效果」。 */
 function netPanelTick(force) {
   if (NET.view !== "room") return;
   const meEl = document.getElementById("netRoomMe");
@@ -3297,7 +3297,7 @@ function netPanelTick(force) {
   NET.lastTick = now;
   const host = NET.role === "host";
   /* 快照里 p 永远是房主那个人、p2 是我自己（客人时 p2 = 我）—— 两边都读同一份约定 */
-  const me = host ? p : p2, mate = host ? p2 : p;
+  const me = host ? p : p2;
   const dead = (q) => q.dead ? "倒下 · " + Math.max(0, q.reviveT).toFixed(1) + "s 后复活" : "在水里";
   const o2txt = (q) => Math.round(clamp(o2Get(q), 0, o2MaxNow())) + "%";
   const card = (title, col, body) => '<div style="padding:8px 10px;border-radius:10px;height:100%;box-sizing:border-box;'
@@ -3307,12 +3307,9 @@ function netPanelTick(force) {
     '<div>氧气 ' + o2txt(me) + ' · 深度 ' + Math.round(G.depth) + 'm</div>'
     + '<div style="color:#9fe3c0">' + dead(me) + '</div>');
   const mateEl = document.getElementById("netRoomMate");
-  if (mateEl) mateEl.innerHTML = NET.connected
-    ? card(host ? "队友（客人）" : "队友（房主）", "rgba(150,205,255,0.9)",
-        '<div>氧气 ' + o2txt(mate) + ' · 深度 ' + Math.round(G.depth) + 'm</div>'
-        + '<div style="color:#9fe3c0">' + dead(mate) + ' · 延迟 ' + NET.rtt + 'ms</div>')
-    : card("队友", "rgba(255,215,150,0.9)",
-        '<div style="color:#ffd796">等待加入…</div><div style="color:#8fb6cf">把房间码给他，或发布到大厅</div>');
+  if (mateEl) mateEl.textContent = NET.connected
+    ? "队友：已加入 ✓（开局后一起下水）"
+    : "队友：等待加入…（把房间码给他，或发布到大厅）";
   const codeEl = document.getElementById("netRoomCode");
   if (codeEl) codeEl.textContent = NET.code || "----";
   const sb = document.getElementById("netStartBtn");
@@ -3382,25 +3379,13 @@ function drawNetWait() {
   if (L.sub) text(L.sub, cx, H0 * 0.16 + 62, 14, "rgba(150,200,230,0.85)", "center", 500);
   ctx.restore();
 }
-/* ---------- 联机 HUD：状态行 + 队友氧气条 ---------- */
+/* ---------- 联机 HUD：只画自己这边的状态行 ----------
+   2026-09-26 玩家口径「不用加查看队友状态的效果」：原来那根「潜伴」氧条（队友氧/倒下倒计时）已撤掉。
+   队友本人在水里照样看得见（胸牌 + 生物光，见 drawPlayer2 / 灯光层），撤掉的只是**读数**。 */
 function drawNetHud() {
   if (!NET.on || G.state === "title") return;
   const col = NET.connected ? "rgba(150,255,200,0.9)" : "rgba(255,215,150,0.9)";
   text(netLogText(), W0 - 24, 108, 12, col, "right", 600);
-  if (!p2.active) return;
-  /* 队友氧气条（自己的那条还是原来那根主条） */
-  const bw = 190, bh = 9, bx = 24, by = H0 - 58;
-  const mate = NET.role === "guest" ? p : p2;
-  const r = clamp(o2Get(mate) / o2MaxNow(), 0, 1);
-  rrRect(bx, by, bw, bh, 4.5);
-  ctx.fillStyle = "rgba(8,22,36,0.85)"; ctx.fill();
-  ctx.strokeStyle = "rgba(120,190,230,0.26)"; ctx.lineWidth = 1; ctx.stroke();
-  ctx.save(); rrRect(bx, by, bw, bh, 4.5); ctx.clip();
-  ctx.fillStyle = mate.dead ? "rgba(120,60,70,0.9)" : (r > 0.25 ? "rgba(150,205,255,0.85)" : "rgba(255,140,140,0.9)");
-  ctx.fillRect(bx, by, bw * r, bh);
-  ctx.restore();
-  text("潜伴" + (mate.dead ? " · 倒下 " + Math.max(0, mate.reviveT).toFixed(1) + "s" : ""), bx, by - 6, 11, "rgba(150,200,235,0.85)", "left", 600);
-  text(mate.dead ? "复活中" : Math.ceil(o2Get(mate)) + "%", bx + bw + 8, by + 9, 12, "rgba(190,230,250,0.9)", "left", 600);
 }
 /* 二号位的本体（跟主玩家同一套皮肤，颜色偏蓝、头顶挂名） */
 function drawPlayer2() {
