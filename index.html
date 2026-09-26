@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
+<head>
+<!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
      下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
 
@@ -310,7 +311,7 @@ const MUTATIONS = [
   /* —— 照明使者（F 探照）：光不再只跟着你 —— */
   { id: "lance", r: "lamp", n: "光矛",     col: [255,245,200], d: "按住 F 蓄力（探照照常亮），松手一道贯穿光矛：满蓄 140 伤害 · 沿途所有目标一起吃 · 冷却 3.2s", sub: "蓄一发穿一片" },
   { id: "lant",  r: "lamp", n: "行灯环",   col: [255,225,170], d: "每走 110px 点亮一盏灯蕊（上限 6 · 常亮）：灯蕊绕着你转圈烧怪 · 相邻两盏之间连成火线", sub: "把火围成环" },
-  { id: "judge", r: "lamp", n: "审判之光", col: [195,255,235], d: "光里的怪每秒叠 1 层光印（满 4 层）· 光本身零伤害：满印当场处决，免处决的重型怪吃断罪伤害 · 处决后印记跳到最近的一只怪", sub: "叠印即处决" }
+  { id: "judge", r: "lamp", n: "审判之光", col: [195,255,235], d: "光里的怪每秒叠 1 层光印（满 4 层）· 光本身零伤害：满印时残血的怪（≤45%）当场处决，健壮的怪只吃断罪伤害 · 处决后印记跳到最近的一只怪", sub: "叠印即处决 · 残血才收" }
 ];
 const MUT_MAP = {}; for (const m of MUTATIONS) MUT_MAP[m.id] = m;
 /* 质变路线的强化牌（t = 质变；只有定了对应质变才进池）—— 每条 3 张，专打这条新玩法的关键旋钮 */
@@ -483,11 +484,15 @@ function recalcMods() {
   }
   /* 照明 · 审判之光：光照半径内叠印，满 4 层当场处决，印记跳到最近的怪 */
   if (mu === "judge") {
-    /* 玩家口径（2026-09-26）「原本的审判之光就是满四层烙印秒杀 —— 你把它改回去」：
-       满印 = 处决（光本身仍然零伤害，只负责计数与收账）。免处决的重型怪吃断罪伤害。 */
-    M.judge = { every: Math.max(0.5, 1.0 - 0.15 * skLv("j_rate")), need: 4,
-                condemn: 260 + 120 * skLv("j_layer"),       // 锚鲸这类免处决的重型怪吃多少
-                heal: 0.015 * skLv("j_heal") };             // 恩泽牌：每次处决回氧（没牌就是 0）
+    /* 玩家口径（2026-09-26）「原本的审判之光就是满四层烙印秒杀」+ 同日晚「审判之光强度过于的高了」：
+       原来是「站在光里 4 秒必死一只，不看血量」—— 深海怪血再厚也白拿，等于光里无限人头。
+       现在光还是零伤害、满印照样收账，但分两档：**残血（≤45%）= 处决**（印记接力、
+       连坐光爆、恩泽回氧都保留）；**健壮怪 = 断罪**（一记定额重击，印清零重攒，不给接力）。
+       想秒杀可以 —— 先把血打下来。 */
+    M.judge = { every: Math.max(0.7, 1.25 - 0.15 * skLv("j_rate")), need: 4,
+                line: 0.45,                                  // 残血线：低于它才处决
+                condemn: 260 + 120 * skLv("j_layer"),        // 健壮怪 / 免处决重型怪吃多少
+                heal: 0.010 * skLv("j_heal") };              // 恩泽牌：每次处决回氧（没牌就是 0）
   }
 }
 /* 三选一抽卡：独立 RNG（不动玩法随机流，同一 seed 的障碍布局不会因为抽卡而改变） */
@@ -1054,6 +1059,9 @@ function startRun(seed) {
   G.bone = 0; G.frenzy = 0; G.whirlT = 0; G.whirlStamp = 0; G.whirlChain = 0; G.orb = null;
   G.lampN = 0; G.lampA = 0; G.charge = 0; G.dashVX = null; G.dashVY = null;
   G.judgeTick = 0; G.atkCount = 0;
+  G.ocean = null; G.oceanMile = -1; G.oceanT = 0; OCNOW = null; G.deco = null;
+  G.boss = null; G.bossNextIdx = 0; G.bossDone = []; G.bossKilled = 0; G.bossT = 0;
+  stepOcean();                                   /* 开局先落在第一片海里 */
   G.trail.length = 0; G.trailT = 0; trailSeed = 20260925;   // 拖尾每局清空（种子固定 → 探针可复现）
   G.splitT = undefined; G.leechT = undefined; G.lampT = undefined; G.introShown = {}; G.lightEat = 0;
   G.lampX = p.x; G.lampY = p.y - 1; G.lampN = 0;
@@ -1087,11 +1095,12 @@ function mkObstacle(x, y) {
   return { kind: "rock", x, y, r: rr(20, 34), hp: CFG.rockHP, maxHp: CFG.rockHP, seed: rnd() * 997, hit: false, near: false, flash: 0 };
 }
 function spawnRow(prog, dk) {
+  if (G.boss) return;                                  /* Boss 战里不摆障礁（玩家口径） */
   const gapW = lerp(CFG.gapNear, CFG.gapFar, prog) * (1 - dk * CFG.gapGain);
   G.lastGapC = clamp(G.lastGapC + rr(-CFG.gapStep, CFG.gapStep), 150, W0 - 150);
   const gapC = G.lastGapC;
   const y = H0 + 60;
-  const n = ri(1, 3) + (rnd() < dk * CFG.extraObst ? 1 : 0);   // 越深，一行越多一个
+  const n = ri(1, 3) + (rnd() < dk * CFG.extraObst ? 1 : 0) + (rnd() < ocObstExtra() ? 1 : 0);   // 越深越多一个 · 珊瑚海再多一个
   for (let i = 0; i < n; i++) {
     let x = 0, ok = false;
     for (let k = 0; k < 24; k++) { x = rr(40, W0 - 40); if (Math.abs(x - gapC) > gapW / 2 + 26) { ok = true; break; } }
@@ -1171,7 +1180,7 @@ function killReward(e) {
   /* 连杀递减：距上一只超过 killComboReset 秒就重新满额，否则按 killComboMul 逐只打折 */
   const streak = (G.t - G.comboT <= CFG.killComboReset) ? G.comboN : 0;
   const mul = Math.pow(CFG.killComboMul, streak);
-  const gain = o2MaxNow() * G.m.killO2 * mul * (G.anoxCut ? 0 : 1);    // 回的是「上限的 10%」× 连杀系数，深水压力再大也不缩水
+  const gain = o2MaxNow() * G.m.killO2 * mul * (G.anoxCut ? 0 : 1) * ocKillO2();    // 回的是「上限的 10%」× 连杀系数，深水压力再大也不缩水
   G.comboN = streak + 1; G.comboT = G.t;
   o2Add(p, gain);
   if (p2.active && !p2.dead && !(G.depth >= CFG.anoxFrom && anoxNearFor(p2))) o2Add(p2, gain);
@@ -1242,7 +1251,11 @@ function devourNextNeed(eat) {          // 下一档要累计吃到几只（已�
 }
 function hurtEnt(i, e, dmg, tag, raw, isDot) {
   /* 统一增伤入口：奇点钉住 +30% / 白昼区 +35%（场自己的持续伤害走 raw=true，不叠自己） */
-  if (!raw && (MOB_SET[e.kind] || e.kind === "rock" || e.kind === "cable")) dmg = Math.round(dmg * hitAmp(e));
+  if (!raw && (MOB_SET[e.kind] || e.kind === "rock" || e.kind === "cable")) dmg = Math.round(dmg * hitAmp(e) * ocDmgOut());
+  if (e.boss && e.bones > 0) {                     /* 鲸落之主·骨甲：碎一层顶掉一大口，不碎的时候减伤 65% */
+    if (e.plateT <= 0) { e.plateT = 1.5; e.bones -= 1; popup(e.x, e.y - e.r - 20, "骨甲碎裂 " + e.bones + "/3", "225,240,255"); }
+    else dmg = Math.round(dmg * 0.35);
+  }
   /* 圣盾使的盾：单次 ≥60 直接破盾；不然挡 75% 并削一层（3 层）。盾碎了 breakT 秒后重开。 */
   if (e.kind === "warden" && e.shield && e.breakT <= 0) {
     e.shieldHp -= 1;
@@ -1566,7 +1579,9 @@ function flareBurn(who) {
 }
 /* 没解锁时给一句人话，不然玩家以为按键坏了 */
 function lockHint() {
-  G.hint = routeNow() ? "这条路线没选 · 技能已封闭" : "强化到 Lv2 · 选一条路线才有技能";
+  /* 文案修正（2026-09-26）：走到这一支说明**路线已经选了**，只是这个键不属于它 ——
+     旧文案「这条路线没选」会让人以为自己的路线丢了（截图复核时看到的）。 */
+  G.hint = routeNow() ? "这个键不属于你的路线 · 技能已封闭" : "强化到 Lv2 · 选一条路线才有技能";
   G.hintT = G.t + 1.8;
 }
 /* 联机三期：客人的按键不在本机放技能 —— 这份世界是房主在跑的，客人这边放等于放给空气。
@@ -1789,7 +1804,7 @@ function spawnSpitter() {
 function mobHP(base) {
   const k = clamp((G.depth - CFG.mobHpFrom) / CFG.mobHpSpan, 0, 1);
   const mul = 1 + k * (CFG.mobHpCap - 1);
-  return Math.round(base * mul * (NET.connected ? CFG.coopMul : 1));      // 双人：血量 ×2（CFG.coopMul）
+  return Math.round(base * mul * (NET.connected ? CFG.coopMul : 1) * ocMobHp());   // 双人 ×2 · 海域再乘一道
 }
 /* 剃刀鲸：2000m+。体型大、血厚、斜插猛冲，撞完不消失 —— 逼你真的挪位置，
    原地站桩放技能会先被它撞掉一层氧。 */
@@ -1887,6 +1902,7 @@ function hurtPlayerOn(q, dmg, col, pierce) {
 /* 挨打的那个人按**他自己那份 build** 结算（联机三期：光盾 / 骨甲 / 血怒 / 破晓各算各的） */
 function hurtPlayerOnBody(q, dmg, col, pierce) {
   if (q.dead) return false;
+  dmg *= ocTaken();                      /* 海域：赤潮 / 涡流更疼，死水更软 */
   if (q.invuln > 0 && !pierce) return false;
   /* 破免者的咬：无视无敌帧 —— 突进无敌、受伤无敌帧在它面前都不算 */
   if (pierce && q.invuln > 0) popup(q.x, q.y - 62, "无视无敌", "255,120,200");
@@ -2116,7 +2132,7 @@ function stepWhirl(me, dt) {
     G.whirlPh = ph2;
     for (let i = ents.length - 1; i >= 0; i--) {
       const e = ents[i];
-      if (!e || e.dead) continue;
+      if (!e || e.dead || e.boss) continue;   /* Boss 吸不动（第四期） */
       const dx = me.x - e.x, dy = me.y - e.y, d = Math.hypot(dx, dy);
       const wr = W2.r * (1 - 0.10 * (G.t2 === "whirlA" ? (G.whirlChain || 0) : 0));   // 连噬：越连口越小
       if (d > wr || d < 0.5) continue;
@@ -2160,7 +2176,7 @@ function stepPlay(dt) {
   stepTrail(dt);                       // 尾流：每帧往前推一段（皮肤决定长相）
 
   /* --- 主动技能计时：冷却倒计时 + 生效时间倒计时 --- */
-  for (const k in G.act) if (G.act[k] > 0) G.act[k] = Math.max(0, G.act[k] - dt);
+  for (const k in G.act) if (G.act[k] > 0) G.act[k] = Math.max(0, G.act[k] - dt * cdRate());
   const fx = G.actFx;
   if (fx.dash > 0) {
     const before2 = fx.dash;
@@ -2283,9 +2299,11 @@ function stepPlay(dt) {
         e.seal = 0;
         const i = ents.indexOf(e);
         if (i < 0) continue;
-        if (e.ctrlImm) {                                  // 锚鲸这类免处决的重型怪：断罪伤害
+        /* 平衡：这一下是「断罪」还是「处决」，看血线 —— 免处决的重型怪永远只吃断罪 */
+        const executed = !e.ctrlImm && e.hp <= e.maxHp * J.line;
+        if (!executed) {
           hurtEnt(i, e, J.condemn, "195,255,235");
-          popup(e.x, e.y - e.r - 26, "断罪", "195,255,235");
+          popup(e.x, e.y - e.r - 26, e.ctrlImm ? "断罪" : "断罪 · 未破防", "195,255,235");
           fxRing(e.x, e.y, 16, 120, "195,255,235", 0.35, "ring");
         } else {
           hurtEnt(i, e, Math.max(e.hp, 60) + 1, "255,255,215");   // 处决：这一下就是秒杀
@@ -2297,8 +2315,9 @@ function stepPlay(dt) {
             popup(p.x, p.y - 74, "恩泽 +" + g.toFixed(1), "195,255,235");
           }
         }
-        /* 进阶·连坐处决：处决的怪炸开一圈光爆（半径 170 · 110），被打到的怪 +1 印 —— 处决会传染 */
-        if (G.t2 === "judgeA") {
+        /* 进阶·连坐处决：处决的怪炸开一圈光爆（半径 170 · 110），被打到的怪 +1 印 —— 处决会传染。
+           平衡：断罪不传染（不然「满印必炸」又变成无限连锁） */
+        if (executed && G.t2 === "judgeA") {
           const ex = e.x, ey = e.y;
           fxRing(ex, ey, 24, 170, "195,255,235", 0.42, "ring");     // 连坐处决的那圈光爆（之前只有伤害数字）
           aoeHit(ex, ey, 170, 110, "195,255,235", e);
@@ -2310,7 +2329,7 @@ function stepPlay(dt) {
           burst(ex, ey, 26, "195,255,235"); SFX.zap();
         }
         /* 印记不浪费：处决这一下顺手跳到最近的另一只怪身上 +1 层 */
-        let best = null, bd = 460;
+        let best = null, bd = executed ? 460 : -1;   // 平衡：只有真处决才把印记递出去
         for (const o of ents) {
           if (o.dead || !MOB_SET[o.kind] || o.kind === "bolt") continue;
           const dd = Math.hypot(o.x - e.x, o.y - e.y);
@@ -2331,13 +2350,20 @@ function stepPlay(dt) {
   let target = G.boosting ? G.m.boost : G.m.base;
   if (fx.dash > 0) target = Math.max(target, G.m.base * CFG.dashMul);   // 突进期间至少这么快
   if (G.slowT > 0) target *= CFG.hitSlowMul;
+  target *= ocSpeed();
+  if (G.boss) target = 0;                     /* Boss 战：水流停住 —— 世界不滚，人不下沉（玩家口径） */                         /* 海域：寒流里自己也僵 */
   G.speed += (target - G.speed) * Math.min(1, dt * (G.boosting ? CFG.boostRamp : CFG.speedRamp));
 
+  /* --- 海洋类型：每 500m 随机换一片海（房主侧推进，随快照下行） --- */
+  stepOcean();
+  /* --- 深度 Boss：到米数就开打（Boss 战期间深度/水流都冻住，见下面两处闸门） --- */
+  stepBoss(dt);
   /* --- 深度与分数 --- */
   const dm = G.speed * dt / CFG.pxPerMeter;
-  G.depth += dm;
-  if (G.boosting) G.bonus += dm * (boostMulNow() - 1);
-  if (G.depth >= G.nextLv) levelUp();          // 到点就三选一（状态切 levelup，本帧剩余照跑）
+  /* Boss 战：米数不涨（玩家口径「boss 战的时候，米数不会增加」），三选一也押后到打完 */
+  G.depth += G.boss ? 0 : dm;
+  if (!G.boss && G.boosting) G.bonus += dm * (boostMulNow() - 1);
+  if (!G.boss && G.depth >= G.nextLv) levelUp();          // 到点就三选一（状态切 levelup，本帧剩余照跑）
 
   /* --- 氧气（深渊压力：越深耗得越快）--- */
   const dk = G.diff = diffK(G.depth);
@@ -2347,12 +2373,12 @@ function stepPlay(dt) {
   G.anoxCut = G.depth >= CFG.anoxFrom && anoxNearFor(p);
   const drain = CFG.o2Drain * (G.boosting ? CFG.boostDrainMul : 1) * (1 + dk * CFG.drainGain) * G.m.drain * deepMul
     + (G.anoxCut ? o2MaxNow() * CFG.anoxDrain : 0);
-  G.o2 -= drain * dt;
+  G.o2 -= drain * dt * ocDrain();
 
   /* --- 视野 --- */
   /* 视野：质变·灯塔长明把下限锁死（不再随深度收窄 —— 深水里视野是最贵的资源） */
-  const litBase = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1)) + CFG.lightMut * skLv("a_light");
-  const lit = Math.max(G.m.lightLock || 0, litBase);
+  const litBase = (lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1)) + CFG.lightMut * skLv("a_light")) * ocLight();
+  const lit = Math.max(G.m.lightLock || 0, litBase) * (G.boss && G.boss.ink > 0 ? 0.42 : 1);   /* 章鱼墨汁 */
   G.lightBonus = Math.max(0, G.lightBonus - CFG.jellyDecay * dt);
   /* 探照：生效期间把光照半径硬顶到 flare，时间一到自己退回背景值（不是永久加成） */
   /* 熄灯鮟鱇：活着且在 lampEatR 内就按距离吞光（贴脸最多吞 45%） */
@@ -2434,17 +2460,17 @@ function stepPlay(dt) {
   }
   G.bubbleT -= dt;
   if (G.bubbleT <= 0) {
-    G.bubbleT = rr(CFG.bubbleEvery[0], CFG.bubbleEvery[1]) * (1 + 0.9 * clamp(G.depth / CFG.bubbleThin, 0, 1));
+    G.bubbleT = rr(CFG.bubbleEvery[0], CFG.bubbleEvery[1]) * (1 + 0.9 * clamp(G.depth / CFG.bubbleThin, 0, 1)) / ocBubbleMul();
     ents.push({ kind: "bubble", x: rr(64, W0 - 64), y: H0 + 34, r: rr(9, 14), seed: rnd() * 997 });
   }
   G.jellyT -= dt;
-  if (G.jellyT <= 0) {
+  if (G.jellyT <= 0 && !G.boss) {
     G.jellyT = rr(CFG.jellyEvery[0], CFG.jellyEvery[1]) * G.m.jellyFreq;
     ents.push({ kind: "jelly", x: rr(70, W0 - 70), y: H0 + 40, r: rr(14, 19), seed: rnd() * 997 });
   }
   /* --- 深海猎食者：1000m 以下才出现；刚过线有适应期，越深才越凶 ---
      2026-09-25：2000m 起加入剃刀鲸（近身冲撞）与圣盾使（三连电球 + 护盾）。 */
-  if (G.depth >= CFG.mobFrom) {
+  if (G.depth >= CFG.mobFrom && !G.boss) {
     const intro = clamp((G.depth - CFG.mobFrom) / CFG.mobRamp, 0, 1);
     const rate = (CFG.mobIntro + (1 - CFG.mobIntro) * intro) * (CFG.mobDeepen[0] + CFG.mobDeepen[1] * dk);
     const cap = CFG.mobCapBase + Math.round(CFG.mobCapGain * dk) + (G.depth >= 2000 ? 1 : 0);
@@ -2519,6 +2545,7 @@ function stepPlay(dt) {
     const TGT = p2.active ? nearestAlive(e.x, e.y) : p;
     if (e.flash > 0) e.flash = Math.max(0, e.flash - dt);
     if (e.resonT > 0) e.resonT = Math.max(0, e.resonT - dt);      // 共鸣加持：母体每 1.5s 续一次
+    if (e.boss) continue;                                        /* Boss：推进全在 stepBoss（这里只留受击闪光） */
     /* 电球：自带速度，不跟世界一起滚（它是「扑」过来的，不是「沉」上来的） */
     if (e.kind === "bolt") {
       e.x += e.vx * dt; e.y += e.vy * dt; e.life -= dt;
@@ -2890,7 +2917,7 @@ function coopHit() { return NET.connected ? CFG.coopMul : 1; }         // 咬 / 
 function o2Get(q) { return q === p ? G.o2 : q.o2; }
 function o2Set(q, v) { const m = o2MaxNow(q); if (q === p) G.o2 = clamp(v, 0, m); else q.o2 = clamp(v, 0, m); }
 function o2Sub(q, v) { o2Set(q, o2Get(q) - v); }
-function o2Add(q, v) { o2Set(q, o2Get(q) + v); }
+function o2Add(q, v) { o2Set(q, o2Get(q) + v * ocGain()); }   /* 海域：暖水回氧快、死水回氧慢 */
 function party() { return p2.active ? [p, p2] : [p]; }
 function aliveParty() { return party().filter((q) => !q.dead); }
 /* 怪的索敌：盯最近的活人（单机时永远返回 p —— 老行为一字不改） */
@@ -2956,7 +2983,7 @@ function coopHostStep(dt) {
 }
 function coopHostStepBody(dt) {
   /* 客人自己那份技能的计时：冷却 + 生效窗口（房主那份由 stepPlay 管，两边互不干扰） */
-  for (const k in G.act) if (G.act[k] > 0) G.act[k] = Math.max(0, G.act[k] - dt);
+  for (const k in G.act) if (G.act[k] > 0) G.act[k] = Math.max(0, G.act[k] - dt * cdRate());
   if (G.actFx.dash > 0) G.actFx.dash = Math.max(0, G.actFx.dash - dt);
   if (G.actFx.flare > 0) G.actFx.flare = Math.max(0, G.actFx.flare - dt);
   if (G.actFx.shock > 0) G.actFx.shock = Math.max(0, G.actFx.shock - dt);
@@ -3045,7 +3072,8 @@ function sideLanceTick(dt) {
 function netPackEnt(e) {
   if (e.nid === undefined) e.nid = ++NET.nidSeq;
   const f = (e.flash > 0 ? 1 : 0) | (e.shield && e.breakT <= 0 ? 2 : 0) | (e.armOn ? 4 : 0) | (e.kid ? 8 : 0)
-          | (e.invT > 0 ? 16 : 0) | (e.dead ? 32 : 0) | ((e.vx || 0) >= 0 ? 64 : 0) | (e.pinT > 0 ? 128 : 0);
+          | (e.invT > 0 ? 16 : 0) | (e.dead ? 32 : 0) | ((e.vx || 0) >= 0 ? 64 : 0) | (e.pinT > 0 ? 128 : 0)
+          | (e.tel > 0 ? 256 : 0) | (e.spin > 0 ? 512 : 0);        /* 第四期：Boss 的蓄力 / 冲锋 */
   return [e.nid, e.kind, Math.round(e.x), Math.round(e.y), Math.round(e.r), Math.round(e.hp),
           Math.round(e.maxHp || e.hp), f, Math.round(e.seed || 0), Math.round(e.seal || 0), Math.round(e.shellT || 0)];
 }
@@ -3053,6 +3081,7 @@ function netSnapBuild() {
   const S = {
     t: performance.now() | 0, st: G.state, d: Math.round(G.depth), sp: Math.round(G.speed),
     o2: +G.o2.toFixed(1), lr: Math.round(G.lightR), lb: Math.round(G.lightBonus), le: +(G.lightEat || 0).toFixed(2),
+    oc: G.ocean, ocm: G.oceanMile,          /* 海洋类型（第四期）：客人照着渲染同一片海 */
     bn: Math.round(G.bonus), lv: G.level, kn: G.kills, ac: [+G.act.q.toFixed(1), +G.act.e.toFixed(1), +G.act.f.toFixed(1)],
     /* 联机三期：队友那份的冷却与 build（他自己那份，和房主这份互不相干） */
     ac2: [+p2.act.q.toFixed(1), +p2.act.e.toFixed(1), +p2.act.f.toFixed(1)], fl2: +p2.actFx.flare.toFixed(2),
@@ -3066,8 +3095,14 @@ function netSnapBuild() {
     e: [], z: []
   };
   for (const e of ents) S.e.push(netPackEnt(e));
+  /* 2026-09-26 队友白屏事故：这里漏发了 z.t（已存活时间）。客人照抄出来的「场」没有 t，
+     绘制时 a = 0.25 + 0.55*clamp(1 - undefined/life) = NaN → "rgba(190,170,255,NaN)" → addColorStop 抛异常
+     → 客人 rAF 每帧死一次。法师选了虚空奇点（场上出现 type="sing" 的场）时必现。
+     顺手把绘制用到的 px/py/lineR（行灯环的火线）也带上。 */
   for (const z of G.zones) S.z.push([z.type, Math.round(z.x), Math.round(z.y), Math.round(z.r || 0), +(z.life || 0).toFixed(1),
-                                     z.col || "", z.nx === undefined ? null : +z.nx.toFixed(2), z.ny === undefined ? null : +z.ny.toFixed(2)]);
+                                     z.col || "", z.nx === undefined ? null : +z.nx.toFixed(2), z.ny === undefined ? null : +z.ny.toFixed(2),
+                                     +(z.t || 0).toFixed(2), z.px === undefined ? null : Math.round(z.px), z.py === undefined ? null : Math.round(z.py),
+                                     z.lineR === undefined ? null : +z.lineR.toFixed(1)]);
   return S;
 }
 /* 客人侧：解包 → 按 nid 配对插值 → 写进本地世界（渲染代码一个字都不用改） */
@@ -3083,6 +3118,9 @@ function netEntFrom(arr, prev) {
   o.armOn = !!(f & 4); o.armFlash = 0; o.kid = !!(f & 8); o.invT = (f & 16) ? 0.5 : 0;
   o.dead = !!(f & 32); o.vx = (f & 64) ? 1 : -1; o.pinT = (f & 128) ? 1 : 0;
   o.near = false; o.chip = 0; o.dashS = 0;
+  o.tel = (f & 256) ? 0.5 : 0; o.spin = (f & 512) ? 1 : 0; o.boss = kind === "boss";
+  o.bi = o.boss ? Math.max(0, (seal | 0) - 1) : 0;
+  o.bones = 0; o.ink = 0; o.plateT = 0; o.id = o.boss ? (BOSSES[o.bi] ? BOSSES[o.bi].id : "angler") : undefined;
   return o;
 }
 function netApplySnap() {
@@ -3100,6 +3138,12 @@ function netApplySnap() {
   G.state = sb.st; G.depth = L("d", G.depth); G.speed = L("sp", G.speed);
   G.lightR = L("lr", G.lightR); G.lightBonus = L("lb", G.lightBonus); G.lightEat = L("le", 0);
   G.bonus = L("bn", G.bonus); G.level = sb.lv; G.kills = sb.kn;
+  /* 海洋类型（第四期）：房主说现在是什么海，我这边就换成什么海（装饰跟着重摆一份） */
+  if (sb.oc !== undefined && sb.oc !== G.ocean) {
+    if (sb.oc) applyOcean(sb.oc); else { OCNOW = null; G.ocean = null; G.deco = null; }
+    G.oceanMile = typeof sb.ocm === "number" ? sb.ocm : G.oceanMile;
+    G.oceanT = 3.4;
+  }
   if (typeof sb.ski === "number") NET.peerSkin = sb.ski;        // 房主那条鱼用的是他自己选的皮肤
   if (sb.hb) NET.A1 = { beam: sb.hb[0], sx: sb.hb[1], sy: sb.hb[2], ex: sb.hb[3], ey: sb.hb[4] };
   /* 房主那边选牌页一关，本地这三张跟着清掉，别留着下一帧还画。
@@ -3146,11 +3190,18 @@ function netApplySnap() {
   }
   ents.length = 0;
   for (const o of list) ents.push(o);
+  /* Boss（第四期）：客人这边只要知道「现在在打谁、还剩多少」—— 血条与冻结提示共用房主那份状态 */
+  G.boss = null;
+  for (const o of ents) if (o.kind === "boss") { G.boss = o; break; }
   /* 场：直接照抄（不用插值，踩在上面看不出抖） */
   G.zones.length = 0;
   for (const z of sb.z) {
     G.zones.push({ type: z[0], x: z[1], y: z[2], r: z[3], life: z[4], col: z[5],
-                   nx: z[6] === null ? undefined : z[6], ny: z[7] === null ? undefined : z[7] });
+                   nx: z[6] === null ? undefined : z[6], ny: z[7] === null ? undefined : z[7],
+                   t: z[8] || 0,          // 已存活时间：**白屏根因就是它没跟着快照过来**（缺了 alpha 会算成 NaN）
+                   px: z[9] === null || z[9] === undefined ? undefined : z[9],
+                   py: z[10] === null || z[10] === undefined ? undefined : z[10],
+                   lineR: z[11] === null || z[11] === undefined ? undefined : z[11] });
   }
 }
 /* 客人侧的每帧：不跑模拟，只跑纯视觉系统 + 套快照 + 本地预测自己的小人 */
@@ -4378,6 +4429,7 @@ function drawPlayer() {
 }
 
 function drawEntity(e) {
+  if (e.boss) { drawBossEnt(e); return; }        /* 第四期：Boss 有自己那张脸 */
   const x = e.x, y = e.y;
   if (e.kind === "rock") {
     ctx.beginPath();
@@ -4478,6 +4530,17 @@ function drawEntity(e) {
   /* 血条不画在这里：它会被黑暗层吞掉，统一挪到黑暗之上重画（drawHpBar） */
 }
 
+function drawOceanBanner() {
+  if (!(G.oceanT > 0) || !OCNOW) return;
+  const a = Math.min(1, G.oceanT / 0.7) * Math.min(1, (3.4 - G.oceanT) / 0.35);
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, a);
+  ctx.fillStyle = "rgba(4,14,24,0.5)"; ctx.fillRect(0, H0 * 0.30, W0, 76);
+  text("洋流转换", W0 / 2, H0 * 0.30 + 24, 13, "rgba(190,225,245,0.8)", "center", 600);
+  text(OCNOW.n, W0 / 2, H0 * 0.30 + 52, 30, "rgba(" + OCNOW.col.join(",") + ",1)", "center", 700);
+  text(OCNOW.up + " ｜ " + OCNOW.down, W0 / 2, H0 * 0.30 + 74, 12, "rgba(180,220,240,0.85)", "center", 600);
+  ctx.restore();
+}
 function drawHUD() {
   const depth = Math.floor(G.depth);
   const d = clamp(depth / 1200, 0, 1);
@@ -4489,6 +4552,11 @@ function drawHUD() {
   text("米", W0 / 2 + String(depth).length * 17 + 16, 74, 20, "rgba(160,215,245,0.75)", "left", 600);
   text("深度", W0 / 2, 96, 12, "rgba(130,185,215,0.65)", "center", 600);
   if (G.bonus >= 1) text("加成 +" + Math.round(G.bonus), W0 / 2, 118, 14, "rgba(255,225,150,0.85)", "center", 600);
+  /* 海洋类型（第四期）：当前海域名 + 它给你的增益与削弱 */
+  if (OCNOW) {
+    text(OCNOW.n, W0 / 2, 142, 15, "rgba(" + OCNOW.col.join(",") + ",0.95)", "center", 700);
+    text(OCNOW.up + " ｜ " + OCNOW.down, W0 / 2, 160, 11, "rgba(175,215,238,0.72)", "center", 600);
+  }
   /* 最佳 */
   text("最佳 " + Math.max(G.best, depth) + " m", W0 - 24, 38, 15, "rgba(140,190,220,0.7)", "right", 600);
   /* 深渊压力：越深越高，耗氧/障碍/伤害一起跟着涨 */
@@ -4624,12 +4692,408 @@ function drawTouchCtl() {
   ctx.fillRect(pb.x + pw, pb.y - ph / 2, pw, ph);
 }
 
+/* ================================================================================
+   海洋类型系统（第四期）
+   玩家口径（2026-09-27）：「海洋类型，比如暖水海洋这种就是海洋类型。对应给效果。
+   每 500 米改变，随机刷新。并且要有装饰。」
+   —— 8 种，允许纯增益 / 纯陷阱；每种一增益 + 一削弱（死水那种是「都弱」）。
+   随机由房主侧的 rnd 流推进，结果随快照下行给客人 —— 两个人永远在同一片海里。
+   所有效果都走下面这些 ocXxx() 取值器，散在各处的挂点只乘一个系数，不各自写一遍 if。
+   ================================================================================ */
+const OCEAN_SPAN = 500;
+const OCEANS = [
+  { id: "warm",   n: "暖水海洋", col: [255, 190, 130], deco: "sun",
+    up: "回氧 +30%",             down: "怪血 +12%",  d: "暖流养人也养怪",
+    k: { gain: 1.30, mobHp: 1.12 } },
+  { id: "cold",   n: "寒流海洋", col: [170, 225, 255], deco: "ice",
+    up: "掉氧 −25%",             down: "移速 −14%",  d: "水冷，人也僵",
+    k: { drain: 0.75, spd: 0.86 } },
+  { id: "coral",  n: "珊瑚海",   col: [255, 160, 190], deco: "coral",
+    up: "气泡 ×1.7",             down: "障礁 +45%",  d: "气泡多，礁也多",
+    k: { bubble: 1.70, obst: 0.45 } },
+  { id: "trench", n: "幽冥海沟", col: [120, 130, 210], deco: "dust",
+    up: "伤害 +15%",             down: "视野 −22%",  d: "看不见，但打得狠",
+    k: { dmg: 1.15, light: 0.78 } },
+  { id: "red",    n: "赤潮",     col: [255, 110, 100], deco: "algae",
+    up: "击杀回氧 ×2",           down: "受伤 +30%",  d: "血水养氧也放血",
+    k: { killO2: 2.00, taken: 1.30 } },
+  { id: "bio",    n: "荧光海",   col: [120, 255, 220], deco: "glow",
+    up: "视野 +28%",             down: "掉氧 +15%",  d: "亮得像白天，也耗得快",
+    k: { light: 1.28, drain: 1.15 } },
+  { id: "dead",   n: "死水",     col: [150, 170, 150], deco: "silt",
+    up: "怪血 −18% · 受伤 −15%", down: "回氧 −30%",  d: "什么都没劲，包括你",
+    k: { mobHp: 0.82, taken: 0.85, gain: 0.70 } },
+  { id: "vortex", n: "深渊涡流", col: [180, 140, 255], deco: "swirl",
+    up: "冷却流速 +20%",         down: "受伤 +28%",  d: "涡流催技能，也催命",
+    k: { cd: 1.20, taken: 1.28 } }
+];
+const OCEAN_MAP = {}; for (const o of OCEANS) OCEAN_MAP[o.id] = o;
+let OCNOW = null;
+function ocK(key, dflt) { return (OCNOW && OCNOW.k[key] !== undefined) ? OCNOW.k[key] : dflt; }
+/* —— 取值器：散在各处的挂点只认这几个名字 —— */
+function ocGain()     { return ocK("gain", 1); }      // 回氧（气泡 / 击杀 / 噬血 / 吞氧…）
+function ocDrain()    { return ocK("drain", 1); }     // 每秒掉氧
+function ocSpeed()    { return ocK("spd", 1); }       // 自己的移动速度
+function ocBubbleMul(){ return ocK("bubble", 1); }    // 气泡生成频率
+function ocObstExtra(){ return ocK("obst", 0); }      // 每行额外长出障礁的概率
+function ocMobHp()    { return ocK("mobHp", 1); }     // 怪的血量
+function ocDmgOut()   { return ocK("dmg", 1); }       // 你打出去的伤害
+function ocTaken()    { return ocK("taken", 1); }     // 你挨到的伤害
+function ocLight()    { return ocK("light", 1); }     // 视野半径
+function ocKillO2()   { return ocK("killO2", 1); }    // 击杀回氧
+function cdRate()     { return ocK("cd", 1); }        // 技能冷却流速
+/* 换一片海：OCNOW 换掉 + 装饰重摆一份（装饰是固定数组，不每帧乱抽 → 不闪） */
+function applyOcean(id) {
+  OCNOW = OCEAN_MAP[id] || null;
+  G.ocean = OCNOW ? OCNOW.id : null;
+  G.deco = OCNOW ? makeDeco(OCNOW) : null;
+}
+function stepOcean() {
+  const mile = Math.floor(Math.max(0, G.depth) / OCEAN_SPAN);
+  if (mile === G.oceanMile && OCNOW) return;
+  const first = !(G.oceanMile >= 0);
+  G.oceanMile = mile;
+  /* 随机抽一片海：连抽几次躲开「跟上一种一样」（玩家口径「每 500 米改变，随机刷新」） */
+  let oc = OCEANS[Math.min(OCEANS.length - 1, Math.floor(rnd() * OCEANS.length))];
+  for (let i = 0; i < 6 && OCNOW && oc.id === OCNOW.id; i++) oc = OCEANS[Math.min(OCEANS.length - 1, Math.floor(rnd() * OCEANS.length))];
+  applyOcean(oc.id);
+  G.oceanT = 3.4;
+  if (!first) {
+    popup(p.x, p.y - 118, "洋流转换 · " + oc.n, oc.col.join(","));
+    burst(p.x, p.y, 26, oc.col.join(","));
+    SFX.pick();
+  }
+}
+/* 装饰：每片海一份固定粒子表（换海时重摆），deco 决定画法 */
+function makeDeco(oc) {
+  const a = [];
+  const n = oc.deco === "dust" ? 44 : oc.deco === "glow" ? 32 : oc.deco === "silt" ? 36 : 22;
+  for (let i = 0; i < n; i++) a.push({
+    x: rr(0, W0), y: rr(-60, H0), r: rr(1.2, 4.2), vy: rr(6, 26) * (rnd() < 0.5 ? -1 : 1),
+    amp: rr(4, 26), sw: rr(0.2, 0.9), ph: rr(0, 6.28), s: rnd(), a: rr(0.25, 0.8)
+  });
+  return { k: oc.deco, col: oc.col, p: a };
+}
+function drawOceanDeco() {
+  const D = G.deco; if (!D) return;
+  const t = G.t, c = D.col;
+  ctx.save();
+  if (D.k === "sun" || D.k === "glow") ctx.globalCompositeOperation = "lighter";
+  for (const q of D.p) {
+    const y = ((q.y + t * q.vy) % (H0 + 140) + H0 + 140) % (H0 + 140) - 70;
+    const x = q.x + Math.sin(t * q.sw + q.ph) * q.amp;
+    if (D.k === "ice") {                                    /* 浮冰：小白三角 */
+      ctx.fillStyle = "rgba(215,240,255," + (0.20 + q.a * 0.25).toFixed(3) + ")";
+      ctx.beginPath();
+      ctx.moveTo(x, y - q.r * 2.2); ctx.lineTo(x + q.r * 2.0, y + q.r); ctx.lineTo(x - q.r * 2.0, y + q.r);
+      ctx.closePath(); ctx.fill();
+    } else if (D.k === "coral") {                           /* 珊瑚：分叉的枝 */
+      ctx.strokeStyle = "rgba(" + c.join(",") + "," + (0.22 + q.a * 0.3).toFixed(3) + ")";
+      ctx.lineWidth = 1.6 + q.s * 1.4;
+      ctx.beginPath(); ctx.moveTo(x, y + 26);
+      ctx.quadraticCurveTo(x + q.amp * 0.5, y, x + q.amp * 0.3, y - 30);
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + q.amp * 0.4, y - 6);
+      ctx.lineTo(x + q.amp * 1.1, y - 24); ctx.stroke();
+    } else if (D.k === "algae") {                           /* 赤潮：横向飘的藻丝 */
+      ctx.strokeStyle = "rgba(" + c.join(",") + "," + (0.10 + q.a * 0.22).toFixed(3) + ")";
+      ctx.lineWidth = 1.2 + q.s * 2.2;
+      ctx.beginPath();
+      for (let i = 0; i <= 6; i++) {
+        const xx = x + i * 30, yy = y + Math.sin(t * 0.8 + q.ph + i * 0.7) * 9;
+        if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+      }
+      ctx.stroke();
+    } else if (D.k === "silt") {                            /* 死水：灰绿碎屑 */
+      ctx.fillStyle = "rgba(" + c.join(",") + "," + (0.12 + q.a * 0.2).toFixed(3) + ")";
+      ctx.fillRect(x, y, q.r * 1.7, q.r * 1.7);
+    } else if (D.k === "swirl") {                           /* 涡流：转着的弧 */
+      ctx.strokeStyle = "rgba(" + c.join(",") + "," + (0.14 + q.a * 0.2).toFixed(3) + ")";
+      ctx.lineWidth = 1.4 + q.s * 1.6;
+      ctx.beginPath();
+      ctx.arc(x, y, 22 + q.s * 46, t * (0.5 + q.s) + q.ph, t * (0.5 + q.s) + q.ph + 1.5);
+      ctx.stroke();
+    } else if (D.k === "glow") {                            /* 荧光：会呼吸的点 */
+      const rr2 = q.r * (1.6 + 0.7 * Math.sin(t * 1.6 + q.ph) + 0.6);
+      const gg = ctx.createRadialGradient(x, y, 0, x, y, rr2 * 3.2);
+      gg.addColorStop(0, "rgba(" + c.join(",") + "," + (0.35 * q.a + 0.2).toFixed(3) + ")");
+      gg.addColorStop(1, "rgba(" + c.join(",") + ",0)");
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(x, y, rr2 * 3.2, 0, 6.2832); ctx.fill();
+    } else {                                                /* sun / dust：光尘 */
+      ctx.fillStyle = "rgba(" + c.join(",") + "," + (0.10 + q.a * 0.26).toFixed(3) + ")";
+      ctx.beginPath(); ctx.arc(x, y, q.r * (D.k === "sun" ? 1.9 : 1.2), 0, 6.2832); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+/* ================================================================================
+   深度 Boss 战（第四期）
+   玩家口径（2026-09-27）：「在到达对应米数的时候，召唤一个唯一性 boss，boss 战之中不会有小怪
+   和障碍物。boss 战的时候，米数不会增加，也不会下沉。」
+   —— 每 2000m 一只（2000/4000/6000），各自只属于那一段深度、一局只见一次。
+   开打那一刻清场（小怪 + 障礁全没了），打的过程里生成端也一律闸住；
+   「不下沉」= 水流速度顶到 0（世界不滚、深度不涨），走路照旧。
+   Boss 走的是和普通怪同一条伤害链（hurtEnt），所以技能、增伤、海域系数一个都不用重写；
+   唯一特殊的是它不能被抓、不能被处决（ctrlImm），只能一刀一刀砍。
+   ================================================================================ */
+const BOSSES = [
+  { id: "angler", at: 2000, n: "灯笼鱼王", col: [255, 205, 130], r: 62, hp: 900, style: "angler",
+    d: "诱饵光球 · 冲锋撞击", sub: "追着你的那盏灯" },
+  { id: "kraken", at: 4000, n: "深渊章鱼", col: [190, 140, 255], r: 70, hp: 1700, style: "kraken",
+    d: "触手横扫 · 墨汁遮光 · 吸流", sub: "看不见它的时候最危险" },
+  { id: "whale",  at: 6000, n: "鲸落之主", col: [215, 240, 255], r: 78, hp: 2800, style: "whale",
+    d: "骨甲护身 · 骨片风暴 · 鲸落冲击", sub: "先砸骨头，再砸它" }
+];
+const BOSS_MAP = {}; for (const b of BOSSES) BOSS_MAP[b.id] = b;
+function bossNow() { return G.boss; }
+function bossStart(i) {
+  const B = BOSSES[i];
+  if (!B) return;
+  const hp = Math.round(B.hp * (NET.connected ? CFG.coopMul : 1));
+  ents.length = 0;                              /* 清场：Boss 战里没有小怪、没有障礁、连气泡也重来 */
+  G.zones.length = 0; G.shards.length = 0;
+  const e = {
+    kind: "boss", boss: true, ctrlImm: true, id: B.id, bi: i, seal: i + 1, seed: rnd() * 997,
+    x: W0 / 2, y: H0 * 0.32, r: B.r, hp: hp, maxHp: hp, flash: 0, near: false, dead: false,
+    mode: "idle", mt: 1.6, tel: 0, tx: W0 / 2, ty: H0 * 0.32, bones: B.style === "whale" ? 3 : 0,
+    plateT: 0, hitT: 0, ink: 0, pullT: 0, spin: 0
+  };
+  ents.push(e);
+  G.boss = e; G.bossT = 0; G.bossKilled = G.bossKilled || 0;
+  popup(p.x, p.y - 140, "深海霸主 · " + B.n, B.col.join(","));
+  fxRing(e.x, e.y, 30, 460, B.col.join(","), 0.9, "ring");
+  G.shakeT = 0.6; G.shakeMag = 14; G.flash = 0.5; SFX.level();
+  G.oceanT = 0;                                 /* 换海横幅让位给霸主登场 */
+}
+function bossEnd() {
+  const e = G.boss; if (!e) return;
+  const B = BOSS_MAP[e.id] || BOSSES[0];
+  const boom = o2MaxNow() * 0.6;
+  o2Add(p, boom);
+  if (p2.active && !p2.dead) o2Add(p2, boom);
+  G.bossDone.push(e.id);
+  G.bossKilled = (G.bossKilled || 0) + 1;
+  G.bossNextIdx = Math.min(BOSSES.length, (e.bi || 0) + 1);
+  G.boss = null;
+  G.flash = 0.9; G.shakeT = 0.8; G.shakeMag = 18;
+  fxRing(e.x, e.y, 40, 560, B.col.join(","), 1.0, "ring");
+  burst(e.x, e.y, 60, B.col.join(","));
+  popup(p.x, p.y - 150, "击破 · " + B.n + " · 回氧 +" + boom.toFixed(0), B.col.join(","));
+  /* 打完了继续下潜：米数重新开始涨（水流恢复由 stepPlay 的速度段自己接管） */
+}
+/* Boss 的子弹：借现成的电球（bolt）实体，判定与画法都不用另写一套 */
+function bossShot(e, tx, ty, n, spread, spd) {
+  const base = Math.atan2(ty - e.y, tx - e.x);
+  for (let i = 0; i < n; i++) {
+    const a = base + (n > 1 ? (i / (n - 1) - 0.5) * spread : 0);
+    ents.push({ kind: "bolt", x: e.x + Math.cos(a) * (e.r * 0.7), y: e.y + Math.sin(a) * (e.r * 0.7),
+                r: CFG.boltR, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 4.5, seed: rnd() * 997 });
+  }
+}
+function bossTouch(e, dt) {
+  e.hitT -= dt;
+  if (e.hitT > 0) return;
+  for (const q of party()) {
+    if (q.dead) continue;
+    if (Math.hypot(q.x - e.x, q.y - e.y) > e.r + CFG.playerR) continue;
+    e.hitT = 0.85;
+    hurtPlayerOn(q, CFG.reaverDmg * 1.6, "255,150,180");
+    break;
+  }
+}
+function bossAI(e, dt) {
+  const B = BOSS_MAP[e.id] || BOSSES[0];
+  const tgt = nearestAlive(e.x, e.y) || p;
+  if (e.plateT > 0) e.plateT = Math.max(0, e.plateT - dt);
+  if (e.ink > 0) e.ink = Math.max(0, e.ink - dt);
+  bossTouch(e, dt);
+  /* —— 蓄力段：站着攒，攒满了就打出去（两边都看得见那圈预警）—— */
+  if (e.tel > 0) {
+    e.tel = Math.max(0, e.tel - dt);
+    if (e.tel === 0) {
+      e.mode = "fire";
+      const base = Math.atan2(tgt.y - e.y, tgt.x - e.x);
+      if (B.style === "angler") {                  /* 冲锋：朝锁定点扑过去 */
+        e.tx = tgt.x; e.ty = tgt.y; e.spin = 0.85;
+        bossShot(e, tgt.x, tgt.y, 3, 0.5, 210);
+      } else if (B.style === "kraken") {           /* 触手横扫：面前一大圈 */
+        fxRing(e.x, e.y, 30, 430, B.col.join(","), 0.5, "ring");
+        for (const q of party()) {
+          if (q.dead) continue;
+          if (Math.hypot(q.x - e.x, q.y - e.y) > 430) continue;
+          hurtPlayerOn(q, CFG.reaverDmg * 2.2, "210,150,255");
+        }
+        for (const o of ents) {                    /* 顺手把误入触手范围的怪也扫了（清场后没有怪，防手滑） */
+          if (o.boss || o.dead || !MOB_SET[o.kind] || o.kind === "bolt") continue;
+          hurtEnt(ents.indexOf(o), o, 90, "210,150,255");
+        }
+      } else {                                     /* 鲸落冲击：一圈往外推 */
+        fxRing(e.x, e.y, 30, 520, B.col.join(","), 0.6, "ring");
+        for (const q of party()) {
+          if (q.dead) continue;
+          hurtPlayerOn(q, CFG.anoxDmg * 2.4, "225,240,255");
+        }
+      }
+      e.bx = base;
+      e.mt = 1.1 + rnd() * 0.7;
+      return;
+    }
+    /* 冲锋落点：锁定那一刻的玩家位置（可以走开躲掉 —— 别站着不动） */
+    if (B.style === "angler" && e.tel > 0) {
+      e.tx += (tgt.x - e.tx) * Math.min(1, dt * 1.6);
+      e.ty += (tgt.y - e.ty) * Math.min(1, dt * 1.6);
+    }
+    return;
+  }
+  /* —— 冲锋飞出去的那 0.85s —— */
+  if (e.spin > 0) {
+    e.spin = Math.max(0, e.spin - dt);
+    e.x += (e.tx - e.x) * Math.min(1, dt * 6);
+    e.y += (e.ty - e.y) * Math.min(1, dt * 6);
+    return;
+  }
+  /* —— 平时：慢慢挪回中间，等下一次出手 —— */
+  e.mt -= dt;
+  e.x += ((W0 / 2) - e.x) * Math.min(1, dt * 0.9);
+  e.y += (H0 * 0.32 - e.y) * Math.min(1, dt * 0.9);
+  if (e.mt > 0) return;
+  const r = rnd();
+  if (B.style === "angler") {
+    if (r < 0.5) { e.mode = "tel"; e.tel = 0.85; e.tx = tgt.x; e.ty = tgt.y; }
+    else { bossShot(e, tgt.x, tgt.y, 5, 1.1, 190); e.mt = 1.5 + rnd() * 0.6; }
+  } else if (B.style === "kraken") {
+    if (r < 0.42) { e.mode = "tel"; e.tel = 1.0; }
+    else if (r < 0.74) { e.ink = 3.2; popup(e.x, e.y - e.r - 24, "墨汁 · 视野骤降", "160,140,210"); e.mt = 1.4 + rnd() * 0.5; }
+    else { e.pullT = 2.0; e.mt = 1.6 + rnd() * 0.5; }
+  } else {
+    if (r < 0.4) { e.mode = "tel"; e.tel = 0.95; }
+    else if (r < 0.72) { spawnShards(e.x, e.y, 12, CFG.reaverDmg * 0.8); popup(e.x, e.y - e.r - 24, "骨片风暴", "225,240,255"); e.mt = 1.5 + rnd() * 0.6; }
+    else { bossShot(e, tgt.x, tgt.y, 7, 1.6, 205); e.mt = 1.2 + rnd() * 0.5; }
+  }
+  /* 章鱼吸流：把两个人往自己身上拽（不是伤害，是位置 —— 想跑得往外使劲） */
+  if (e.pullT > 0) {
+    e.pullT = Math.max(0, e.pullT - dt);
+    for (const q of party()) {
+      if (q.dead) continue;
+      const d = Math.hypot(e.x - q.x, e.y - q.y);
+      if (d > 460) continue;
+      const k = 150 * dt;
+      q.x += (e.x - q.x) / Math.max(1, d) * k;
+      q.y += (e.y - q.y) / Math.max(1, d) * k;
+    }
+  }
+}
+function stepBoss(dt) {
+  /* 到米数就开打（每 2000m 一只，一局只见一次）—— 必须在深度推进之前判 */
+  const i = G.bossNextIdx;
+  if (!G.boss) {
+    if (i < BOSSES.length && G.depth >= BOSSES[i].at) bossStart(i);
+    return;
+  }
+  const e = G.boss;
+  G.bossT = (G.bossT || 0) + dt;
+  if (e.dead || e.hp <= 0) { bossEnd(); return; }
+  bossAI(e, dt);
+}
+/* Boss 的画法：三只三张脸，玩家一眼能分出自己在打谁 */
+function drawBossEnt(e) {
+  const t = G.t, B = BOSS_MAP[e.id] || BOSSES[0], c = B.col;
+  const x = e.x, y = e.y + Math.sin(t * 1.4 + e.seed) * 6;
+  ctx.save();
+  /* 预警：蓄力时一层往里收的红圈（两边都看得见 —— 快照里带了 tel） */
+  if (e.tel > 0) {
+    ctx.strokeStyle = "rgba(255,120,140,0.85)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, e.r + 20 + e.tel * 46, 0, 6.2832); ctx.stroke();
+  }
+  if (e.ink > 0) { ctx.globalAlpha = 0.85; }
+  ctx.shadowColor = "rgba(" + c.join(",") + ",0.6)"; ctx.shadowBlur = 26;
+  const flash = e.flash > 0 ? 1 : 0;
+  const body = flash ? "#fff6e8" : "rgba(" + c.join(",") + ",0.92)";
+  if (B.style === "angler") {
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.ellipse(x, y, e.r * 1.25, e.r * 0.86, 0, 0, 6.2832); ctx.fill();
+    ctx.beginPath();                                   /* 尾 */
+    ctx.moveTo(x - e.r * 1.1, y); ctx.lineTo(x - e.r * 1.9, y - e.r * 0.6);
+    ctx.lineTo(x - e.r * 1.9, y + e.r * 0.6); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(" + c.join(",") + ",0.9)"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(x + e.r * 0.5, y - e.r * 0.7);
+    ctx.quadraticCurveTo(x + e.r * 0.9, y - e.r * 1.6, x + e.r * 1.5, y - e.r * 1.5); ctx.stroke();
+    const lx = x + e.r * 1.5, ly = y - e.r * 1.5 + Math.sin(t * 3) * 4;
+    const gg = ctx.createRadialGradient(lx, ly, 0, lx, ly, 34);
+    gg.addColorStop(0, "rgba(255,240,180,0.95)"); gg.addColorStop(1, "rgba(255,200,120,0)");
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(lx, ly, 34, 0, 6.2832); ctx.fill();
+  } else if (B.style === "kraken") {
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.ellipse(x, y, e.r, e.r * 1.12, 0, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = "rgba(" + c.join(",") + ",0.85)"; ctx.lineWidth = 9;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * 6.2832 + t * 0.7;
+      ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * e.r * 0.7, y + Math.sin(a) * e.r * 0.8);
+      ctx.quadraticCurveTo(x + Math.cos(a) * e.r * 1.9, y + Math.sin(a) * e.r * 1.9 + Math.sin(t * 2 + i) * 14,
+                           x + Math.cos(a) * e.r * 2.5, y + Math.sin(a) * e.r * 2.2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#1a1030";
+    ctx.beginPath(); ctx.ellipse(x, y, e.r * 0.44, e.r * 0.5, 0, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = "rgba(255,220,120,0.95)";
+    ctx.beginPath(); ctx.arc(x, y, e.r * 0.2, 0, 6.2832); ctx.fill();
+  } else {
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.ellipse(x, y, e.r * 1.35, e.r * 0.8, 0, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = "rgba(" + c.join(",") + ",0.95)"; ctx.lineWidth = 5;
+    for (let i = -3; i <= 3; i++) {                    /* 肋骨：一眼看出是「鲸落」 */
+      const bx = x + i * e.r * 0.34;
+      ctx.beginPath(); ctx.moveTo(bx, y - e.r * 0.72); ctx.lineTo(bx, y + e.r * 0.72); ctx.stroke();
+    }
+    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath(); ctx.arc(x, y, e.r * 0.26, 0, 6.2832); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  /* 血条挂在它自己头上（客人与房主都画这一条） */
+  const w = e.r * 2.6, fr = clamp(e.hp / Math.max(1, e.maxHp), 0, 1);
+  ctx.save();
+  ctx.fillStyle = "rgba(4,12,22,0.75)"; ctx.fillRect(x - w / 2, y - e.r - 34, w, 7);
+  ctx.fillStyle = "rgba(" + c.join(",") + ",0.95)"; ctx.fillRect(x - w / 2 + 1, y - e.r - 33, (w - 2) * fr, 5);
+  if (e.bones > 0) {
+    for (let i = 0; i < e.bones; i++) {
+      ctx.fillStyle = "rgba(230,245,255,0.9)";
+      ctx.beginPath(); ctx.arc(x - w / 2 + 8 + i * 12, y - e.r - 42, 4, 0, 6.2832); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+function drawBossBar() {
+  const e = G.boss;
+  if (!e) return;
+  const B = BOSS_MAP[e.id] || BOSSES[0];
+  const w = W0 * 0.56, x = (W0 - w) / 2, y = 184;
+  const fr = clamp(e.hp / Math.max(1, e.maxHp), 0, 1);
+  ctx.save();
+  ctx.fillStyle = "rgba(4,12,22,0.62)"; ctx.fillRect(x, y, w, 16);
+  ctx.fillStyle = "rgba(" + B.col.join(",") + ",0.95)"; ctx.fillRect(x + 2, y + 2, (w - 4) * fr, 12);
+  ctx.strokeStyle = "rgba(" + B.col.join(",") + ",0.7)"; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, w, 16);
+  ctx.restore();
+  text(B.n, W0 / 2, y - 8, 15, "rgba(" + B.col.join(",") + ",1)", "center", 700);
+  text("深度冻结 · 水流停住 · " + Math.round(e.hp) + "/" + Math.round(e.maxHp), W0 / 2, y + 30, 11,
+       "rgba(185,220,240,0.8)", "center", 600);
+}
 function drawWorld() {
   const d = clamp(G.depth / 1200, 0, 1);
   const g = ctx.createLinearGradient(0, 0, 0, H0);
   g.addColorStop(0, mixRgb([10, 38, 66], [1, 4, 12], d));
   g.addColorStop(1, mixRgb([22, 70, 108], [3, 10, 22], d));
   ctx.fillStyle = g; ctx.fillRect(0, 0, W0, H0);
+  /* 海洋类型：整片水先染一层它自己的颜色（玩家口径「要有装饰」） */
+  if (OCNOW) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "rgba(" + OCNOW.col.join(",") + ",0.075)";
+    ctx.fillRect(0, 0, W0, H0);
+    ctx.restore();
+  }
+  drawOceanDeco();                       /* 海洋类型：装饰画在光柱与实体之间 */
   /* 光柱 */
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
@@ -4705,7 +5169,10 @@ function drawWorld() {
    （和水母 / 怪同一条规矩 —— 玩家定的：光照半径之外啥也看不见，但光源自己看得见）。 */
 function drawZones() {
   for (const z of G.zones) {
-    const a = 0.25 + 0.55 * clamp(1 - z.t / z.life, 0, 1);
+    /* 缺字段/老快照兜底：alpha 一旦是 NaN，addColorStop 会直接抛异常把整帧打死（白屏就是这么来的）。
+       一个特效画不出来能忍，整屏不动不能忍。 */
+    const aRaw = 0.25 + 0.55 * clamp(1 - (z.t || 0) / (z.life || 1), 0, 1);
+    const a = Number.isFinite(aRaw) ? aRaw : 0.25;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     if (z.type === "singHold") {
@@ -5128,7 +5595,7 @@ function drawJellyGlow(e) {
    而重绘的兜底分支画的是「紫伞 + 5 根触手 + 中央亮核」＝电袭者的样子 ——
    于是每块石头、每条泥鳅在黑暗里都顶着一只紫色水母（探针实测：石头 1479 个紫像素、
    泥鳅 629 个，最亮 rgb(187,159,243) 就是那只假水母的伞边）。 */
-const MOB_SET = { hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1, split: 1, leech: 1, lamp: 1,
+const MOB_SET = { boss: 1, hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1, split: 1, leech: 1, lamp: 1,
                   shell: 1, anchor: 1, nullify: 1,
                   brood: 1, curtain: 1, anox: 1 };   // 后三只是精英三线，再后三只是 2026-09-26 的重装三只
 /* 怪物判定的唯一入口：加一只怪只改 MOB_SET 一处，不再逐个补手写的 kind 列表
@@ -5909,6 +6376,8 @@ function render() {
       /* 选牌时把 HUD 压暗：否则「100 米」会和「深渊馈赠」标题叠在一起，看着像花了屏 */
       ctx.save();
       ctx.globalAlpha = G.state === "levelup" ? 0.28 : 1;
+      drawOceanBanner();
+      drawBossBar();
       drawHUD();
       ctx.restore();
     }
@@ -6077,6 +6546,17 @@ document.addEventListener("visibilitychange", () => {
 /* ============================ 9. Loop ==================================== */
 const STEP = 1 / 120;
 let last = 0, acc = 0;
+/* 渲染异常兜底（2026-09-26 队友白屏的第二道闸）：draw 里任何一处抛异常都会中断这一帧 ——
+   房员那边表现就是画面冻住/白屏。兜住 + 计数，循环照跑：少画一个特效可以接受，整屏不动不行。
+   计数露给探针（__SINK__.drawErrs），兜住了但一直在兜 = 还有真 bug，别想瞒过去。 */
+let drawErrN = 0, drawErrMsg = "";
+function safeRender() {
+  try { render(); }
+  catch (e) {
+    drawErrN++;
+    if (drawErrN <= 3) { drawErrMsg = String((e && e.message) || e); console.warn("渲染异常已兜住（这一帧少画点东西，循环不停）:", e); }
+  }
+}
 function frame(now) {
   requestAnimationFrame(frame);
   if (!last) last = now;
@@ -6098,7 +6578,7 @@ function frame(now) {
   if (NET.on && NET.role === "host") netHostTick(dt);   // 房主的下行快照/心跳（冻结时也照发，探针要用）
   netPanelTick();                                       // 准备室的双方状态卡（不在准备室就是一次判断）
   lobbyHeartbeat();                                     // 房间挂在大厅上时的心跳
-  render();
+  safeRender();                                         // 渲染异常兜底版（见上）
 }
 
 /* ========================= 10. SelfTest / Debug ========================== */
@@ -6202,16 +6682,23 @@ window.__SINK__ = {
   levelUp, applyCard, lvWaitText, aimPointFrom,
   ents: () => ents, p, probePx, lightR: () => G.lightR, H0: () => H0,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp,
-  spawnShell, spawnAnchor, spawnNullify, spawnBrood, spawnCurtain, spawnAnox, anoxNear, mobKind, contactDmg, entSegDist, hurtPlayer,
+  spawnShell, spawnAnchor, spawnRow, spawnNullify, spawnBrood, spawnCurtain, spawnAnox, anoxNear, mobKind, contactDmg, entSegDist, hurtPlayer,
   NET, p2, A2, hurtPlayerOn, o2Get, o2Set, o2Add, party, aliveParty, nearestAlive, killPlayer, reviveTick, coopHit, moveSide,
   netHostCreate, netGuestAnswer, netHostAccept, netClose, netPanelToggle, netSnapBuild, netWireDC, netApplySnap, netGuestFrame,
   netRoomEnter, netRoomLeave, netStartMatch, netMatchStart, netPanelShowView, netPanelInit2, netWaitLines,
   LOBBY, LOBBY_TTL, LOBBY_TOPIC, NTFY_BASE, lobbyOpen, lobbySetPub, lobbyAnnounce, lobbyPoll, lobbyPrune, lobbyRooms, lobbyJoin, lobbyOnMsg,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
   /* 联机三期：客人的技能键那一套（探针直接调这些，跑的是真代码不是打桩） */
+  drawErrs: () => ({ n: drawErrN, msg: drawErrMsg }),
   netSideSkill, netSideReroll, cardPickable, netFxToGuest, netFxShow, netSend, withActor, recalcModsFor, sideBuildReset, skillPress, t2Press, hudAct, finishTeamPick,
   stepWhirl, sideDashMove, applyCard, aimFor,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
+  /* 第四期：海洋类型（探针用真函数，不另写一套） */
+  OCEANS, OCEAN_SPAN, stepOcean, applyOcean, ocGain, ocDrain, ocSpeed, ocMobHp, ocDmgOut, ocTaken, ocLight, cdRate,
+  /* 第四期：深度 Boss */
+  BOSSES, BOSS_MAP, stepBoss, bossStart, bossEnd, bossAI, bossShot, bossNow,
+  oceanIds: () => OCEANS.map((o) => o.id), ocNow: () => (OCNOW ? OCNOW.id : null), decoN: () => (G.deco ? G.deco.p.length : 0),
+  setDepth: (d) => { G.depth = d; },
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
   SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, skinAt, avatarSkin, R,
   trailN: () => G.trail.length, trailStyle: () => trailStyle(), stepTrail, drawTrail,
@@ -6219,7 +6706,13 @@ window.__SINK__ = {
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
   setAutoPick: (m) => { AUTO_PICK = m; },
   setFreeze: (v) => { AUTO_FREEZE = !!v; },      // 探针用：关掉 rAF 自动步进，改成手动 S.update，量手感可复现
-  stats: () => ({ state: G.state, depth: Math.floor(G.depth), o2: +G.o2.toFixed(2), ents: ents.length, best: G.best, speed: +G.speed.toFixed(1), level: G.level, route: G.route, sk: Object.assign({}, G.sk), choices: G.choices ? G.choices.map((s) => s.id) : null,
+  /* 探针出口（2026-09-26 修）：标题页 G.oceanT 还没定义、客人侧的 boss 是从快照拼出来的（没有 tel/ink），
+     这里原来直接 .toFixed 就把 verify.mjs 打死了（死在第 1 张截图上，跟玩法无关）。全部走兜底。 */
+  stats: () => ({ boss: G.boss ? { id: G.boss.id, hp: Math.round(G.boss.hp || 0), maxHp: Math.round(G.boss.maxHp || 0), tel: +(G.boss.tel || 0).toFixed(2),
+                                   bones: G.boss.bones || 0, ink: +(G.boss.ink || 0).toFixed(2), mode: G.boss.mode, x: Math.round(G.boss.x), y: Math.round(G.boss.y) } : null,
+                   bossNext: G.bossNextIdx, bossDone: (G.bossDone || []).slice(), bossT: +(G.bossT || 0).toFixed(1),
+                   ocean: G.ocean, oceanMile: G.oceanMile, oceanUp: OCNOW ? OCNOW.up : null, oceanDown: OCNOW ? OCNOW.down : null, oceanT: +(G.oceanT || 0).toFixed(2),
+                   state: G.state, depth: Math.floor(G.depth), o2: +G.o2.toFixed(2), ents: ents.length, best: G.best, speed: +G.speed.toFixed(1), level: G.level, route: G.route, sk: Object.assign({}, G.sk), choices: G.choices ? G.choices.map((s) => s.id) : null,
                    act: { q: +G.act.q.toFixed(2), e: +G.act.e.toFixed(2), f: +G.act.f.toFixed(2) },
                    actFx: { dash: +G.actFx.dash.toFixed(2), flare: +G.actFx.flare.toFixed(2), shock: +G.actFx.shock.toFixed(2) },
                    kills: G.kills, o2Kill: +G.o2Kill.toFixed(1), lightR: +G.lightR.toFixed(0), invuln: +p.invuln.toFixed(2),
