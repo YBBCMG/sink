@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-<!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
+<head><!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
      下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
+
 
 
 
@@ -1791,7 +1791,11 @@ function tryActiveBody(k, me) {
 }
 /* 瞄准点按「从谁身上量」取：本机玩家走鼠标准星，客人走他自己上行过来的准星（A2） */
 function aimFor(q) {
-  return q === p ? aimPoint() : aimPointFrom(q, A2, CFG.atkReach);
+  const a = q === p ? aimPoint() : aimPointFrom(q, A2, CFG.atkReach);
+  /* 房员还没上行过准星时 A2 是空的 → 方向算成 NaN → 冲锋把坐标推成 NaN（画面整个消失）。
+     兜底：量不出方向就朝正下方冲。 */
+  if (!Number.isFinite(a[0]) || !Number.isFinite(a[1])) return [q.x, q.y + CFG.atkReach];
+  return a;
 }
 
 function spawnHunter() {
@@ -2995,6 +2999,7 @@ function coopHostStepBody(dt) {
   sideFlareTick(dt);
   sideLanceTick(dt);
   reviveTick(p2, dt);
+  if (p2.active) stepTrail(dt, p2, skinIdOf(p2.skinI));   // 房员的尾流：房主屏幕上他那条鱼也得有尾巴
   if (p2.dead) return;
   moveSide(p2, NET.in, dt, sideDashMul());
   A2.x = NET.in.ax; A2.y = NET.in.ay;
@@ -3092,6 +3097,13 @@ function netSnapBuild() {
     a: [Math.round(p.x), Math.round(p.y), +p.invuln.toFixed(1), p.dead ? 1 : 0, +p.reviveT.toFixed(1)],
     b: [Math.round(p2.x), Math.round(p2.y), +p2.invuln.toFixed(1), p2.dead ? 1 : 0, +p2.reviveT.toFixed(1), +o2Get(p2).toFixed(1)],
     ab: [+A2.beam.toFixed(2), Math.round(A2.sx), Math.round(A2.sy), Math.round(A2.ex), Math.round(A2.ey)],
+    /* 联机四期（2026-09-26）：冲锋状态原来一个字节都没下发 —— 房员按 E，他自己的屏幕上那条鱼
+       没有任何冲锋表现（尾流段硬写死画在 p 上），房主也看不见房员在冲。两份各带一份。 */
+    d2: [p2.dashVX === null || p2.dashVX === undefined ? 0 : +p2.dashVX.toFixed(3),
+         p2.dashVY === null || p2.dashVY === undefined ? 0 : +p2.dashVY.toFixed(3), +p2.actFx.dash.toFixed(2)],
+    fxh: [+G.actFx.dash.toFixed(2),
+          G.dashVX === null || G.dashVX === undefined ? 0 : +G.dashVX.toFixed(3),
+          G.dashVY === null || G.dashVY === undefined ? 0 : +G.dashVY.toFixed(3)],
     e: [], z: []
   };
   for (const e of ents) S.e.push(netPackEnt(e));
@@ -3138,6 +3150,9 @@ function netApplySnap() {
   G.state = sb.st; G.depth = L("d", G.depth); G.speed = L("sp", G.speed);
   G.lightR = L("lr", G.lightR); G.lightBonus = L("lb", G.lightBonus); G.lightEat = L("le", 0);
   G.bonus = L("bn", G.bonus); G.level = sb.lv; G.kills = sb.kn;
+  /* 冲锋：fxh 是房主那份（客人照它画房主那条鱼的尾巴），d2 是客人自己那份（画自己） */
+  if (sb.fxh) { G.actFx.dash = sb.fxh[0]; G.dashVX = sb.fxh[1]; G.dashVY = sb.fxh[2]; }
+  if (sb.d2) { p2.actFx.dash = sb.d2[0]; p2.dashVX = sb.d2[1]; p2.dashVY = sb.d2[2]; }
   /* 海洋类型（第四期）：房主说现在是什么海，我这边就换成什么海（装饰跟着重摆一份） */
   if (sb.oc !== undefined && sb.oc !== G.ocean) {
     if (sb.oc) applyOcean(sb.oc); else { OCNOW = null; G.ocean = null; G.deco = null; }
@@ -3239,6 +3254,9 @@ function netGuestFrame(dt) {
     A2.x = A.x; A2.y = A.y; A2.beam = A.beam; A2.sx = A.sx; A2.sy = A.sy; A2.ex = A.ex; A2.ey = A.ey;
     if (p2.invuln > 0) p2.invuln = Math.max(0, p2.invuln - dt);
   }
+  /* 自己那条尾巴 + 房主那条（客人这边不跑 stepPlay，尾流得自己推） */
+  stepTrail(dt, p2, avatarSkin().id);
+  stepTrail(dt, p, skinIdOf(NET.peerSkin));
   if (!NET.connected) return;                            // 还没连上：先只跑视觉，等握手
   netApplySnap();
   /* 操作上行 30Hz */
@@ -3279,6 +3297,19 @@ function netSideSkill(m) {
   /* 光矛（质变）才是「按住蓄力、松手打出去」；普通探照按下即放 ——
      不分开的话，客人按 F 会被当成「按住」，灯永远不开（探针 B 段抓到的）。 */
   if (m.a === "f" && m.hold !== null && m.hold !== undefined && p2.m && p2.m.lance) {
+    /* 玩家口径（2026-09-26）「照明使者的灼烧伤害没有了」的真身：这一支原来**只记按键、不开灯** ——
+       客人带光矛质变时按 F，灯永远不亮，于是灼光（灼烧）/ 回春 / 光矛三样一起哑掉
+       （光矛还因为 flare 不亮直接放不出去）。房主那边（tryActiveBody）是按下的这一下「开灯 + 起蓄力」，
+       这里补齐同一条 —— 光矛是「按住 F 蓄力」，所以只有按下（hold=1）那一下开灯。 */
+    if (m.hold) {
+      const started = withActor(p2, () => {
+        if (G.act.f > 0) return false;
+        G.act.f = G.m.lance.cd; G.charge = 0; G.actFx.flare = G.m.flareT;
+        burst(p2.x, p2.y, 18, "255,245,200"); SFX.jelly();
+        return true;
+      });
+      if (!started) return false;
+    }
     p2.holdF = !!m.hold;
     return true;
   }
@@ -3871,6 +3902,25 @@ function drawPlayer2() {
      客人自己屏幕上二号位 = 他本人，所以名字叫「我」。 */
   const mine = NET.on && NET.role === "guest" && NET.connected;
   const sk = skinAt(p2.skinI);
+  /* 房员那条鱼的冲锋尾流（玩家口径「房员用冲锋效果有问题」）：按他自己的方向画，两边都看得见 */
+  if (p2.actFx.dash > 0 && typeof p2.dashVX === "number" && typeof p2.dashVY === "number") {
+    const dur = (p2.m && p2.m.chg && p2.m.chg.t) ? p2.m.chg.t : 0.34;
+    const a2 = clamp(p2.actFx.dash / dur, 0, 1);
+    const ux2 = p2.dashVX, uy2 = p2.dashVY, nx2 = -uy2, ny2 = ux2;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.55 * a2;
+    const gt = ctx.createLinearGradient(x - ux2 * 150, y - uy2 * 150, x, y);
+    gt.addColorStop(0, "rgba(120,255,215,0)");
+    gt.addColorStop(1, "rgba(190,255,240,0.9)");
+    ctx.fillStyle = gt;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - ux2 * 150 + nx2 * 16, y - uy2 * 150 + ny2 * 16);
+    ctx.lineTo(x - ux2 * 150 - nx2 * 16, y - uy2 * 150 - ny2 * 16);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
   ctx.save();
   if (p2.dead || (p2.invuln > 0 && Math.floor(G.t * 14) % 2 === 0)) ctx.globalAlpha = 0.4;
   ctx.save();
@@ -4242,22 +4292,30 @@ const TRAIL_STYLE = {
 let trailSeed = 20260925;
 function trnd() { trailSeed = (trailSeed * 1664525 + 1013904223) & 0x7fffffff; return trailSeed / 0x7fffffff; }
 function trailStyle() { return TRAIL_STYLE[avatarSkin().id] || TRAIL_STYLE.moon; }
-function stepTrail(dt) {
-  const st = trailStyle();
+function skinIdOf(i) { if (i === null || i === undefined) return null; const k = skinAt(i); return (k && k.id) ? k.id : null; }
+/* 玩家口径（2026-09-26）「房员没有拖尾」：尾流原来硬写死 p + 本机皮肤 —— 谁坐在房主位谁才有尾巴。
+   现在带主人：who 决定从哪条鱼屁股后面长，skinId 决定长相（两个人的皮肤不一样，粒子各带各的标记）。 */
+function stepTrail(dt, who, skinId) {
+  const q0 = who || p;
+  const own = !!who;                                   // 带主人 = 队友那份，用他自己的计时器
+  const id = skinId || avatarSkin().id;
+  const st = TRAIL_STYLE[id] || trailStyle();
   const fast = 0.7 + Math.min(1.3, G.speed / CFG.baseSpeed - 0.4) * 0.5;
-  if (G.state === "play") G.trailT += dt * st.rate * fast * (G.boosting ? st.boost : 1);
-  if (G.trailT > 4) G.trailT = 4;                     // 暂停/结算回来别一口气补一大堆
-  while (G.state === "play" && G.trailT >= 1) {       // 活着才吐新粒子：结算画面只让旧的散干净
-    G.trailT -= 1;
+  let acc = own ? (q0.trailT || 0) : G.trailT;
+  if (G.state === "play") acc += dt * st.rate * fast * (G.boosting ? st.boost : 1);
+  if (acc > 4) acc = 4;                     // 暂停/结算回来别一口气补一大堆
+  while (G.state === "play" && acc >= 1) {            // 活着才吐新粒子：结算画面只让旧的散干净
+    acc -= 1;
     if (G.trail.length >= TRAIL_MAX) break;
     G.trail.push({
       /* 玩家口径「拖尾要平行画面，不要往下掉」：从屁股后面往左甩出去，纵向只留一点点抖动 */
-      x: p.x - 16 - trnd() * 14, y: p.y + (trnd() - 0.5) * 13,
+      sk: id, x: q0.x - 16 - trnd() * 14, y: q0.y + (trnd() - 0.5) * 13,
       vx: -(26 + trnd() * 44), vy: (trnd() - 0.5) * 9,
       t: st.life * (0.7 + trnd() * 0.5), life: st.life,
       s: 0.6 + trnd() * 0.8, rot: (trnd() - 0.5) * 0.7, spin: (trnd() - 0.5) * 1.1, rice: trnd() < 0.11
     });
   }
+  if (own) q0.trailT = acc; else G.trailT = acc;
   for (let i = G.trail.length - 1; i >= 0; i--) {
     const q = G.trail[i];
     q.t -= dt;
@@ -4295,7 +4353,17 @@ function drawIngot(x, y, sc, rot, alpha) {
 function drawTrail() {
   const L = G.trail;
   if (!L || !L.length) return;
-  const id = avatarSkin().id;
+  const def = avatarSkin().id;
+  /* 两个人的粒子混在一个数组里：按标记分组，各画各的长相 —— 不然队友那条尾巴会长成我的皮肤 */
+  const groups = {};
+  for (const q of L) { const k = q.sk || def; if (k !== def) (groups[k] = groups[k] || []).push(q); }
+  const keys = Object.keys(groups);
+  if (!keys.length) return trailDrawGroup(L, def);
+  const mine = L.filter((q) => !q.sk || q.sk === def);
+  if (mine.length) trailDrawGroup(mine, def);
+  for (const k of keys) trailDrawGroup(groups[k], k);
+}
+function trailDrawGroup(L, id) {
   ctx.save();
   if (id === "gold") {
     /* 金鲤：拖尾改成一颗颗金元宝（玩家口径），边走边轻轻翻滚，深水里靠垫底的光看得见 */
@@ -4845,6 +4913,9 @@ const BOSSES = [
     d: "骨甲护身 · 骨片风暴 · 鲸落冲击", sub: "先砸骨头，再砸它" }
 ];
 const BOSS_MAP = {}; for (const b of BOSSES) BOSS_MAP[b.id] = b;
+/* 玩家口径（2026-09-26）「Boss 别跟我们同一平面，要在下面」：老版 y = H0*0.32 = 192，
+   跟 CFG.playerY 一模一样 —— 等于贴着玩家鼻尖站桩。深度方向 = 屏幕 y 越大越深，所以往下放。 */
+const BOSS_HOME_Y = () => Math.min(H0 - 90, CFG.playerY + 250);
 function bossNow() { return G.boss; }
 function bossStart(i) {
   const B = BOSSES[i];
@@ -4854,8 +4925,8 @@ function bossStart(i) {
   G.zones.length = 0; G.shards.length = 0;
   const e = {
     kind: "boss", boss: true, ctrlImm: true, id: B.id, bi: i, seal: i + 1, seed: rnd() * 997,
-    x: W0 / 2, y: H0 * 0.32, r: B.r, hp: hp, maxHp: hp, flash: 0, near: false, dead: false,
-    mode: "idle", mt: 1.6, tel: 0, tx: W0 / 2, ty: H0 * 0.32, bones: B.style === "whale" ? 3 : 0,
+    x: W0 / 2, y: BOSS_HOME_Y(), r: B.r, hp: hp, maxHp: hp, flash: 0, near: false, dead: false,
+    mode: "idle", mt: 1.6, tel: 0, tx: W0 / 2, ty: BOSS_HOME_Y(), bones: B.style === "whale" ? 3 : 0,
     plateT: 0, hitT: 0, ink: 0, pullT: 0, spin: 0
   };
   ents.push(e);
@@ -4955,7 +5026,7 @@ function bossAI(e, dt) {
   /* —— 平时：慢慢挪回中间，等下一次出手 —— */
   e.mt -= dt;
   e.x += ((W0 / 2) - e.x) * Math.min(1, dt * 0.9);
-  e.y += (H0 * 0.32 - e.y) * Math.min(1, dt * 0.9);
+  e.y += (BOSS_HOME_Y() - e.y) * Math.min(1, dt * 0.9);      /* 平时回到「玩家下方」那个家，不是玩家脸上 */
   if (e.mt > 0) return;
   const r = rnd();
   if (B.style === "angler") {
@@ -6550,6 +6621,7 @@ let last = 0, acc = 0;
    房员那边表现就是画面冻住/白屏。兜住 + 计数，循环照跑：少画一个特效可以接受，整屏不动不行。
    计数露给探针（__SINK__.drawErrs），兜住了但一直在兜 = 还有真 bug，别想瞒过去。 */
 let drawErrN = 0, drawErrMsg = "";
+let frameErrN = 0, frameErrMsg = "";   // 客人侧整帧异常计数（玩家口径「房员会闪退」的保险丝）
 function safeRender() {
   try { render(); }
   catch (e) {
@@ -6566,7 +6638,11 @@ function frame(now) {
   if (NET.on && NET.role === "guest") {
     /* 客人只跑视觉 + 套房主快照（不跑第二份物理）—— 见第 12 节。
        不受 AUTO_FREEZE 影响：冻结是「本机自动演示」用的，联机时不适用。 */
-    netGuestFrame(dt);
+    try { netGuestFrame(dt); }
+    catch (e) {                                       /* 客人帧异常兜住：一帧出错不再连累后面所有帧 */
+      frameErrN++;
+      if (frameErrN <= 3) { frameErrMsg = String((e && e.message) || e); console.warn("客人帧异常已兜住（这一帧少跑点东西，循环不停）:", e); }
+    }
   } else if (!AUTO_FREEZE && !(NET.on && NET.role === "host" && NET.waiting)) {
     /* 准备室里房主的模拟冻结：房间开着但还没开局，谁也别想先自己一个人下潜。
        冻结的是模拟，netHostTick 照发 —— 队友要看得见这个「冻结的世界」和连接状态。 */
@@ -6689,7 +6765,7 @@ window.__SINK__ = {
   LOBBY, LOBBY_TTL, LOBBY_TOPIC, NTFY_BASE, lobbyOpen, lobbySetPub, lobbyAnnounce, lobbyPoll, lobbyPrune, lobbyRooms, lobbyJoin, lobbyOnMsg,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
   /* 联机三期：客人的技能键那一套（探针直接调这些，跑的是真代码不是打桩） */
-  drawErrs: () => ({ n: drawErrN, msg: drawErrMsg }),
+  drawErrs: () => ({ n: drawErrN, msg: drawErrMsg, fn: frameErrN, fm: frameErrMsg }),
   netSideSkill, netSideReroll, cardPickable, netFxToGuest, netFxShow, netSend, withActor, recalcModsFor, sideBuildReset, skillPress, t2Press, hudAct, finishTeamPick,
   stepWhirl, sideDashMove, applyCard, aimFor,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
