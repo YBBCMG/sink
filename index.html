@@ -6,6 +6,7 @@
 
 
 
+
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#02060d" />
@@ -3166,13 +3167,43 @@ function drawHUD() {
   text(Math.ceil(G.o2) + "%", bx + bw + 12, by + 12, 15, low ? "rgba(255,150,150,0.95)" : "rgba(190,230,250,0.85)", "left", 600);
   /* 加速提示 */
   if (G.boosting) text("加速 ×" + boostMulNow().toFixed(2).replace(/0$/, ""), bx + bw + 12, by - 8, 12, "rgba(255,225,150,0.9)", "left", 600);
+  /* 光照条（2026-09-26 玩家口径「你在游戏里加光亮条」）：
+     视野是这局最贵的资源，之前只能靠感觉 —— 被熄灯鮟鱇吞了多少、水母还剩多少加成，全在一个小条上。
+     长度 = 当前光照半径 / 参考满值（水面 360 + 水母上限 560 = 920）；
+     白色刻度 = 「什么都没吃也没被吞」的深度基线，一眼看出加成 / 被吞各占多少。 */
+  const lby = by - 34, lbh = 8;      // 离氧气条留 6px：贴太近「氧气」两个字会顶到条上（截图里看着糊成一团）
+  const lmax = CFG.lightNear + CFG.jellyCap;
+  const lr = clamp(G.lightR / lmax, 0, 1);
+  const litBase = lerp(CFG.lightNear, CFG.lightFar, clamp(G.depth / CFG.lightSpan, 0, 1)) + CFG.lightMut * skLv("a_light");
+  const baseR = clamp((litBase * (1 - G.lightEat)) / lmax, 0, 1);
+  const lcol = lr > 0.5 ? [150, 235, 255] : lr > 0.22 ? [255, 222, 150] : [255, 130, 140];
+  rrRect(bx, lby, bw, lbh, 4);
+  ctx.fillStyle = "rgba(8,22,36,0.85)"; ctx.fill();
+  ctx.strokeStyle = "rgba(120,190,230,0.26)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.save();
+  rrRect(bx, lby, bw, lbh, 4); ctx.clip();
+  const lg = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+  lg.addColorStop(0, mixRgb([lcol[0] * 0.6, lcol[1] * 0.6, lcol[2] * 0.6], lcol, 0.45));
+  lg.addColorStop(1, mixRgb(lcol, [255, 255, 255], 0.4));
+  ctx.fillStyle = lg;
+  ctx.fillRect(bx, lby, bw * lr, lbh);
+  ctx.restore();
+  /* 基线刻度：当前值在刻度左边 = 被吞光压到基线以下（熄灯鮟鱇就在脸上） */
+  const tx = bx + bw * baseR;
+  ctx.strokeStyle = lr < baseR - 0.01 ? "rgba(190,150,255,0.95)" : "rgba(255,255,255,0.55)";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(tx, lby - 1.5); ctx.lineTo(tx, lby + lbh + 1.5); ctx.stroke();
+  text("光照", bx, lby - 6, 11.5, lr < baseR - 0.01 ? "rgba(200,165,255,0.95)" : "rgba(140,190,220,0.72)", "left", 600);
+  text(Math.round(G.lightR) + (G.lightEat > 0.01 ? " · 被吞 " + Math.round(G.lightEat * 100) + "%" : "")
+       + (G.actFx.flare > 0 ? " · 探照" : ""), bx + bw, lby - 6, 11.5,
+       G.lightEat > 0.01 ? "rgba(200,165,255,0.9)" : lr <= 0.22 ? "rgba(255,150,150,0.9)" : "rgba(190,230,250,0.85)", "right", 600);
   /* 深渊馈赠：等级 + 距下次强化的距离 */
   const lvSpan = lvNeed(G.level + 1);
   const lvP = clamp((G.depth - (G.nextLv - lvSpan)) / lvSpan, 0, 1);
-  const lby = by - 30;
-  rrRect(bx, lby, bw, 5, 2.5); ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fill();
-  rrRect(bx, lby, lvP * bw, 5, 2.5); ctx.fillStyle = "rgba(255,215,150,0.85)"; ctx.fill();
-  text("强化 Lv " + G.level + "　·　距下次 " + Math.max(0, Math.ceil(G.nextLv - G.depth)) + " m" + (routeNow() ? "　·　" + routeNow().n : ""), bx, lby - 7, 12, "rgba(255,225,170,0.78)", "left", 600);
+  const lbyLv = by - 62;
+  rrRect(bx, lbyLv, bw, 5, 2.5); ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fill();
+  rrRect(bx, lbyLv, lvP * bw, 5, 2.5); ctx.fillStyle = "rgba(255,215,150,0.85)"; ctx.fill();
+  text("强化 Lv " + G.level + "　·　距下次 " + Math.max(0, Math.ceil(G.nextLv - G.depth)) + " m" + (routeNow() ? "　·　" + routeNow().n : ""), bx, lbyLv - 7, 12, "rgba(255,225,170,0.78)", "left", 600);
   /* 深度进度条（右侧，暗示 1000m 是传奇线） */
   const pbx = W0 - 26, pby = 120, pbh = 300;
   rrRect(pbx, pby, 4, pbh, 2); ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fill();
@@ -4606,7 +4637,7 @@ window.__SINK__ = {
   version: SELFTEST.version, CFG, G, diffK, recalcMods, state: () => G.state,
   startRun, update, simulate, runSelfTest, autopilot,
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
-  ents: () => ents, p, probePx, lightR: () => G.lightR,
+  ents: () => ents, p, probePx, lightR: () => G.lightR, H0: () => H0,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp,
   spawnShell, spawnAnchor, spawnNullify, spawnBrood, spawnCurtain, spawnAnox, anoxNear, mobKind, contactDmg, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
