@@ -2623,7 +2623,12 @@ const NET = {
   rtt: 0, lastPing: 0, lastInput: 0, lastSnap: 0,
   snapA: null, snapB: null, nidSeq: 0, err: "", log: "", manual: false,
   in: { l: 0, p: null, ax: W0 / 2, ay: CFG.playerY + 200, b: 0 },
-  sigES: null, token: Math.random().toString(36).slice(2, 8), lastSk: ""
+  sigES: null, token: Math.random().toString(36).slice(2, 8), lastSk: "",
+  /* 「准备室」那套（2026-09-26 玩家要求「房主决定什么时候开始」）：
+     waiting = 房间开着但还没开局 —— 这时候房主本机的模拟是冻结的，谁也不许先下水；
+     started = 本局已经由房主开过局（连上了也不该再把人拽回准备室）；
+     pub = 这个房间已经发布到联机大厅；view = 面板当前视图 home/room/lobby */
+  waiting: false, started: false, pub: false, view: "home", lastTick: 0
 };
 /* 二号位（客人）的小人：没客人时 active=false，一切按单机跑，零行为变化 */
 const p2 = { x: W0 / 2, y: CFG.playerY, vx: 0, invuln: 0, hurtT: 0, o2: CFG.o2Max, dead: false,
@@ -2872,6 +2877,10 @@ function netWireDC() {
     p2.dead = false; p2.reviveT = 0; o2Set(p2, o2MaxNow() * 0.75);
     popup(p.x, p.y - 90, "潜伴已连接 · 双人难度 ×" + CFG.coopMul, "150,255,200");
     netLog(netLogText());
+    /* 面板已经开着 = 真的有人在点 UI：连上就进准备室。手动模式那套也走这里 ——
+       之前得先让玩家看见复制粘贴的框，所以不能一建房就切视图。
+       纯 API 连接（探针）不碰 DOM，面板不存在就什么都不做。 */
+    if (!NET.waiting && !NET.started && document.getElementById("netPanel")) netRoomEnter();
   };
   NET.dc.onclose = () => { NET.connected = false; p2.active = false; netLog(netLogText()); };
   NET.dc.onmessage = (ev) => {
@@ -2880,11 +2889,17 @@ function netWireDC() {
     else if (m.k === "i") { NET.in = { l: m.l | 0, p: m.p === null ? null : m.p, ax: m.x, ay: m.y, b: m.b | 0 }; }
     else if (m.k === "p") { NET.rtt = Math.max(0, (performance.now() | 0) - m.t); netSend({ k: "q", t: m.t }); }
     else if (m.k === "q") { NET.rtt = Math.max(0, (performance.now() | 0) - m.t); }
+    else if (m.k === "go" && NET.role === "guest") { netMatchStart(m.s); }   // 房主按下「开始游戏」
   };
 }
 function netLogText() {
   if (!NET.on) return "未联机";
   const role = NET.role === "host" ? "房主" : "客人";
+  if (NET.waiting) {
+    const st = !NET.connected ? "等待队友加入…"
+             : (NET.role === "host" ? "队友已就绪 · 按 G 开始游戏" : "等待房主开始游戏…");
+    return role + " · 房间 " + NET.code + " · 准备室 · " + st + (NET.pub ? " · 已在大厅" : "");
+  }
   if (!NET.connected) return role + " · 房间 " + NET.code + " · 等待连接…";
   return role + " · 房间 " + NET.code + " · 已连接 · " + NET.rtt + "ms" + (NET.role === "host" ? " · 双人难度 ×" + CFG.coopMul : "");
 }
@@ -2897,22 +2912,45 @@ async function netWaitIce(pc, ms) {
 }
 /* ---------- 信令：ntfy.sh 公共主题（房间码当主题名） ---------- */
 const netTopic = (code) => "sink-" + code + "-r1";
-async function netPub(code, obj) {
+/* 联机大厅的主题：一块公开的「谁在等人开局」公告板，所有房间共用（靠房间码区分）。
+   这就是公开广播 —— 房间码在大厅里是明文，不想公开就别发布。 */
+const LOBBY_TOPIC = "sink-lobby-r1";
+/* 信令服务地址：默认公共 ntfy.sh。?ntfy=http://127.0.0.1:PORT 可以指向本机替身服务 ——
+   探针就是这么离线自测的：跑的是**这一份**信令代码，只换了 ntfy 服务端，不是打桩。 */
+const NTFY_BASE = (() => {
   try {
-    const r = await fetch("https://ntfy.sh/" + netTopic(code), { method: "POST", body: JSON.stringify(obj) });
+    const v = new URLSearchParams(location.search).get("ntfy");
+    return (v || "https://ntfy.sh").replace(/\/+$/, "");
+  } catch (e) { return "https://ntfy.sh"; }
+})();
+async function netPubTo(topic, obj) {
+  try {
+    const r = await fetch(NTFY_BASE + "/" + topic, { method: "POST", body: JSON.stringify(obj) });
     return r.ok;
   } catch (e) { NET.err = "信令发送失败（网络被挡？可切手动模式）"; return false; }
 }
-function netSub(code, onMsg) {
+function netPub(code, obj) { return netPubTo(netTopic(code), obj); }
+/* since：ntfy 的缓存回溯（"5m" = 最近 5 分钟）。大厅用它一次拿到「已经挂在上面的房间」。 */
+function netSubTo(topic, onMsg, since) {
   try {
-    if (NET.sigES) NET.sigES.close();
-    const es = new EventSource("https://ntfy.sh/" + netTopic(code) + "/sse");
+    const es = new EventSource(NTFY_BASE + "/" + topic + "/sse" + (since ? "?since=" + since : ""));
     es.onmessage = (ev) => {
-      try { const d = JSON.parse(ev.data); if (!d.message) return; const m = JSON.parse(d.message); if (m.tk !== NET.token) onMsg(m); } catch (e) {}
+      try { const d = JSON.parse(ev.data); if (!d.message) return; const m = JSON.parse(d.message); onMsg(m); } catch (e) {}
     };
     es.onerror = () => { NET.err = "信令通道异常（可切手动模式）"; };
-    NET.sigES = es;
-  } catch (e) { NET.err = "信令订阅失败：" + e.message; }
+    return es;
+  } catch (e) { NET.err = "信令订阅失败：" + e.message; return null; }
+}
+function netSub(code, onMsg) {
+  if (NET.sigES) { try { NET.sigES.close(); } catch (e) {} }
+  /* since=5m：晚挂上的那一端也能收到前面已经发出去的 hello/offer（ntfy 会把最近 5 分钟的缓存补一遍）。
+     没有它就有个真实的竞态：房主先发 offer、客人 SSE 才连上 → 两边互等，谁也连不上。
+     补课的代价是可能捞到「上一局同码」的老消息，所以带时间戳，超过 90 秒的直接丢。 */
+  NET.sigES = netSubTo(netTopic(code), (m) => {
+    if (m.tk === NET.token) return;
+    if (m.t && Date.now() - m.t > 90 * 1000) return;
+    onMsg(m);
+  }, "5m");
 }
 function netCode() {
   const AB = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -2933,10 +2971,10 @@ async function netHostCreate(code, manual) {
   await netWaitIce(NET.pc);
   if (!manual) {
     netSub(code, async (m) => {
-      if (m.k === "hello") { await netPub(code, { k: "off", tk: NET.token, sdp: NET.pc.localDescription.sdp }); }
+      if (m.k === "hello") { await netPub(code, { k: "off", tk: NET.token, t: Date.now(), sdp: NET.pc.localDescription.sdp }); }
       else if (m.k === "ans") { try { await NET.pc.setRemoteDescription({ type: "answer", sdp: m.sdp }); } catch (e) { NET.err = "应答无效"; } }
     });
-    await netPub(code, { k: "off", tk: NET.token, sdp: NET.pc.localDescription.sdp });
+    await netPub(code, { k: "off", tk: NET.token, t: Date.now(), sdp: NET.pc.localDescription.sdp });
   }
   netLog(netLogText());
   return NET.pc.localDescription.sdp;
@@ -2946,19 +2984,29 @@ async function netGuestJoin(code, manual) {
   NET.on = true; NET.role = "guest"; NET.code = code; NET.manual = !!manual;
   netLog(netLogText());
   if (!manual) netSub(code, async (m) => { if (m.k === "off") await netGuestAnswer(m.sdp); });
-  await netPub(code, { k: "hello", tk: NET.token });
+  await netPub(code, { k: "hello", tk: NET.token, t: Date.now() });
 }
 async function netGuestAnswer(offerSdp) {
   if (NET.pc && NET.pc.currentRemoteDescription) return "";
-  NET.pc = new RTCPeerConnection(ICE_CFG);
-  netWire(NET.pc, false);
-  await NET.pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
-  const ans = await NET.pc.createAnswer();
-  await NET.pc.setLocalDescription(ans);
-  await netWaitIce(NET.pc);
-  NET.guestReady = true;
-  if (!NET.manual) { await netPub(NET.code, { k: "ans", tk: NET.token, sdp: NET.pc.localDescription.sdp }); netLog("已把应答发回房主，等通道建立…"); }
-  return NET.pc.localDescription.sdp;
+  /* 信令补课会把同一个 offer 再送一遍（见 netSub 的 since）。这里两道闸：
+     ① answering 闩 —— 同一时刻只答一次；② 全程用局部 pc —— 以前每一步都读 NET.pc，
+     两个 offer 抢起来时 NET.pc 会被后一个换掉，前一个的 createAnswer/setLocalDescription
+     就落到「已经 stable」的连接上 → 抛 Called in wrong state: stable。 */
+  if (NET.answering) return "";
+  NET.answering = true;
+  const pc = new RTCPeerConnection(ICE_CFG);
+  NET.pc = pc;
+  try {
+    netWire(pc, false);
+    await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    await netWaitIce(pc);
+    NET.guestReady = true;
+    if (!NET.manual) { await netPub(NET.code, { k: "ans", tk: NET.token, t: Date.now(), sdp: pc.localDescription.sdp }); netLog("已把应答发回房主，等通道建立…"); }
+    return pc.localDescription.sdp;
+  } catch (e) { NET.err = "应答失败：" + e.message; return ""; }
+  finally { NET.answering = false; }
 }
 async function netHostAccept(answerSdp) {
   if (!NET.pc) return false;
@@ -2972,8 +3020,121 @@ function netClose(silent) {
   NET.sigES = null; NET.dc = null; NET.pc = null; NET.connected = false;
   NET.snapA = NET.snapB = null; NET_ENT_MAP.clear();
   p2.active = false; p2.dead = false; p2.reviveT = 0;
-  if (!silent) { NET.on = false; NET.role = null; NET.code = ""; }
+  if (!silent) {
+    if (LOBBY.pub) lobbySetPub(false);          // 下架要用还没被清掉的房间码，所以放在清空前面
+    NET.on = false; NET.role = null; NET.code = "";
+    NET.waiting = false; NET.started = false; NET.pub = false;
+  }
   netLog(netLogText());
+}
+
+/* ---------- 准备室 + 开局闸门（2026-09-26 玩家要求：
+              「创建房间之后房主进一个界面看双方状态，房员进来后由房主决定是否开始游戏」）
+   闸门是两层的：
+     ① 准备室里房主本机的模拟冻结 —— 谁也别想先自己一个人下潜；
+     ② 只有房主能开局：房员点「开始游戏」会被 netStartMatch 当场拒掉，只能等 `go` 下来。
+   两边的状态从哪来：房主自己模拟 p2（客人那个小人，连氧气都是房主算的），所以房主
+   天然知道队友状态；客人那边靠房主下发的快照反推（快照里 p = 房主那个人）。 */
+function netRoomEnter() {
+  NET.waiting = true; NET.started = false;
+  netPanelShowView("room");
+  netLog(netLogText());
+}
+function netRoomLeave() {
+  NET.waiting = false; NET.started = false; NET.mate = null;
+  netClose(false);                              // 里面会顺手把大厅那条一起下架
+  netPanelShowView("home");
+}
+/* 两边同时下水：房主自己调这个，房员收到 `go` 之后调 —— 同一个函数、同一个种子 */
+function netMatchStart(seed) {
+  const s = (seed === undefined || seed === null) ? Math.floor(Math.random() * 1e9) : (seed | 0);
+  NET.waiting = false; NET.started = true;
+  if (NET.panelShow) NET.panelShow(false);
+  startRun(s);
+  netLog(netLogText());
+  popup(W0 / 2, CFG.playerY - 120, NET.role === "host" ? "开局！" : "房主开局了", "150,255,200");
+  return s;
+}
+function netStartMatch() {
+  if (NET.role !== "host") { netLog("只有房主能开始游戏 —— 你等房主按就行"); return false; }
+  if (!NET.connected) { netLog("队友还没进来，先等等"); return false; }
+  const s = Math.floor(Math.random() * 1e9);
+  netSend({ k: "go", s });
+  netMatchStart(s);
+  return true;
+}
+
+/* ---------- 联机大厅：一块公开的房间公告板（房主自主发布/下架） ---------- */
+const LOBBY = { rooms: new Map(), es: null, pub: false, hb: 0, err: "", polled: 0 };
+const LOBBY_TTL = 90 * 1000;      // 90s 没心跳 = 这房间没了（关页面/断网也不会留僵尸房）
+const LOBBY_HB = 25 * 1000;       // 心跳间隔 25s
+function lobbyPrune() {
+  const now = Date.now();
+  let n = 0;
+  for (const [k, r] of LOBBY.rooms) if (now - r.t > LOBBY_TTL) { LOBBY.rooms.delete(k); n++; }
+  return n;
+}
+function lobbyOnMsg(m) {
+  if (!m || !m.k || !m.code) return;
+  if (m.k === "pub") {
+    if (m.host && m.host === NET.token) return;             // 自己发的，别把自己列进大厅
+    /* 用公告自己的时间戳，不用「我收到的时刻」：SSE 会把最近 5 分钟的缓存补一遍，
+       按收到时刻算的话，早关掉的房间会被当成刚发的、白挂在列表上 90 秒。时间戳离谱就退回本地时间。 */
+    const ts = (typeof m.t === "number" && Math.abs(Date.now() - m.t) < 10 * 60 * 1000) ? m.t : Date.now();
+    LOBBY.rooms.set(m.code, { code: m.code, d: m.d | 0, n: m.n | 0, t: ts, ver: m.ver || "" });
+  } else if (m.k === "bye") { LOBBY.rooms.delete(m.code); }
+  netLobbyRender();
+}
+/* ntfy 的 /json?poll=1 拿缓存（进大厅先补课），/sse 听新的 —— 两边都汇进 lobbyOnMsg */
+async function lobbyPoll() {
+  try {
+    const r = await fetch(NTFY_BASE + "/" + LOBBY_TOPIC + "/json?poll=1&since=5m");
+    if (!r.ok) { LOBBY.err = "大厅拉取失败 HTTP " + r.status; return 0; }
+    const txt = await r.text();
+    let n = 0;
+    for (const line of txt.split("\n")) {
+      const s = line.trim(); if (!s) continue;
+      let env = null; try { env = JSON.parse(s); } catch (e) { continue; }
+      if (!env || !env.message) continue;
+      let body = null; try { body = JSON.parse(env.message); } catch (e) { continue; }
+      lobbyOnMsg(body); n++;
+    }
+    LOBBY.polled = n;
+    return n;
+  } catch (e) { LOBBY.err = "大厅拉取失败：" + e.message; return 0; }
+}
+function lobbyOpen() {
+  lobbyPrune();
+  if (!LOBBY.es) LOBBY.es = netSubTo(LOBBY_TOPIC, lobbyOnMsg, "5m");
+  lobbyPoll();
+  netLobbyRender();
+}
+function lobbyAnnounce() {
+  return netPubTo(LOBBY_TOPIC, { k: "pub", code: NET.code, host: NET.token, d: Math.round(G.depth),
+                                 n: NET.connected ? 2 : 1, ver: SELFTEST.version, t: Date.now() });
+}
+function lobbySetPub(on) {
+  if (NET.role !== "host") { netLog("只有房主能发布房间"); return false; }
+  LOBBY.pub = !!on; NET.pub = LOBBY.pub;
+  if (LOBBY.pub) { LOBBY.hb = performance.now(); lobbyAnnounce(); }
+  else netPubTo(LOBBY_TOPIC, { k: "bye", code: NET.code, host: NET.token });
+  netLog(netLogText());
+  netLobbyRender();
+  return true;
+}
+function lobbyHeartbeat() {                     // 每帧调用，按 LOBBY_HB 节流
+  if (!LOBBY.pub || NET.role !== "host") return;
+  const now = performance.now();
+  if (now - LOBBY.hb < LOBBY_HB) return;
+  LOBBY.hb = now;
+  lobbyAnnounce();
+}
+function lobbyRooms() { lobbyPrune(); return Array.from(LOBBY.rooms.values()).sort((a, b) => b.t - a.t); }
+async function lobbyJoin(code) {
+  netLog("正在进入房间 " + code + "…");
+  await netGuestJoin(code, false);
+  netRoomEnter();
+  return true;
 }
 
 /* ---------- 联机面板（DOM 覆盖层，桌面/手机都能点） ---------- */
@@ -2988,6 +3149,7 @@ function netPanelInit() {
   d.innerHTML = '<div style="font-size:15px;font-weight:700;color:#dff6ff">联机 · 实时同屏合作</div>'
     + '<div style="color:#8fb6cf">氧气各算各的 · 倒下 10s 复活 · 敌方血量与伤害 ×2（双人）</div>'
     + '<div id="netStatus" style="color:#9fe3c0;min-height:18px">未联机</div>'
+    + '<div id="netView-home" style="display:flex;flex-direction:column;gap:8px">'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
     + '<button id="netHostBtn" style="flex:1">创建房间</button>'
     + '<input id="netCodeIn" placeholder="房间码" maxlength="4" style="width:88px;text-align:center;text-transform:uppercase;'
@@ -3002,7 +3164,8 @@ function netPanelInit() {
     + 'background:rgba(10,30,46,0.9);border:1px solid rgba(120,190,230,0.3);border-radius:8px;color:#cfeeff;padding:6px;font:11px monospace"></textarea>'
     + '<div style="display:flex;gap:8px">'
     + '<button id="netAccept" style="flex:1">手动：接入上面那段</button>'
-    + '<button id="netClose" style="flex:1">断开 / 关闭</button></div>';
+    + '<button id="netClose" style="flex:1">断开 / 关闭</button></div>'
+    + "</div>";
   document.body.appendChild(d);
   const btn = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
   const style = (el) => { el.style.cssText = "background:rgba(24,66,96,0.9);border:1px solid rgba(120,190,230,0.35);"
@@ -3015,11 +3178,13 @@ function netPanelInit() {
   btn("netHostBtn", async () => {
     const sdp = await netHostCreate(netCode(), false);
     if (document.getElementById("netTa1")) document.getElementById("netTa1").value = sdp;
-    netLog(netLogText() + "（把房间码给朋友）");
+    netRoomEnter();                        // 直接进准备室：看双方状态 + 由房主决定什么时候开
+    netLog(netLogText() + "（把房间码给朋友，或发布到联机大厅）");
   });
   btn("netJoinBtn", async () => {
     const code = (document.getElementById("netCodeIn").value || "").trim().toUpperCase();
     if (code.length < 3) { netLog("先填房间码"); return; }
+    netRoomEnter();                        // 客人进准备室等房主开始（点「开始游戏」会被拒）
     await netGuestJoin(code, false);
   });
   btn("netManualHost", async () => {
@@ -3042,12 +3207,180 @@ function netPanelInit() {
     else if (NET.role === "guest") { const a = await netGuestAnswer(txt); document.getElementById("netTa1").value = a; }
     else netLog("先创建房间或加入房间");
   });
+  netPanelInit2();                                  // 再挂两个视图：准备室 / 联机大厅
+  netPanelShowView(NET.view || "home");             // 按当前状态铺（不主动把面板顶出来）
 }
 function netPanelToggle() {
   netPanelInit();
   const d = document.getElementById("netPanel");
   const on = d.style.display !== "flex";
   d.style.display = on ? "flex" : "none";
+  if (on) netPanelShowView(NET.view || "home");      // 打开时按当前状态铺（首页/准备室/大厅）
+  else if (NET.view === "room") netPanelTick(true);
+}
+
+/* ---------- 面板另外两个视图：准备室 / 联机大厅 ----------
+   老表单的 id 一个都没动（老探针按老 id 点），只是被包进 #netView-home；
+   这两个视图是加出来的，只在建房 / 进房之后才露脸。 */
+function netPanelShowView(name, show) {
+  NET.view = name || "home";
+  const d = document.getElementById("netPanel");
+  if (!d) return;                                    // 面板没建过：只记状态，别偷偷弹出来
+  for (const v of ["home", "room", "lobby"]) {
+    const el = document.getElementById("netView-" + v);
+    if (el) el.style.display = (v === NET.view ? "flex" : "none");
+  }
+  if (show) d.style.display = "flex";
+  if (NET.view === "room") netPanelTick(true);
+  if (NET.view === "lobby") netLobbyRender();
+}
+function netPanelInit2() {
+  const d = document.getElementById("netPanel");
+  if (!d || document.getElementById("netView-room")) return;
+  const sty = (el) => { el.style.cssText = "background:rgba(24,66,96,0.9);border:1px solid rgba(120,190,230,0.35);"
+    + "border-radius:8px;color:#dff6ff;padding:7px 10px;cursor:pointer;font:13px system-ui"; };
+  const view = (id) => { const el = document.createElement("div"); el.id = id;
+    el.style.cssText = "display:none;flex-direction:column;gap:8px"; return el; };
+  const room = view("netView-room");
+  room.innerHTML =
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<span style="color:#8fb6cf">房间码</span>'
+    + '<b id="netRoomCode" style="font:700 22px ui-monospace,SFMono-Regular,monospace;letter-spacing:3px;color:#dff6ff">----</b>'
+    + '<button id="netCopyBtn">复制</button>'
+    + '<button id="netPubBtn">发布到联机大厅</button></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">'
+    + '<div id="netRoomMe" style="flex:1;min-width:150px"></div>'
+    + '<div id="netRoomMate" style="flex:1;min-width:150px"></div></div>'
+    + '<div id="netRoomHint" style="color:#9fe3c0;min-height:18px">—</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="netStartBtn" style="flex:1">开始游戏（双方从水面一起下）</button>'
+    + '<button id="netRoomLobby" style="flex:1">去大厅看看</button>'
+    + '<button id="netLeaveBtn" style="flex:1">退出房间</button></div>';
+  const lobby = view("netView-lobby");
+  lobby.innerHTML =
+      '<div style="color:#8fb6cf">联机大厅 · 正在等人开局的房间（公开列表，点一行直接进）</div>'
+    + '<div id="netLobbyList" style="display:flex;flex-direction:column;gap:6px;max-height:190px;overflow:auto"></div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="netLobbyRefresh" style="flex:1">刷新</button>'
+    + '<button id="netLobbyBack" style="flex:1">返回</button></div>';
+  d.appendChild(room); d.appendChild(lobby);
+  const home = document.getElementById("netView-home");
+  if (home && !document.getElementById("netLobbyBtn")) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
+    row.innerHTML = '<button id="netLobbyBtn" style="flex:1">进入联机大厅（看谁在等人开局）</button>';
+    home.insertBefore(row, home.children[1] || null);       // 挨着「创建/加入房间」，别埋在最底下
+  }
+  for (const id of ["netCopyBtn", "netPubBtn", "netStartBtn", "netRoomLobby", "netLeaveBtn", "netLobbyBtn", "netLobbyBack", "netLobbyRefresh"]) {
+    const el = document.getElementById(id); if (el) sty(el);
+  }
+  const btn = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+  btn("netCopyBtn", async () => {
+    try { await navigator.clipboard.writeText(NET.code); netLog("房间码 " + NET.code + " 已复制"); }
+    catch (e) { netLog("复制不了，手抄一下吧：" + NET.code); }
+  });
+  btn("netPubBtn", () => { lobbySetPub(!LOBBY.pub); netPanelTick(true); });
+  btn("netStartBtn", () => { netStartMatch(); netPanelTick(true); });
+  btn("netLeaveBtn", () => { netRoomLeave(); });
+  btn("netLobbyBtn", () => { lobbyOpen(); netPanelShowView("lobby"); });
+  btn("netRoomLobby", () => { lobbyOpen(); netPanelShowView("lobby"); });
+  btn("netLobbyBack", () => { netPanelShowView(NET.on ? "room" : "home"); });
+  btn("netLobbyRefresh", async () => { await lobbyPoll(); netLobbyRender(); });
+}
+/* 准备室里那两张状态卡：每 200ms 刷一次（面板没开 / 不在准备室就是一次字符串比较） */
+function netPanelTick(force) {
+  if (NET.view !== "room") return;
+  const meEl = document.getElementById("netRoomMe");
+  if (!meEl) return;
+  const now = performance.now();
+  if (!force && now - (NET.lastTick || 0) < 200) return;
+  NET.lastTick = now;
+  const host = NET.role === "host";
+  /* 快照里 p 永远是房主那个人、p2 是我自己（客人时 p2 = 我）—— 两边都读同一份约定 */
+  const me = host ? p : p2, mate = host ? p2 : p;
+  const dead = (q) => q.dead ? "倒下 · " + Math.max(0, q.reviveT).toFixed(1) + "s 后复活" : "在水里";
+  const o2txt = (q) => Math.round(clamp(o2Get(q), 0, o2MaxNow())) + "%";
+  const card = (title, col, body) => '<div style="padding:8px 10px;border-radius:10px;height:100%;box-sizing:border-box;'
+    + 'background:rgba(10,30,46,0.72);border:1px solid ' + col + '">'
+    + '<div style="font-weight:700;color:' + col + '">' + title + '</div>' + body + '</div>';
+  meEl.innerHTML = card((host ? "房主" : "客人") + "（我）", "rgba(150,255,200,0.85)",
+    '<div>氧气 ' + o2txt(me) + ' · 深度 ' + Math.round(G.depth) + 'm</div>'
+    + '<div style="color:#9fe3c0">' + dead(me) + '</div>');
+  const mateEl = document.getElementById("netRoomMate");
+  if (mateEl) mateEl.innerHTML = NET.connected
+    ? card(host ? "队友（客人）" : "队友（房主）", "rgba(150,205,255,0.9)",
+        '<div>氧气 ' + o2txt(mate) + ' · 深度 ' + Math.round(G.depth) + 'm</div>'
+        + '<div style="color:#9fe3c0">' + dead(mate) + ' · 延迟 ' + NET.rtt + 'ms</div>')
+    : card("队友", "rgba(255,215,150,0.9)",
+        '<div style="color:#ffd796">等待加入…</div><div style="color:#8fb6cf">把房间码给他，或发布到大厅</div>');
+  const codeEl = document.getElementById("netRoomCode");
+  if (codeEl) codeEl.textContent = NET.code || "----";
+  const sb = document.getElementById("netStartBtn");
+  if (sb) {
+    sb.style.display = host ? "" : "none";            // 客人连按钮都没有，只有一行「等房主」
+    sb.disabled = !NET.connected;
+    sb.style.opacity = NET.connected ? "1" : "0.45";
+    sb.style.cursor = NET.connected ? "pointer" : "default";
+  }
+  const hint = document.getElementById("netRoomHint");
+  if (hint) hint.textContent = host
+    ? (NET.connected ? "队友已就绪 —— 按「开始游戏」（或键盘 G）双方同时从水面下潜" : "队友还没进来 · 准备室里谁也不下水")
+    : "等待房主开始游戏…";
+  const pb = document.getElementById("netPubBtn");
+  if (pb) { pb.style.display = host ? "" : "none"; pb.textContent = LOBBY.pub ? "已发布到大厅（点击下架）" : "发布到联机大厅"; }
+}
+function netLobbyRender() {
+  const box = document.getElementById("netLobbyList");
+  if (!box) return;
+  const list = lobbyRooms();
+  if (!list.length) {
+    box.innerHTML = '<div style="color:#8fb6cf">现在没有公开的房间。自己开一个：创建房间 → 发布到联机大厅。</div>';
+    return;
+  }
+  const now = Date.now();
+  box.innerHTML = list.slice(0, 6).map((r) => {
+    const ago = Math.max(0, Math.round((now - r.t) / 1000));
+    const mine = r.code === NET.code;
+    return '<div class="netRow" data-code="' + r.code + '" style="padding:8px 10px;border-radius:9px;cursor:pointer;'
+      + 'background:rgba(10,30,46,0.8);border:1px solid rgba(120,190,230,0.3)">'
+      + '<b style="color:#dff6ff">房间 ' + r.code + '</b>'
+      + '<span style="color:#9fe3c0"> · ' + (r.n >= 2 ? "2/2 人" : "1/2 人 · 等队友") + '</span>'
+      + '<span style="color:#8fb6cf"> · 深度 ' + r.d + 'm · ' + ago + 's 前</span>'
+      + (mine ? '<span style="color:#ffd796"> · 这是我自己</span>' : '<span style="color:#9fe3c0"> · 点这行进入</span>')
+      + '</div>';
+  }).join("");
+  for (const el of box.querySelectorAll(".netRow")) {
+    el.onclick = () => {
+      const c = el.getAttribute("data-code");
+      if (!c || c === NET.code) { netLog("这是你自己的房间"); return; }
+      netPanelShowView("lobby");
+      lobbyJoin(c);
+    };
+  }
+}
+/* 准备室的画布层：压暗 + 一句话横幅（DOM 面板写着细节，这里保证「一眼看得出还没开局」；
+   顺手把标题页/暂停菜单盖住 —— 那时候游戏不是暂停着，是还没开始） */
+/* 准备室横幅那三行字：抽出来是为了能被断言（画布上的字探针读不到，这里能读）。
+   注意第三行只对房主有意义 —— 「发布/下架」是房主的开关，客人那边写「未发布」就是假消息。 */
+function netWaitLines() {
+  const host = NET.role === "host";
+  const msg = !NET.connected ? "等待队友加入…（把房间码给他，或发布到联机大厅）"
+            : (host ? "队友已就绪 · 按「开始游戏」或键盘 G 一起下水" : "等待房主开始游戏…");
+  return {
+    title: host ? "房间 " + NET.code : "已进入房间 " + NET.code,
+    msg: msg,
+    sub: host ? (NET.pub ? "已发布到联机大厅 · 大厅里的人可以点进来" : "未发布（大厅里看不到这个房间）") : ""
+  };
+}
+function drawNetWait() {
+  const L = netWaitLines();
+  ctx.save();
+  ctx.fillStyle = "rgba(2,10,20,0.62)"; ctx.fillRect(0, 0, W0, H0);
+  const cx = W0 / 2;
+  text(L.title, cx, H0 * 0.16, 38, "#dff4ff", "center", 700);
+  text(L.msg, cx, H0 * 0.16 + 34, 19, NET.connected ? "#9fe3c0" : "rgba(255,215,150,0.95)", "center", 600);
+  if (L.sub) text(L.sub, cx, H0 * 0.16 + 62, 14, "rgba(150,200,230,0.85)", "center", 500);
+  ctx.restore();
 }
 /* ---------- 联机 HUD：状态行 + 队友氧气条 ---------- */
 function drawNetHud() {
@@ -5112,19 +5445,23 @@ function render() {
     return;
   }
   drawWorld();
-  if (G.state === "play" || G.state === "pause" || G.state === "levelup") {
-    /* 选牌时把 HUD 压暗：否则「100 米」会和「深渊馈赠」标题叠在一起，看着像花了屏 */
-    ctx.save();
-    ctx.globalAlpha = G.state === "levelup" ? 0.28 : 1;
-    drawHUD();
-    ctx.restore();
+  /* 准备室里标题页/暂停菜单/结算页都不画：那时候游戏不是「暂停着」，是「还没开局」（见第 12 节） */
+  if (!NET.waiting) {
+    if (G.state === "play" || G.state === "pause" || G.state === "levelup") {
+      /* 选牌时把 HUD 压暗：否则「100 米」会和「深渊馈赠」标题叠在一起，看着像花了屏 */
+      ctx.save();
+      ctx.globalAlpha = G.state === "levelup" ? 0.28 : 1;
+      drawHUD();
+      ctx.restore();
+    }
+    if (G.state === "title") drawTitle();
+    else if (G.state === "over") drawOver();
+    else if (G.state === "pause") drawPause();
+    else if (G.state === "levelup") drawLevelUp();
   }
-  if (G.state === "title") drawTitle();
-  else if (G.state === "over") drawOver();
-  else if (G.state === "pause") drawPause();
-  else if (G.state === "levelup") drawLevelUp();
   ctx.restore();
   drawNetHud();                       // 联机状态行 + 队友氧气条（见第 12 节）
+  if (NET.waiting) drawNetWait();     // 准备室横幅（这时候房主的模拟是冻结的）
   /* 竖屏提示：画面是 16:10，竖屏只能缩成中间一条 —— 占用空白黑边明说，别让玩家以为是坏了 */
   const barH = (R.ch - R.scale * H0) / 2;
   if (barH > 60) {
@@ -5198,6 +5535,7 @@ canvas.addEventListener("pointerdown", (ev) => {
     const si = skinHit(q.x, q.y);
     if (si >= 0) { setSkin(si); ev.preventDefault(); return; }
   }
+  if (NET.waiting) { ev.preventDefault(); return; }      // 准备室：点画面不许偷偷开局（开局是房主那颗按钮的事）
   if (G.state === "title" || G.state === "over") { startRun(); return; }
   if (G.state === "pause") {
     const pi = pauseMenuHit(q.x, q.y);          // 暂停菜单三颗按钮：继续 / 重开 / 回标题
@@ -5245,7 +5583,7 @@ window.addEventListener("keydown", (ev) => {
   }
   if (k === "Space" || k === "ArrowUp" || k === "KeyW" || k === "Enter" || k === "NumpadEnter") {
     if (G.state === "title" && G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }
-    if (G.state === "title" || G.state === "over") { startRun(); ev.preventDefault(); return; }
+    if (G.state === "title" || G.state === "over") { if (!NET.waiting) startRun(); ev.preventDefault(); return; }
     I.kb = true; syncPointerBoost(); ev.preventDefault();
   } else if (k === "ArrowLeft" || k === "KeyA") { I.left = true; I.ptrActive = false; ev.preventDefault(); }
   else if (k === "ArrowRight" || k === "KeyD") { I.right = true; I.ptrActive = false; ev.preventDefault(); }
@@ -5258,6 +5596,7 @@ window.addEventListener("keydown", (ev) => {
   else if (k === "KeyP" || k === "Escape") {
     if (k === "Escape" && G.state === "title" && G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }
     if ((k === "n" || k === "N" || k === "m" || k === "M") && (G.state === "title" || G.state === "pause")) { netPanelToggle(); ev.preventDefault(); return; }
+    if ((k === "g" || k === "G") && NET.waiting && NET.role === "host") { netStartMatch(); ev.preventDefault(); return; }   // 准备室里房主按 G 开局
     if (k === "Escape" && G.state !== "play") { G.state = "title"; return; }
     if (G.state === "play") G.state = "pause"; else if (G.state === "pause") G.state = "play";
   } else if (k === "KeyS") {                        // 换皮肤：标题页 / 暂停页循环
@@ -5289,13 +5628,17 @@ function frame(now) {
     /* 客人只跑视觉 + 套房主快照（不跑第二份物理）—— 见第 12 节。
        不受 AUTO_FREEZE 影响：冻结是「本机自动演示」用的，联机时不适用。 */
     netGuestFrame(dt);
-  } else if (!AUTO_FREEZE) {
+  } else if (!AUTO_FREEZE && !(NET.on && NET.role === "host" && NET.waiting)) {
+    /* 准备室里房主的模拟冻结：房间开着但还没开局，谁也别想先自己一个人下潜。
+       冻结的是模拟，netHostTick 照发 —— 队友要看得见这个「冻结的世界」和连接状态。 */
     acc += dt;
     let n = 0;
     while (acc >= STEP && n < 10) { update(STEP); acc -= STEP; n++; }
     if (n >= 10) acc = 0;
   }
   if (NET.on && NET.role === "host") netHostTick(dt);   // 房主的下行快照/心跳（冻结时也照发，探针要用）
+  netPanelTick();                                       // 准备室的双方状态卡（不在准备室就是一次判断）
+  lobbyHeartbeat();                                     // 房间挂在大厅上时的心跳
   render();
 }
 
@@ -5402,6 +5745,8 @@ window.__SINK__ = {
   spawnShell, spawnAnchor, spawnNullify, spawnBrood, spawnCurtain, spawnAnox, anoxNear, mobKind, contactDmg, entSegDist, hurtPlayer,
   NET, p2, A2, hurtPlayerOn, o2Get, o2Set, o2Add, party, aliveParty, nearestAlive, killPlayer, reviveTick, coopHit, moveSide,
   netHostCreate, netGuestAnswer, netHostAccept, netClose, netPanelToggle, netSnapBuild, netWireDC, netApplySnap, netGuestFrame,
+  netRoomEnter, netRoomLeave, netStartMatch, netMatchStart, netPanelShowView, netPanelInit2, netWaitLines,
+  LOBBY, LOBBY_TTL, LOBBY_TOPIC, NTFY_BASE, lobbyOpen, lobbySetPub, lobbyAnnounce, lobbyPoll, lobbyPrune, lobbyRooms, lobbyJoin, lobbyOnMsg,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
