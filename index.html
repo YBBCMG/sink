@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head><!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
-     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--> <!--/align-pad-->
+     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
+
 
 
 
@@ -811,7 +812,7 @@ const G = {
      标题页也会跑 drawWorld，所以这几个必须在 G 里就有默认值，不能只在 startRun 里给。 */
   zones: [], shards: [], beams: [], bone: 0, frenzy: 0, whirlT: 0, whirlStamp: 0, orb: null, dayZ: null,
   lampX: W0 / 2, lampY: CFG.playerY - 1, lampN: 0, lampA: 0, judgeTick: 0, atkCount: 0, prismT: 0,
-  charge: 0, dashVX: null, dashVY: null, t2: null, t2cd: 0, sing2: [], aspBCd: 0, lanceBack: null,
+  charge: 0, dashVX: null, dashVY: null, t2: null, t2cd: 0, sing2: [], aspBCd: 0, lanceBack: null, fxR: [],
   whirlChain: 0, singEat: 0, singGrow: 0,
   trail: [], trailT: 0,
   best: 0, newBest: false,
@@ -867,6 +868,22 @@ function burst(x, y, n, col) {
     G.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + Math.random() * 0.55, max: 0.9, r: 1 + Math.random() * 2.6, col: col || "160,220,255" });
   }
 }
+/* 技能特效环（纯视觉 · 不参与任何结算）—— 2026-09-26 玩家口径「很多技能的特效都没有做了」。
+   圆环 / 扇形 / 收口 / 余烬四种形态统一收口在这里，画在黑暗层之上（深水里被黑暗吞掉就等于没做）。
+   为什么单独一个数组：技能瞬间结算完（aoeHit 一帧就完事），没有它就只能看到跳字、看不到「发生了什么」。 */
+function fxRing(x, y, r0, r1, col, life, kind, opt) {
+  const o = opt || {};
+  G.fxR.push({ x: x, y: y, t: 0, t0: life, r0: r0, r1: r1, col: col,
+               kind: kind || "ring", ang: o.ang || 0, span: o.span || Math.PI * 2 });
+  if (G.fxR.length > 48) G.fxR.shift();          // 上限：连噬/连锁一起炸的时候不许无限堆
+}
+function updateFxRings(dt) {
+  for (let i = G.fxR.length - 1; i >= 0; i--) {
+    const q = G.fxR[i];
+    q.t += dt;
+    if (q.t >= q.t0) G.fxR.splice(i, 1);
+  }
+}
 function updateParticles(dt) {
   for (let i = G.particles.length - 1; i >= 0; i--) {
     const q = G.particles[i];
@@ -917,7 +934,7 @@ function startRun(seed) {
   G.splitT = undefined; G.leechT = undefined; G.lampT = undefined; G.introShown = {}; G.lightEat = 0;
   G.lampX = p.x; G.lampY = p.y - 1; G.lampN = 0;
   G.talis = null; G.mutate = null; G.t2 = null;  // 质变（2000m）与进阶（4000m 二选一）清零
-  G.t2cd = 0; G.sing2.length = 0; G.aspBCd = 0; G.lanceBack = null; G.singEat = 0; G.singGrow = 0;
+  G.t2cd = 0; G.sing2.length = 0; G.aspBCd = 0; G.lanceBack = null; G.singEat = 0; G.singGrow = 0; G.fxR.length = 0;
   aiRng = mulberry32((G.seed * 7919 + 13) >>> 0);
   G.speed = CFG.baseSpeed; G.boosting = false; G.slowT = 0;
   G.rowT = 0.9; G.bubbleT = 0.8; G.jellyT = rr(CFG.jellyEvery[0], CFG.jellyEvery[1]);
@@ -1058,6 +1075,8 @@ function chainBoom(e, k, r, jump, depth) {
     const dx0 = tx - p.x, dy0 = ty - p.y, L0 = Math.max(1, Math.hypot(dx0, dy0));
     const ux = dx0 / L0, uy = dy0 / L0;
     const rB = 200 + 50 * skLv("f_r"), cos45 = Math.cos(Math.PI / 4), list = [];
+    /* 把那个 90° 扇面画出来：不然玩家只看到「同一次爆炸，有的怪掉血有的不掉」 */
+    fxRing(e.x, e.y, 18, rB, "255,170,110", 0.32, "fan", { ang: Math.atan2(uy, ux), span: Math.PI / 2 });
     for (const o of ents) {
       if (o.dead || o === e || !MOB_SET[o.kind] || o.kind === "bolt") continue;
       const dx = o.x - e.x, dy = o.y - e.y, dd = Math.hypot(dx, dy);
@@ -1136,6 +1155,7 @@ function hurtEnt(i, e, dmg, tag, raw, isDot) {
       if (z.type !== "sing" && z.type !== "singHold") continue;
       if (Math.hypot(e.x - z.x, e.y - z.y) > z.r + e.r) continue;
       G.singEat = (G.singEat || 0) + 1;
+      fxRing(z.x, z.y, (e.r || 20) + 30, 5, "190,170,255", 0.38, "shrink");   // 被吞进去：一圈往里收（吞噬奇点之前只有跳字）
       const t0 = devourTierAt(G.singEat - 1), t1 = devourTierAt(G.singEat);
       /* 取大：档位是唯一真身，重算不许把已经拿到的成长抹回去 */
       G.singGrow = Math.max(G.singGrow || 0, Math.min(100, 10 * t1));
@@ -1294,9 +1314,12 @@ function shockwave() {
       G.aspBCd = 60; D = Math.round(D * 2.5); G.o2 = o2MaxNow();
       popup(p.x, p.y - 108, "绝息 ×2.5 · 氧已补满", "255,90,130");
       G.flash = Math.max(G.flash, 0.5);
+      fxRing(p.x, p.y, 30, 320, "255,90,130", 0.7, "ember");        // 绝息：一圈红潮推出去（60s 一次的大招得看得见）
     }
     popup(p.x, p.y - 92, (ember ? "余烬 ×" : "窒息 ×") + k.toFixed(2) +
           (ember ? "（不扣氧）" : "（−" + cost.toFixed(1) + " 氧" + (noHeal ? " · 无吸血" : "") + "）"), "255,140,170");
+    /* 窒息燃烧：越缺氧圈越红越大 —— 伤害系数 k 直接写进特效，不然「缺氧增伤」全靠背数字 */
+    fxRing(p.x, p.y, 28, Math.round(G.m.shockR * (0.55 + 0.45 * k / 2.7)), ember ? "255,170,110" : "255,120,150", 0.42, "ember");
   }
   /* 虚空奇点：直伤让位给控场 —— 总额 = 冲击波那一发 × k，再按持续时间平分成每段（段数越多每段越薄，总额不变）
      进阶·吞噬奇点：档位制 —— 第 1 档吃满 5 只，之后每档多要 2 只（5/7/9/…），每档给奇点总伤害 +10（上限 +100） */
@@ -1695,6 +1718,7 @@ function hurtPlayer(dmg, col, pierce) {
       G.boneACd = 0.45;                            // 内置冷却：密集挨打不许变成无限骨刺机关枪
       aoeHit(p.x, p.y, 160, 30, "225,240,255", null);
       burst(p.x, p.y, 14, "225,240,255");
+      fxRing(p.x, p.y, 22, 160, "225,240,255", 0.32, "ring");       // 骨刺炸开的那圈
     }
     popup(p.x, p.y - 60, "骨甲 -" + cut + "（剩 " + G.bone + " 层）", "225,240,255");
     burst(p.x, p.y, 10, "225,240,255");
@@ -2071,9 +2095,11 @@ function stepPlay(dt) {
         if (e.ctrlImm) {                                  // 锚鲸这类免处决的重型怪：断罪伤害
           hurtEnt(i, e, J.condemn, "195,255,235");
           popup(e.x, e.y - e.r - 26, "断罪", "195,255,235");
+          fxRing(e.x, e.y, 16, 120, "195,255,235", 0.35, "ring");
         } else {
           hurtEnt(i, e, Math.max(e.hp, 60) + 1, "255,255,215");   // 处决：这一下就是秒杀
           popup(e.x, e.y - e.r - 26, "处决", "255,255,215");
+          fxRing(e.x, e.y, 20, 130, "255,255,215", 0.4, "ring");    // 处决闪光：没有它「秒杀」只剩一个跳字
           if (J.heal > 0) {                               // 恩泽牌：处决回氧（没牌就是 0）
             const g = o2MaxNow() * J.heal;
             G.o2 = Math.min(o2MaxNow(), G.o2 + g);
@@ -2083,6 +2109,7 @@ function stepPlay(dt) {
         /* 进阶·连坐处决：处决的怪炸开一圈光爆（半径 170 · 110），被打到的怪 +1 印 —— 处决会传染 */
         if (G.t2 === "judgeA") {
           const ex = e.x, ey = e.y;
+          fxRing(ex, ey, 24, 170, "195,255,235", 0.42, "ring");     // 连坐处决的那圈光爆（之前只有伤害数字）
           aoeHit(ex, ey, 170, 110, "195,255,235", e);
           for (const o of ents) {
             if (o.dead || !MOB_SET[o.kind] || o.kind === "bolt") continue;
@@ -2504,7 +2531,8 @@ function stepPlay(dt) {
       if (diedM && G.t2 === "chgB") {
         G.act.e = Math.min(G.act.e, 0.15);
         popup(p.x, p.y - 96, "连涛 · 冲锋就绪", "150,255,220");
-        burst(p.x, p.y, 18, "150,255,220"); SFX.nomiss();
+        burst(p.x, p.y, 18, "150,255,220");
+        fxRing(p.x, p.y, 26, 96, "150,255,220", 0.34, "ring");              // 冷却当场刷新的信号：连涛的核心手感
       }
       ramOnHit(e, diedM);
       continue;
@@ -2544,6 +2572,7 @@ function update(dt) {
   if (G.redFlash > 0) G.redFlash = Math.max(0, G.redFlash - dt * 2.2);
   updateSnow(dt);
   updateParticles(dt);
+  updateFxRings(dt);
   updatePopups(dt);
   if (G.state === "play") stepPlay(dt);
   else if (G.state === "over") stepTrail(dt);      // 结算画面：尾流慢慢散干净
@@ -3586,18 +3615,151 @@ function drawActiveFx() {
     ctx.restore();
   }
   if (fx.dash > 0) {
-    const a = clamp(fx.dash / Math.max(0.001, G.m.dashT), 0, 1);
+    /* 怒涛冲锋是「朝准星冲」，方向由 G.dashVX/dashVY 锁死 —— 老版不分青红皂白画一条朝屏幕上方拉直的尾巴，
+       横向冲锋时那条尾巴跟移动方向垂直，看着像「冲的时候有人在旁边放了根柱子」（2026-09-26 一并修）。 */
+    const chgOn = !!(G.mutate === "chg" && G.m.chg && G.dashVX != null && G.dashVY != null);
+    const a = clamp(fx.dash / Math.max(0.001, chgOn ? G.m.chg.t : G.m.dashT), 0, 1);
+    if (chgOn) {
+      const ux = G.dashVX, uy = G.dashVY, nx = -uy, ny = ux, L0 = 150;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.6 * a;
+      const g = ctx.createLinearGradient(p.x - ux * L0, p.y - uy * L0, p.x, p.y);
+      g.addColorStop(0, "rgba(120,255,215,0)");
+      g.addColorStop(1, "rgba(190,255,240,0.9)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(p.x + nx * 7, p.y + ny * 7);
+      ctx.lineTo(p.x - nx * 7, p.y - ny * 7);
+      ctx.lineTo(p.x - ux * L0 - nx * 26, p.y - uy * L0 - ny * 26);
+      ctx.lineTo(p.x - ux * L0 + nx * 26, p.y - uy * L0 + ny * 26);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 0.9 * a;
+      ctx.strokeStyle = "rgba(200,255,245,1)"; ctx.lineWidth = 2.4;
+      for (let k2 = -1; k2 <= 1; k2 += 2) {
+        ctx.beginPath();
+        ctx.moveTo(p.x + ux * 30 + nx * 13 * k2, p.y + uy * 30 + ny * 13 * k2);
+        ctx.lineTo(p.x + ux * 52, p.y + uy * 52);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.55 * a;
+      const g = ctx.createLinearGradient(p.x, p.y - 130, p.x, p.y + 10);
+      g.addColorStop(0, "rgba(120,255,215,0)");
+      g.addColorStop(1, "rgba(150,255,225,0.85)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(p.x - 4, p.y + 10); ctx.lineTo(p.x + 4, p.y + 10);
+      ctx.lineTo(p.x + 17, p.y - 130); ctx.lineTo(p.x - 17, p.y - 130);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+  /* 质变·鲸吞漩涡：吸力盘 + 边界环 + 三条往里收的天旋臂。
+     这一整套之前**一帧都没画**（只有咬中才冒数字）—— 玩家根本看不出嘴张在哪、吸到哪一格。
+     半径算式跟判定共用同一条（连噬越连口越小 · 涡心压缩后半程收到 120） */
+  if (G.whirlT > 0 && G.m && G.m.whirl) {
+    const W3 = G.m.whirl;
+    const chain = G.t2 === "whirlA" ? (G.whirlChain || 0) : 0;
+    const wr = W3.r * (1 - 0.10 * chain);
+    const kk = clamp(G.whirlT / Math.max(0.001, W3.t), 0, 1);
+    const ph2 = G.t2 === "whirlB" && G.whirlPh === 1;
+    const rr = ph2 ? 120 : wr;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    ctx.globalAlpha = 0.55 * a;
-    const g = ctx.createLinearGradient(p.x, p.y - 130, p.x, p.y + 10);
-    g.addColorStop(0, "rgba(120,255,215,0)");
-    g.addColorStop(1, "rgba(150,255,225,0.85)");
-    ctx.fillStyle = g;
+    const g2 = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, wr);
+    g2.addColorStop(0, "rgba(135,235,255," + (0.30 * kk).toFixed(3) + ")");
+    g2.addColorStop(0.55, "rgba(90,190,235," + (0.13 * kk).toFixed(3) + ")");
+    g2.addColorStop(1, "rgba(60,150,210,0)");
+    ctx.fillStyle = g2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, wr, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(150,240,255," + (0.7 * kk).toFixed(3) + ")"; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI * 2); ctx.stroke();
+    if (ph2) {                                   // 涡心压缩的第二段：外圈停在外沿、内圈才是咬合线
+      ctx.strokeStyle = "rgba(255,225,150," + (0.5 * kk).toFixed(3) + ")";
+      ctx.beginPath(); ctx.arc(p.x, p.y, CFG.playerR + 34, 0, Math.PI * 2); ctx.stroke();
+    }
+    const spin = G.t * 7.5;
+    ctx.lineWidth = 3.2; ctx.strokeStyle = "rgba(190,250,255," + (0.6 * kk).toFixed(3) + ")";
+    for (let k3 = 0; k3 < 3; k3++) {
+      ctx.beginPath();
+      for (let st = 0; st <= 16; st++) {
+        const u = st / 16;
+        const r3 = rr * (1 - u * 0.92);
+        const ang = spin + k3 * (Math.PI * 2 / 3) + u * 2.5;
+        const X = p.x + Math.cos(ang) * r3, Y = p.y + Math.sin(ang) * r3;
+        if (st === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (chain > 0) text("连噬 ×" + chain + " · 咬合 +" + (25 * chain) + "%", p.x, p.y - wr - 12, 12.5, "rgba(150,240,255,0.95)", "center", 700);
+  }
+  /* 光矛蓄力：环越收越紧 + 一条朝准星的指示线（「按住 F 蓄力」原本是纯盲操，蓄到几成全靠猜） */
+  if (G.charge > 0 && G.m && G.m.lance) {
+    const kr = clamp(G.charge / Math.max(0.001, G.m.lance.charge), 0, 1);
+    const ap = aimPoint(), dx3 = ap[0] - p.x, dy3 = ap[1] - p.y;
+    const L3 = Math.max(1, Math.hypot(dx3, dy3)), ux3 = dx3 / L3, uy3 = dy3 / L3;
+    const full = kr >= 0.999;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const lna = 40 + 150 * kr;
+    ctx.strokeStyle = full ? "rgba(255,235,150,0.95)" : "rgba(210,240,255," + (0.35 + 0.5 * kr).toFixed(2) + ")";
+    ctx.lineWidth = 1.6 + 2.6 * kr;
     ctx.beginPath();
-    ctx.moveTo(p.x - 4, p.y + 10); ctx.lineTo(p.x + 4, p.y + 10);
-    ctx.lineTo(p.x + 17, p.y - 130); ctx.lineTo(p.x - 17, p.y - 130);
-    ctx.closePath(); ctx.fill();
+    ctx.moveTo(p.x + ux3 * 18, p.y + uy3 * 18);
+    ctx.lineTo(p.x + ux3 * (18 + lna), p.y + uy3 * (18 + lna));
+    ctx.stroke();
+    ctx.strokeStyle = full ? "rgba(255,245,190,0.95)" : "rgba(190,230,255," + (0.5 + 0.45 * kr).toFixed(2) + ")";
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 34 - 16 * kr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * kr);
+    ctx.stroke();
+    if (full) {
+      const g3 = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 34);
+      g3.addColorStop(0, "rgba(255,245,190,0.55)");
+      g3.addColorStop(1, "rgba(255,220,120,0)");
+      ctx.fillStyle = g3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 34, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    text(full ? "满蓄 · 松手放矛" : "蓄力 " + Math.round(kr * 100) + "%", p.x, p.y - 54, 12,
+         full ? "rgba(255,240,170,0.95)" : "rgba(210,235,255,0.9)", "center", 700);
+  }
+  /* 技能特效环（见 fxRing）：圆环 / 扇形 / 收口 / 余烬 */
+  if (G.fxR.length) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const q of G.fxR) {
+      const k4 = clamp(q.t / Math.max(0.001, q.t0), 0, 1);
+      const a4 = 1 - k4;
+      /* 三种成长曲线：ring/ember 由内向外推、shrink 往里收、fan 一上来就是大半张（爆炸不等人） */
+      const grow = q.kind === "shrink" ? 1 - Math.pow(1 - k4, 2) : q.kind === "fan" ? 0.55 + 0.45 * k4 : k4;
+      const r4 = q.r0 + (q.r1 - q.r0) * grow;
+      if (q.kind === "fan") {
+        const g4 = ctx.createRadialGradient(q.x, q.y, r4 * 0.15, q.x, q.y, r4);
+        g4.addColorStop(0, "rgba(" + q.col + "," + (0.45 * a4).toFixed(3) + ")");
+        g4.addColorStop(1, "rgba(" + q.col + ",0)");
+        ctx.fillStyle = g4;
+        ctx.beginPath(); ctx.moveTo(q.x, q.y);
+        ctx.arc(q.x, q.y, r4, q.ang - q.span / 2, q.ang + q.span / 2);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = "rgba(" + q.col + "," + (0.85 * a4).toFixed(3) + ")"; ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.moveTo(q.x, q.y);
+        ctx.arc(q.x, q.y, r4, q.ang - q.span / 2, q.ang + q.span / 2);
+        ctx.closePath(); ctx.stroke();
+      } else {
+        ctx.strokeStyle = "rgba(" + q.col + "," + (0.85 * a4).toFixed(3) + ")";
+        ctx.lineWidth = (q.kind === "ember" ? 5.5 : 3.2) * a4 + 1.0;
+        ctx.beginPath(); ctx.arc(q.x, q.y, r4, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = "rgba(" + q.col + "," + (0.45 * a4).toFixed(3) + ")";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.arc(q.x, q.y, r4 * (q.kind === "shrink" ? 1.14 : 0.72), 0, Math.PI * 2); ctx.stroke();
+      }
+    }
     ctx.restore();
   }
   /* 探照生效期间给屏幕边缘一圈冷光，提示「现在是技能在照，不是背景变亮了」 */
