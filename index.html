@@ -146,6 +146,8 @@ const CFG = {
      （吸血蛭 15%/s 翻倍就是 30%/s，3 秒必死 —— 那不是难度，是耍赖）。
      这里的倍率只在**真的有客人连上**时生效，单机永远 ×1。 */
   coopMul: 2, reviveT: 10, reviveO2: 0.5, coopInvuln: 2,
+  /* 联机选牌：两边都选完才继续下潜。队友挂机/掉线不能把房主锁死在选牌页 —— 等这么久就替他选一张 */
+  coopPickWait: 30,
   flareCd: 10.0, flareT: 4.0, flareLight: 620,                // 探照：短时间内把黑暗推开
   /* 深水斜坡（不封顶）：1.2km 以内完全不变 —— 前段手感是玩家点名要保的；
      再深就按 deepSpan 线性加价。没有这一档，强化一多深水就成永动机，
@@ -489,7 +491,7 @@ function combatOwned() {
   for (const s of SKILLS) if (s.t === "战斗") n += skLv(s.id);
   return n;
 }
-function rollChoices() {
+function rollChoices(salt) {
   /* 质变：2000m 后的第一次强化 = 你这个角色的三条质变方向（别的牌一律不给；不可刷新，和选流派同规）
      角色 = 路线（法师 / 照明使者 / 战士）：一人三条，一共 9 条 —— 另外六条这辈子不会出现在你面前。
      每局只能选这一次（选完 G.mutate 定住，这段分支再也不进）。 */
@@ -504,7 +506,10 @@ function rollChoices() {
   /* 第二次强化：三条路线一起端上来，别的牌一律不给 */
   if (G.level === 2 && !G.route) return ROUTES.map((r) => ({ id: r.id, n: r.n, t: "路线", route: r, d: r.d, sub: r.s, max: 1, minD: 0, w: 0 }));
   /* 刷新必须换一批牌：种子带上 rerollN（否则重抽回来还是同样三张） */
-  const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761 + (G.rerollN | 0) * 0x9e3779b1) >>> 0);
+  /* salt：联机时给队友另抽一份（同一份局面 + 另一把盐 → 两张不一样的三选一）。
+     单机传 undefined → (undefined|0)=0 → 种子与旧版一模一样，抽出来的牌一张不差。 */
+  const rg = mulberry32(((G.seed ^ 0x5bf03635) + G.level * 2654435761 + (G.rerollN | 0) * 0x9e3779b1
+                         + ((salt | 0) * 0x85ebca6b)) >>> 0);
   /* 带 r 的是路线专属牌：选了哪条路，才抽得到哪条路的牌。质变牌同理（r = 质变 id）。 */
   let pool = SKILLS.concat(MUT_SKILLS).filter((s) => skLv(s.id) < s.max && G.depth >= s.minD && (!s.r || s.r === G.route || s.r === G.mutate));
   /* 流派纯度（2026-09-25 玩家要求）：1km 之前、选定流派之后，三选一只给自己那条的牌，
@@ -611,8 +616,23 @@ function rollChoices() {
 function rerollChoices() {
   if (G.state !== "levelup" || !G.choices) return false;
   if (G.choices.some((s) => s.route)) return false;      // 路线 / 质变都不给刷：选完才继续
+  /* 客人这边没有抽卡的随机流（世界是房主那份），刷新只能发请求让房主重抽一份发回来 */
+  if (NET.role === "guest") {
+    if (G.lvPicked !== null && G.lvPicked !== undefined) return false;
+    if (!(G.rerolls > 0)) return false;
+    G.rerolls -= 1;
+    netSend({ k: "rr" });
+    G.flash = 0.4;
+    SFX.pick();
+    return true;
+  }
   if (G.rerolls <= 0) return false;
   G.rerolls -= 1; G.rerollN += 1;
+  /* 联机：队友那份跟着一起重抽 —— 否则他手上那三张和房主要落账的三张就对不上了（选了 A 落成 B） */
+  if (G.lvTeam) {
+    G.guestChoices = rollChoices(1);
+    netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls });
+  }
   const c = rollChoices();
   if (!c.length) return false;
   G.choices = c;
@@ -620,26 +640,15 @@ function rerollChoices() {
   SFX.pick();
   return true;
 }
-function levelUp() {
-  G.level += 1;
-  G.nextLv += lvNeed(G.level + 1);
-  const c = rollChoices();
-  if (!c.length) return;                 // 全满级：安静地继续下潜
-  G.choices = c;
-  G.state = "levelup";
-  G.flash = 0.55;
-  SFX.level();
-}
-function applyPick(i) {
-  if (G.state !== "levelup" || !G.choices) return false;
-  const s = G.choices[i];
+/* 一张牌真正落到这份 build 上。
+   2026-09-26 从 applyPick 里拆出来：联机要「两边各选一张、都选完才继续」，落账就不能跟「关掉选牌页」绑死。 */
+function applyCard(s) {
   if (!s) return false;
   if (s.route) {                        // 路线 / 质变：选一条，另外两条从此不再出现
     if (s.t2) { G.t2 = s.route.id; popup(p.x, p.y - 44, "进阶 · " + s.route.n, s.route.col.join(String.fromCharCode(44))); }
     else if (s.mutate) { G.mutate = s.route.id; popup(p.x, p.y - 44, "质变 · " + s.route.n, s.route.col.join(",")); }
     else { G.route = s.route.id; popup(p.x, p.y - 44, s.route.n, s.route.col.join(",")); }
     recalcMods();
-    G.choices = null; G.state = "play";
     G.flash = 0.7;
     burst(p.x, p.y, 28, s.route.col.join(","));
     SFX.pick();
@@ -647,7 +656,6 @@ function applyPick(i) {
   }
   G.sk[s.id] = skLv(s.id) + 1;
   recalcMods();
-  G.choices = null; G.state = "play";
   const col = KIND_COL[s.t] || [190, 240, 255];
   if (s.id === "seal") G.o2 = Math.min(o2MaxNow(), G.o2 + 18);
   if (G.m.frenzy) G.frenzy = Math.min(G.frenzy, G.m.frenzy.max);   // 拿到 / 升级血鲸之牙：把已攒层数夹进新上限
@@ -656,6 +664,62 @@ function applyPick(i) {
   G.shakeT = 0.2; G.shakeMag = 5;
   SFX.pick();
   return true;
+}
+/* 两人局？单机（NET 没连 / 队友没登场）一律 false → 下面的老行为一字不改 */
+function lvCoop() { return NET.on && NET.connected && p2.active; }
+/* 路线 / 质变 / 进阶卡：一局只选一次、定义的是「这一局的职业」，两个人各选一条会当场打架 ——
+   这几张只有房主选，队友那边看到的是「房主正在选…」。 */
+function lvSpecial(c) { return !!(c && c.some((s) => s.route)); }
+/* 选牌页收尾：单人 / 特殊牌 = 老行为（立刻继续下潜） */
+function levelUpDone() {
+  G.choices = null; G.guestChoices = null;
+  G.lvTeam = false; G.lvMine = null; G.lvPeer = null; G.lvAuto = false; G.lvT = 0;
+  G.state = "play";
+  return true;
+}
+function levelUp() {
+  G.level += 1;
+  G.nextLv += lvNeed(G.level + 1);
+  const c = rollChoices();
+  if (!c.length) return;                 // 全满级：安静地继续下潜
+  G.choices = c;
+  G.lvMine = null; G.lvPeer = null; G.lvAuto = false; G.lvT = 0;
+  /* 联机：队友也有一份自己的三选一（另抽一份，不吃房主这三张），两边都选完才继续下潜 */
+  G.lvTeam = lvCoop() && !lvSpecial(c);
+  G.guestChoices = G.lvTeam ? rollChoices(1) : null;
+  if (G.lvTeam && (!G.guestChoices || !G.guestChoices.length)) { G.lvTeam = false; G.guestChoices = null; }  // 队友牌池空了：别把他锁在这
+  if (G.lvTeam) netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls });
+  G.state = "levelup";
+  G.flash = 0.55;
+  SFX.level();
+}
+/* 队友那张（或超时代选的那张）落账 → 开闸 */
+function finishTeamPick() {
+  const s = G.guestChoices ? G.guestChoices[G.lvPeer] : null;
+  if (s) {
+    applyCard(s);
+    popup(p.x + 150, p.y - 48, (G.lvAuto ? "代队友选 · " : "队友选了 · ") + s.n, "150,225,255");
+  }
+  return levelUpDone();
+}
+function applyPick(i) {
+  if (G.state !== "levelup" || !G.choices) return false;
+  /* 客人的那一下：本地不落账（这份 build 由房主算），只把「我选第几张」发上去 */
+  if (NET.role === "guest") {
+    if (G.lvPicked !== null && G.lvPicked !== undefined) return false;
+    if (!G.choices[i]) return false;
+    G.lvPicked = i;
+    netSend({ k: "pk", i: i });
+    SFX.pick();
+    return true;
+  }
+  const s = G.choices[i];
+  if (!s) return false;
+  G.lvMine = i;
+  applyCard(s);
+  if (!G.lvTeam) return levelUpDone();                              // 单人 / 特殊牌：老行为
+  if (G.lvPeer === null || G.lvPeer === undefined) return true;      // 队友还没选：模拟先冻着
+  return finishTeamPick();
 }
 
 /* ============================ 1. Utils =================================== */
@@ -829,6 +893,9 @@ const G = {
   aim: { x: W0 / 2, y: CFG.playerY + CFG.atkReach, tx: W0 / 2, ty: CFG.playerY + CFG.atkReach, idle: 99, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0, extra: [], beamDmg: 0 },
   /* --- 深渊馈赠（割草式三选一） --- */
   level: 0, nextLv: 0, sk: {}, choices: null, m: null, rerolls: 2, rerollN: 0,
+  /* 联机选牌（两边各选一张、都选完才继续）：lvTeam 这轮是不是两人局、lvMine/lvPeer 各自选的第几张、
+     guestChoices 发给队友的那三张、lvPicked 客人在自己那边选的、gRerolls 队友看到的重抽次数 */
+  lvTeam: false, lvMine: null, lvPeer: null, lvPicked: null, guestChoices: null, gRerolls: 0, lvAuto: false, lvT: 0,
   /* --- 主动技能：act = 剩余冷却，actFx = 正在生效的持续时间；kills/o2Kill 供探针核对 --- */
   act: { q: 0, e: 0, f: 0 }, actFx: { dash: 0, flare: 0, shock: 0, sx: 0, sy: 0 },
   kills: 0, o2Kill: 0,
@@ -1024,11 +1091,13 @@ function entSegDist(e, ax, ay, bx, by) {
 /* ============================ 6b. 战斗 =================================== */
 /* 普攻：从玩家射向准星的一道光束（hitscan），沿途障碍物与怪物一起吃伤害。
    准星 = 鼠标位置（「打哪」由准星管）；鼠标停手 2.5s 或触屏/键盘玩家，交给自动瞄准兜底。 */
-function aimPoint() {
-  const A = G.aim;
+function aimPoint() { return aimPointFrom(p, G.aim, CFG.atkReach); }
+/* 同一套「准星 = 鼠标位置、超出射程就截断」，只是把「从谁身上量」参数化 ——
+   联机时客人瞄的是自己那条鱼（旧版写死从 p 量，客人那边的准星就永远长在房主身上） */
+function aimPointFrom(src, A, reach) {
   let tx = clamp(A.x, 14, W0 - 14), ty = clamp(A.y, 70, H0 - 12);
-  const dx = tx - p.x, dy = ty - p.y, L = Math.hypot(dx, dy);
-  if (L > CFG.atkReach) { tx = p.x + (dx / L) * CFG.atkReach; ty = p.y + (dy / L) * CFG.atkReach; }
+  const dx = tx - src.x, dy = ty - src.y, L = Math.hypot(dx, dy);
+  if (L > reach) { tx = src.x + (dx / L) * reach; ty = src.y + (dy / L) * reach; }
   return [tx, ty];
 }
 /* ---------- 统一的「打一下」入口：扣血 → 飘字 → 死了发奖励并移除 ----------
@@ -2349,8 +2418,15 @@ function stepPlay(dt) {
     if (e.kind === "bolt") {
       e.x += e.vx * dt; e.y += e.vy * dt; e.life -= dt;
       if (e.life <= 0 || e.x < -60 || e.x > W0 + 60 || e.y < -60 || e.y > H0 + 60) { ents.splice(i, 1); continue; }
-      if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + CFG.playerR) {
-        hurtPlayer(Math.round(CFG.boltDmg * (1 + dk * CFG.hitGain) * G.m.dmg * coopHit()), "190,220,255");
+      /* 电球撞谁算谁的：原来只判房主那一个 —— 电球会从客人身上原地穿过去（玩家口径「怪只打房主」的一半来源） */
+      let boltQ = null, boltD = 1e9;
+      for (const q of party()) {
+        if (q.dead) continue;
+        const dd = Math.hypot(e.x - q.x, e.y - q.y);
+        if (dd < e.r + CFG.playerR && dd < boltD) { boltD = dd; boltQ = q; }
+      }
+      if (boltQ) {
+        hurtPlayerOn(boltQ, Math.round(CFG.boltDmg * (1 + dk * CFG.hitGain) * G.m.dmg * coopHit()), "190,220,255");
         burst(e.x, e.y, 8, "170,215,255");
         ents.splice(i, 1);
       }
@@ -2623,6 +2699,8 @@ const NET = {
   rtt: 0, lastPing: 0, lastInput: 0, lastSnap: 0,
   snapA: null, snapB: null, nidSeq: 0, err: "", log: "", manual: false,
   in: { l: 0, p: null, ax: W0 / 2, ay: CFG.playerY + 200, b: 0 },
+  /* 联机二期：A1 = 房主那道光的远端副本（客人画它）；peerSkin = 对面那条鱼选的皮肤号 */
+  A1: null, peerSkin: null,
   sigES: null, token: Math.random().toString(36).slice(2, 8), lastSk: "",
   /* 「准备室」那套（2026-09-26 玩家要求「房主决定什么时候开始」）：
      waiting = 房间开着但还没开局 —— 这时候房主本机的模拟是冻结的，谁也不许先下水；
@@ -2734,7 +2812,9 @@ function netSnapBuild() {
     t: performance.now() | 0, st: G.state, d: Math.round(G.depth), sp: Math.round(G.speed),
     o2: +G.o2.toFixed(1), lr: Math.round(G.lightR), lb: Math.round(G.lightBonus), le: +(G.lightEat || 0).toFixed(2),
     bn: Math.round(G.bonus), lv: G.level, kn: G.kills, ac: [+G.act.q.toFixed(1), +G.act.e.toFixed(1), +G.act.f.toFixed(1)],
-    mu: G.mutate || "", t2: G.t2 || "", sk: G.sk,
+    mu: G.mutate || "", t2: G.t2 || "", sk: G.sk, ski: SKIN_I,
+    /* 房主自己那道普攻光束的远端副本：没有它客人永远看不到房主在打（只能看见怪自己掉血） */
+    hb: [+G.aim.beam.toFixed(2), Math.round(G.aim.sx), Math.round(G.aim.sy), Math.round(G.aim.ex), Math.round(G.aim.ey)],
     a: [Math.round(p.x), Math.round(p.y), +p.invuln.toFixed(1), p.dead ? 1 : 0, +p.reviveT.toFixed(1)],
     b: [Math.round(p2.x), Math.round(p2.y), +p2.invuln.toFixed(1), p2.dead ? 1 : 0, +p2.reviveT.toFixed(1), +o2Get(p2).toFixed(1)],
     ab: [+A2.beam.toFixed(2), Math.round(A2.sx), Math.round(A2.sy), Math.round(A2.ex), Math.round(A2.ey)],
@@ -2775,6 +2855,13 @@ function netApplySnap() {
   G.state = sb.st; G.depth = L("d", G.depth); G.speed = L("sp", G.speed);
   G.lightR = L("lr", G.lightR); G.lightBonus = L("lb", G.lightBonus); G.lightEat = L("le", 0);
   G.bonus = L("bn", G.bonus); G.level = sb.lv; G.kills = sb.kn;
+  if (typeof sb.ski === "number") NET.peerSkin = sb.ski;        // 房主那条鱼用的是他自己选的皮肤
+  if (sb.hb) NET.A1 = { beam: sb.hb[0], sx: sb.hb[1], sy: sb.hb[2], ex: sb.hb[3], ey: sb.hb[4] };
+  /* 房主那边选牌页一关，本地这三张跟着清掉，别留着下一帧还画。
+     必须认「下降沿」：ch 消息到得比下一份快照早，快照里 st 可能还是上一秒的 play ——
+     直接按 st 判会把刚收到的三张当场抹掉（探针抓到过：客人手上 0 张、永远选不了）。 */
+  if (NET.lastSt === "levelup" && sb.st !== "levelup" && NET.role === "guest" && G.choices) { G.choices = null; G.lvPicked = null; }
+  NET.lastSt = sb.st;
   for (let k = 0; k < 3; k++) {
     const key = ["q", "e", "f"][k];
     G.act[key] = sa ? (sa.ac[k] + (sb.ac[k] - sa.ac[k]) * a) : sb.ac[k];
@@ -2821,19 +2908,29 @@ function netGuestFrame(dt) {
   if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 3.2);
   if (G.redFlash > 0) G.redFlash = Math.max(0, G.redFlash - dt * 2.2);
   if (G.state === "play" && G.m && !p2.dead) {
+    /* 瞄准：客人这边不跑 stepPlay —— 「准星跟着鼠标走」这一步原来根本没人做，
+       G.aim.x/y 永远钉在初始值上，于是准星不动、上行给房主的坐标也不动
+       （玩家口径「房员不能攻击」的真身：他在瞄 B，打出去的是开局那个固定点）。这里补上。 */
+    const A = G.aim, I = G.input;
+    if (I.aimActive) { A.tx = I.ax; A.ty = I.ay; A.idle = 0; }
+    A.x += (A.tx - A.x) * Math.min(1, dt * CFG.aimLerp);
+    A.y += (A.ty - A.y) * Math.min(1, dt * CFG.aimLerp);
+    A.idle = (A.idle || 0) + dt;
     /* 本地预测：自己的小人先动起来（不等房主回包），快照回来再小幅校正 */
     const inp = { l: (G.input.right ? 1 : 0) - (G.input.left ? 1 : 0),
-                  p: G.input.ptrActive ? G.input.ptrX : null, ax: G.aim.x, ay: G.aim.y, b: G.boosting ? 1 : 0 };
+                  p: G.input.ptrActive ? G.input.ptrX : null, ax: A.x, ay: A.y, b: G.boosting ? 1 : 0 };
     NET.in = inp;
     moveSide(p2, inp, dt);
-    A2.x = G.aim.x; A2.y = G.aim.y;
-    if (A2.beam > 0) A2.beam = Math.max(0, A2.beam - dt);
-    A2.cd -= dt;
-    if (A2.cd <= 0) {                                   // 只画光束，伤害由房主算
-      A2.cd = G.m.atkEvery;
-      const [ex, ey] = aimAt(p2, A2, CFG.atkReach);
-      A2.sx = p2.x; A2.sy = p2.y; A2.ex = ex; A2.ey = ey; A2.beam = CFG.beamT;
+    /* 自己那道光：从自己那条鱼射向自己的准星（伤害由房主算，这边只管看得见） */
+    A.sx = p2.x; A.sy = p2.y;
+    if (A.beam > 0) A.beam = Math.max(0, A.beam - dt);
+    A.cd -= dt;
+    if (A.cd <= 0) {
+      A.cd = G.m.atkEvery;
+      const [ex2, ey2] = aimAt(p2, A, CFG.atkReach);
+      A.ex = ex2; A.ey = ey2; A.beam = CFG.beamT;
     }
+    A2.x = A.x; A2.y = A.y; A2.beam = A.beam; A2.sx = A.sx; A2.sy = A.sy; A2.ex = A.ex; A2.ey = A.ey;
     if (p2.invuln > 0) p2.invuln = Math.max(0, p2.invuln - dt);
   }
   if (!NET.connected) return;                            // 还没连上：先只跑视觉，等握手
@@ -2846,6 +2943,22 @@ function netGuestFrame(dt) {
 }
 /* 房主侧的每帧：p2 由 stepPlay 里的 coopHostStep 跑，这里只负责下行快照 + ping */
 function netHostTick(dt) {
+  /* 队友选的牌迟迟不来：不能把房主锁在选牌页（挂机 / 掉线 / 手机切后台）。
+     到点（或人没了）就替他选一张，飘字写明是代选 —— 不假装是他自己选的。 */
+  if (G.state === "levelup" && G.lvTeam && G.lvMine !== null && G.lvMine !== undefined
+      && (G.lvPeer === null || G.lvPeer === undefined)) {
+    G.lvT = (G.lvT || 0) + dt;
+    const gone = !NET.connected || !p2.active;
+    if (gone || G.lvT > CFG.coopPickWait) {
+      const n = G.guestChoices ? G.guestChoices.length : 0;
+      if (n) {
+        G.lvPeer = Math.floor(aiRnd() * n);
+        G.lvAuto = true;
+        G.lvAutoN = (G.lvAutoN || 0) + 1;      // 代选次数（留个痕：探针量「到底是谁替他选的」，人走了也看得见）
+        finishTeamPick();
+      } else levelUpDone();
+    }
+  }
   if (!NET.connected) return;
   if (performance.now() - NET.lastSnap >= 66) { NET.lastSnap = performance.now(); netSend({ k: "s", s: netSnapBuild() }); }
   if (performance.now() - NET.lastPing >= 1000) { NET.lastPing = performance.now(); netSend({ k: "p", t: performance.now() | 0 }); }
@@ -2881,6 +2994,7 @@ function netWireDC() {
        之前得先让玩家看见复制粘贴的框，所以不能一建房就切视图。
        纯 API 连接（探针）不碰 DOM，面板不存在就什么都不做。 */
     if (!NET.waiting && !NET.started && document.getElementById("netPanel")) netRoomEnter();
+    if (NET.role === "guest") netSend({ k: "skin", i: SKIN_I });   // 我选的皮肤先报给房主（他在画我）
   };
   NET.dc.onclose = () => { NET.connected = false; p2.active = false; netLog(netLogText()); };
   NET.dc.onmessage = (ev) => {
@@ -2890,6 +3004,22 @@ function netWireDC() {
     else if (m.k === "p") { NET.rtt = Math.max(0, (performance.now() | 0) - m.t); netSend({ k: "q", t: m.t }); }
     else if (m.k === "q") { NET.rtt = Math.max(0, (performance.now() | 0) - m.t); }
     else if (m.k === "go" && NET.role === "guest") { netMatchStart(m.s); }   // 房主按下「开始游戏」
+    /* --- 联机二期：皮肤 / 选牌（都是「谁选的、发给谁」的小消息，不占快照带宽） --- */
+    else if (m.k === "skin") { p2.skinI = m.i | 0; }                          // 客人换了皮肤 → 房主画他的时候用它
+    else if (m.k === "ch" && NET.role === "guest") {                          // 房主发来「队友那三张」
+      G.choices = m.list || null; G.lvPicked = null; G.rerolls = m.rr | 0;
+    } else if (m.k === "pk" && NET.role === "host") {                         // 队友选好了第几张
+      if (G.state === "levelup" && G.lvTeam && (G.lvPeer === null || G.lvPeer === undefined)) {
+        G.lvPeer = m.i | 0;
+        if (G.lvMine !== null && G.lvMine !== undefined) finishTeamPick();     // 这一轮两个人都选完了 → 开闸
+      }
+    } else if (m.k === "rr" && NET.role === "host") {                         // 队友要刷新他那三张
+      if (G.state === "levelup" && G.lvTeam && (G.lvMine === null || G.lvMine === undefined) && G.rerolls > 0) {
+        G.rerolls -= 1; G.rerollN += 1;
+        G.guestChoices = rollChoices(1);
+      }
+      netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls });              // 同不同意都回一份（把剩余次数也带回去）
+    }
   };
 }
 function netLogText() {
@@ -3392,8 +3522,13 @@ function drawPlayer2() {
   if (!p2.active) return;
   const bob = Math.sin(G.t * 2.2 + 1.7) * 3;
   const x = p2.x, y = p2.y + bob;
+  /* 联机二期：这条鱼照**他自己选的皮肤**画（房主那边 p2.skinI 是客人报上来的；客人那边就是他自己）。
+     客人自己屏幕上二号位 = 他本人，所以名字叫「我」。 */
+  const mine = NET.on && NET.role === "guest" && NET.connected;
+  const sk = skinAt(p2.skinI);
   ctx.save();
   if (p2.dead || (p2.invuln > 0 && Math.floor(G.t * 14) % 2 === 0)) ctx.globalAlpha = 0.4;
+  ctx.save();
   ctx.globalCompositeOperation = "lighter";
   const g = ctx.createRadialGradient(x, y, 2, x, y, 120);
   g.addColorStop(0, "rgba(150,255,235,0.30)");
@@ -3401,27 +3536,21 @@ function drawPlayer2() {
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(x, y, 120, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
-  ctx.save();
   ctx.translate(x, y);
   ctx.rotate(clamp(p2.vx / 700, -0.5, 0.5) * 0.6);
-  ctx.beginPath();
-  const R = CFG.playerR;
-  ctx.moveTo(R * 1.5, 0);
-  ctx.quadraticCurveTo(R * 0.2, -R * 1.05, -R * 1.1, -R * 0.35);
-  ctx.quadraticCurveTo(-R * 1.7, 0, -R * 1.1, R * 0.35);
-  ctx.quadraticCurveTo(R * 0.2, R * 1.05, R * 1.5, 0);
-  ctx.closePath();
   /* 队友必须一眼看得见：深水里「暗青鱼」跟背景糊成一团（第一版就是这个问题，截图里几乎找不到人），
-     所以本体给亮青 + 白描边，头顶常驻名牌 */
-  ctx.fillStyle = p2.dead ? "rgba(70,80,90,0.75)" : "rgba(64,200,178,0.95)";
-  ctx.fill();
-  ctx.strokeStyle = p2.dead ? "rgba(170,190,200,0.6)" : "rgba(225,255,250,0.98)";
-  ctx.lineWidth = 2.2; ctx.stroke();
-  ctx.fillStyle = "rgba(240,255,252,0.98)";
-  ctx.beginPath(); ctx.arc(R * 0.42, -R * 0.2, 2.6, 0, Math.PI * 2); ctx.fill();
+     所以皮肤照画之外，外面再套一圈青环 + 头顶常驻名牌 */
+  const R = CFG.playerR;
+  ctx.save();
+  sk.paint(ctx, G.t, 1, Math.sin(G.t * 15 + 1.2) * 0.45);
   ctx.restore();
-  text(p2.dead ? "潜伴 · 复活 " + Math.max(0, p2.reviveT).toFixed(1) + "s" : "潜伴",
-       x, y - 34, 12, p2.dead ? "rgba(255,170,170,0.95)" : "rgba(180,255,240,0.95)", "center", 700);
+  ctx.beginPath(); ctx.arc(0, 0, R * 1.55, 0, Math.PI * 2);
+  ctx.strokeStyle = p2.dead ? "rgba(170,190,200,0.6)" : "rgba(150,255,235,0.72)";
+  ctx.lineWidth = 2.2; ctx.stroke();
+  ctx.restore();
+  const who = mine ? "我" : "潜伴";
+  text(p2.dead ? who + " · 复活 " + Math.max(0, p2.reviveT).toFixed(1) + "s" : who,
+       x, y - 38, 12, p2.dead ? "rgba(255,170,170,0.95)" : "rgba(180,255,240,0.95)", "center", 700);
 }
 
 function update(dt) {
@@ -3645,9 +3774,21 @@ let SKIN_I = (() => {
   return v >= 0 && v < SKINS.length ? v : 0;
 })();
 const skin = () => SKINS[SKIN_I];
+/* 皮肤取用（联机二期）：每个人身上用他自己选的那条 ——
+   skinAt(i) 按号取；avatarSkin() 是「画面中间那条主鱼」该用的皮肤（客人那边的它其实是房主，得用房主的号）。 */
+function skinAt(i) {
+  const n = SKINS.length;
+  if (i === null || i === undefined || typeof i !== "number" || isNaN(i)) return SKINS[((SKIN_I % n) + n) % n];
+  return SKINS[((Math.round(i) % n) + n) % n];
+}
+function avatarSkin() {
+  const remote = (NET.on && NET.role === "guest" && NET.peerSkin !== null && NET.peerSkin !== undefined);
+  return skinAt(remote ? NET.peerSkin : SKIN_I);
+}
 function setSkin(i) {
   SKIN_I = ((i % SKINS.length) + SKINS.length) % SKINS.length;
   store.set("sink.skin", String(SKIN_I));
+  if (NET.role === "guest" && NET.connected) netSend({ k: "skin", i: SKIN_I });   // 联机：我这条鱼换皮肤，得让房主知道
 }
 /* 标题页的皮肤条：点一下就换（S 键循环）；小样用同一支画笔画的，所见即所得 */
 function skinChipRect(i) {
@@ -3755,7 +3896,7 @@ const TRAIL_STYLE = {
 };
 let trailSeed = 20260925;
 function trnd() { trailSeed = (trailSeed * 1664525 + 1013904223) & 0x7fffffff; return trailSeed / 0x7fffffff; }
-function trailStyle() { return TRAIL_STYLE[skin().id] || TRAIL_STYLE.moon; }
+function trailStyle() { return TRAIL_STYLE[avatarSkin().id] || TRAIL_STYLE.moon; }
 function stepTrail(dt) {
   const st = trailStyle();
   const fast = 0.7 + Math.min(1.3, G.speed / CFG.baseSpeed - 0.4) * 0.5;
@@ -3809,7 +3950,7 @@ function drawIngot(x, y, sc, rot, alpha) {
 function drawTrail() {
   const L = G.trail;
   if (!L || !L.length) return;
-  const id = skin().id;
+  const id = avatarSkin().id;
   ctx.save();
   if (id === "gold") {
     /* 金鲤：拖尾改成一颗颗金元宝（玩家口径），边走边轻轻翻滚，深水里靠垫底的光看得见 */
@@ -3829,7 +3970,7 @@ function drawTrail() {
       ctx.globalAlpha = 0.20 * k;
       ctx.translate(q.x, q.y);
       ctx.scale(0.85 + 0.2 * k, 0.85 + 0.2 * k);
-      skin().paint(ctx, G.t - (1 - k) * 0.5, 0.92, Math.sin((G.t - (1 - k)) * 16) * 0.4);
+      avatarSkin().paint(ctx, G.t - (1 - k) * 0.5, 0.92, Math.sin((G.t - (1 - k)) * 16) * 0.4);
       ctx.restore();
     }
     ctx.globalCompositeOperation = "lighter";
@@ -3918,10 +4059,12 @@ function drawPlayer() {
   const wig = Math.sin(G.t * 16) * 0.45;
   /* 鱼身交给当前皮肤画：s=1 是正常大小，鼻尖朝 +x */
   ctx.save();
-  skin().paint(ctx, G.t, 1, wig);
+  avatarSkin().paint(ctx, G.t, 1, wig);
   ctx.restore();
   ctx.restore();
   ctx.globalAlpha = 1;
+  /* 联机：客人屏幕上中间这条其实是房主那条鱼 —— 标一下，不然两条鱼分不清谁是谁 */
+  if (NET.on && NET.role === "guest" && NET.connected) text("房主", px, py - 38, 12, "rgba(205,235,255,0.92)", "center", 700);
 
   if (G.boosting) {
     ctx.save();
@@ -5079,33 +5222,42 @@ function drawHpBar(e) {
   ctx.fillRect(bx, by, w * f, h);
 }
 /* 准星（AD 操控）+ 普攻光束：都画在黑暗层之上 —— 光是打出去的，不该被黑暗吃掉 */
+/* 一道光束（自己的 / 队友的都走这里）：tint 是外圈的颜色，芯子固定暖白 + 淡蓝折射 */
+function drawBeam(A, tint) {
+  if (!A || !(A.beam > 0)) return;
+  const a = clamp(A.beam / CFG.beamT, 0, 1);            // 1 → 0 的视觉残留
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  const beams = [[A.ex, A.ey]].concat(A.extra || []);
+  for (let k = 0; k < beams.length; k++) {
+    const [tx, ty] = beams[k];
+    ctx.strokeStyle = "rgba(" + tint + "," + (0.50 * a).toFixed(3) + ")";
+    ctx.lineWidth = 12 * a + 3;
+    ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.strokeStyle = k === 0 ? "rgba(255,246,228," + (0.92 * a).toFixed(3) + ")" : "rgba(210,235,255," + (0.85 * a).toFixed(3) + ")";
+    ctx.lineWidth = 3.5 * a + 1;
+    ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(tx, ty); ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawAim() {
   if (G.state !== "play" && G.state !== "pause") return;
+  const guestSide = NET.on && NET.role === "guest" && NET.connected;
+  const self = guestSide ? p2 : p;                      // 「我」这条鱼：客人那边自己的是二号位
   const A = G.aim;
-  const [ex, ey] = aimPoint();
+  const [ex, ey] = aimPointFrom(self, A, CFG.atkReach);
   ctx.save();
   /* 瞄准导引线：从玩家指向准星，弱到自己不抢戏 */
   ctx.strokeStyle = "rgba(255,190,120,0.16)";
   ctx.lineWidth = 1;
   ctx.setLineDash([5, 7]);
-  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(self.x, self.y); ctx.lineTo(ex, ey); ctx.stroke();
   ctx.setLineDash([]);
-  if (A.beam > 0) {
-    const a = A.beam / CFG.beamT;                       // 1 → 0 的视觉残留
-    ctx.globalCompositeOperation = "lighter";
-    ctx.lineCap = "round";
-    const beams = [[A.ex, A.ey]].concat(A.extra || []);
-    for (let k = 0; k < beams.length; k++) {
-      const [tx, ty] = beams[k];
-      ctx.strokeStyle = "rgba(255,190,120," + (0.50 * a).toFixed(3) + ")";
-      ctx.lineWidth = 12 * a + 3;
-      ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(tx, ty); ctx.stroke();
-      ctx.strokeStyle = k === 0 ? "rgba(255,246,228," + (0.92 * a).toFixed(3) + ")" : "rgba(210,235,255," + (0.85 * a).toFixed(3) + ")";
-      ctx.lineWidth = 3.5 * a + 1;
-      ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(tx, ty); ctx.stroke();
-    }
-    ctx.globalCompositeOperation = "source-over";
-  }
+  drawBeam(A, "255,190,120");                           // 我自己的光
+  /* 队友那道光也得画出来：旧版两边都只画自己这一束，「他到底在打哪」完全看不见 */
+  if (guestSide) drawBeam(NET.A1, "255,190,120");                                      // 房主的光（原色）
+  else if (NET.on && NET.role === "host" && p2.active) drawBeam(A2, "150,225,255");    // 队友的（青色：一眼分得清谁在打）
   /* 准星本体：一直在，方便把「AD 推的是它」看明白 */
   const r = 14 + (A.beam > 0 ? (A.beam / CFG.beamT) * 5 : 0);
   ctx.strokeStyle = "rgba(255,205,140,0.85)";
@@ -5306,6 +5458,23 @@ function rerollHit(lx, ly) {
   const r = rerollRect();
   return lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h;
 }
+/* 选牌页顶部那行「谁在等谁」：单人不显示；联机把两边状态说清楚 */
+function lvWaitText() {
+  if (NET.role === "guest") {
+    if (!G.choices) return "房主正在选（这轮是他一个人的）…";
+    if (G.lvPicked !== null && G.lvPicked !== undefined) return "你选了「" + (G.choices[G.lvPicked] ? G.choices[G.lvPicked].n : "") + "」· 等房主选完";
+    return "你和房主各选一张 · 两边都选完才继续下潜";
+  }
+  if (!G.lvTeam) return "";
+  const mineOk = G.lvMine !== null && G.lvMine !== undefined;
+  const peerOk = G.lvPeer !== null && G.lvPeer !== undefined;
+  if (mineOk && !peerOk) {
+    const left = Math.max(0, (CFG.coopPickWait || 30) - (G.lvT || 0));
+    return "你选了「" + G.choices[G.lvMine].n + "」· 等队友（" + left.toFixed(0) + "s 后不等了，替他选）";
+  }
+  if (!mineOk && peerOk) return "队友已选「" + (G.guestChoices && G.guestChoices[G.lvPeer] ? G.guestChoices[G.lvPeer].n : "") + "」· 就等你了";
+  return "你和队友各选一张 · 两边都选完才继续下潜";
+}
 function drawLevelUp() {
   const isRoute = !!(G.choices && G.choices[0] && G.choices[0].route);
   const isAdv = !!(G.choices && G.choices.length === 2 && G.choices.every((c) => c.t2));   // 4000m 的进阶二选一
@@ -5316,6 +5485,8 @@ function drawLevelUp() {
   ctx.restore();
   text("第 " + G.level + " 次强化　·　" + Math.floor(G.depth) + " m" + (isAdv ? "　·　" + (MUT_MAP[G.mutate] ? MUT_MAP[G.mutate].n : "质变") + " 的两条进阶 · 二选一（选了另一条就没了）" : (isRoute ? "　·　选一条路走到底，另外两条永久关闭" : "")) + "　·　选择一项（点击 / 按 1·2)",
     W0 / 2, 148, 14, "rgba(200,225,245,0.8)", "center", 500);
+  const lvNote = lvWaitText();
+  if (lvNote) text(lvNote, W0 / 2, 172, 14, "rgba(150,255,220,0.95)", "center", 700);
   if (!G.choices) return;
   for (let i = 0; i < G.choices.length; i++) {
     const s = G.choices[i], r = cardRect(i);
@@ -5328,7 +5499,12 @@ function drawLevelUp() {
     ctx.fillStyle = hot ? "rgba(18,48,76,0.97)" : "rgba(8,24,40,0.94)"; ctx.fill();
     ctx.restore();
     rrRect(r.x, r.y, r.w, r.h, 16);
-    ctx.strokeStyle = "rgba(" + col + "," + (hot ? 0.98 : 0.42) + ")"; ctx.lineWidth = hot ? 2.2 : 1.2; ctx.stroke();
+    const picked = (NET.role === "guest") ? G.lvPicked : G.lvMine;
+    const isPicked = picked === i;
+    ctx.strokeStyle = isPicked ? "rgba(150,255,220,0.98)" : "rgba(" + col + "," + (hot ? 0.98 : 0.42) + ")";
+    ctx.lineWidth = isPicked ? 3 : (hot ? 2.2 : 1.2); ctx.stroke();
+    if (isPicked) { ctx.save(); ctx.font = '700 14px "PingFang SC",sans-serif'; ctx.fillStyle = "rgba(150,255,220,0.95)";
+                    ctx.textAlign = "center"; ctx.fillText("你选的", r.x + r.w / 2, r.y + r.h - 44); ctx.restore(); }
     /* 类型标签 */
     ctx.save();
     rrRect(r.x + 1.5, r.y + 1.5, 62, 26, 14); ctx.clip();
@@ -5725,6 +5901,7 @@ window.__SINK__ = {
   version: SELFTEST.version, CFG, G, diffK, recalcMods, state: () => G.state,
   startRun, update, simulate, runSelfTest, autopilot,
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
+  levelUp, applyCard, lvWaitText, aimPointFrom,
   ents: () => ents, p, probePx, lightR: () => G.lightR, H0: () => H0,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp,
   spawnShell, spawnAnchor, spawnNullify, spawnBrood, spawnCurtain, spawnAnox, anoxNear, mobKind, contactDmg, entSegDist, hurtPlayer,
@@ -5735,7 +5912,7 @@ window.__SINK__ = {
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
-  SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, R,
+  SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, skinAt, avatarSkin, R,
   trailN: () => G.trail.length, trailStyle: () => trailStyle(), stepTrail, drawTrail,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
