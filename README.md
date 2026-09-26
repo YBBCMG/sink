@@ -367,6 +367,18 @@ python -m http.server 8080      # 或 npx serve .
 
 ## 发布到 GitHub Pages
 
+## 联机四修（2026-09-26 · 玩家报的四条）
+
+| 报的现象 | 真身 | 修法 | 探针判据（`test/probe-coopfix.mjs`） |
+|---|---|---|---|
+| **Boss 跟我们同一平面** | 生成位 `y = H0*0.32` = **192**，跟 `CFG.playerY` 一模一样 —— 贴脸站桩 | `BOSS_HOME_Y() = min(H0-90, playerY+250)`，登场位与「平时挪回家」两处同改 | `bossBelow 0 → 250`（A/B 截图 `shots/boss-ab-*.png`） |
+| **房员用冲锋：效果不对 + 闪退** | 冲锋状态**一个字节都没下发**：尾流那段硬写死画在 `p` 上，客人按 E 自己屏幕上那条鱼一帧表现都没有；另外客人准星没上行时 `A2` 是空的 → 方向算成 **NaN** → 坐标被推成 NaN | 快照加 `d2`（客人那份）/ `fxh`（房主那份）各带一份冲锋状态；`drawPlayer2` 按客人自己的方向画尾流；`aimFor` 量不出方向就朝正下方；客人整帧异常加 try/catch 计数（`drawErrs().fn`） | `snapHasDash2/H false → true` · `hostMoved 0`（客人冲锋不再拖着房主跑）· 房主侧截图看得见房员那条鱼在冲 |
+| **房员没有拖尾** | `stepTrail(dt)` 硬写死 `p` + 本机皮肤，而且只由 `stepPlay`（房主）调用 —— 客人那边一辈子没人推 | `stepTrail(dt, who, skinId)`：粒子上带主人皮肤标记，尾流按主人分组画；房主侧替客人推一份，客人侧自己推一份 + 房主那份 | `trailNearGuest 0 → 11`、粒子皮肤 `["angler","moon"]`（两条尾巴各画各的） |
+| **照明使者灼烧伤害没了** | 客人带**光矛**质变时按 F，那一支**只记按键、不开灯** → `actFx.flare` 永远 0 → 灼光（灼烧）/ 回春 / 光矛三样一起哑（光矛还因为灯不亮直接放不出去） | 补齐房主那条路：按下这一下就 `act.f = lance.cd · charge = 0 · actFx.flare = flareT` | `p2FlareOpen 0 → 4`、开灯后 `p2BurnDmg 100` |
+
+> 顺手记下的老账（**不是本轮改出来的**，同款数字在改前的日志里就有）：`verify.mjs` 的
+> 「电球糊脸扣氧」`boltCost 15.61 vs 期望 12`、`maxedLeak`、`boost`、`深段压力` 这四条在旧日志里同样是红的/飘的。
+
 ```bash
 node tools/align-head.mjs      # 必跑：delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，
                                # 改完 index.html 后 64KB 切线可能正好落在汉字中间 → 门禁判 FAIL
@@ -669,6 +681,8 @@ test/_shots-lobby.mjs  准备室 / 大厅视觉留档 → shots/lobby-{1-wait,2-
 test/probe-heavy.mjs   重装三只 + 突进无敌窗口验收：共鸣光环（减伤/回血/母体自己不享受/出圈失效）· 铁幕甲（直伤 2 折 / DoT 1.5 倍 / 张甲全吃 / 自己会切换）· 缺氧带（击杀回氧归零 / 气泡不进气 / 每秒多掉 2.5%）· 突进只保开头 0.5s 且不随余燃变长（21 项）
 test/_shots-heavy.mjs  重装三只视觉留档：光环连线 / 合甲与张甲两态 / 缺氧圈 / 无敌窗口内外对照
 test/probe-fx.mjs      技能特效验收：漩涡整段（吸力盘/边界环/连噬缩圈）· 冲锋尾巴方向 · 蓄力环与满蓄金色 · 处决与连坐光爆 · 定向爆破扇面 · 绝息红潮 · 骨刺环 · 吞噬收口（16 项，全部像素判据）
+test/probe-coopfix.mjs 联机四修验收：Boss 在玩家下方 · 房员冲锋（状态下发/房主不被拖着跑）· 房员尾流（粒子带主人皮肤）· 房员按 F 开灯与灼烧（单页跑真代码，不开 WebRTC）
+test/_shots-coopfix.mjs / test/_shots-boss-ab.mjs  四修视觉留档：Boss 位置 A/B（改前改后各一张）· 房员冲锋尾流
 test/_shots-fx.mjs     技能特效视觉留档：漩涡 / 冲锋尾巴 / 半蓄与满蓄 / 处决光爆 / 爆破扇面 / 绝息红潮
 test/probe-t2.mjs      二段分叉验收：4000m 触发/两张/二选一/不开天窗 + 18 条进阶逐条按行为量（23 项）
 test/probe-t2v2.mjs    二次质变改版验收：连噬/立浪/连涛/吞噬档位(5·7·9…只·每档+10·上限+100)/fisB ×4/aspB 60s/审判改回满印秒杀 + 连坐/灼刑/左键二段+空格加速（23 项，含 2 项像素级「看得见」判据）
