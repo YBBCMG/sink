@@ -5,6 +5,7 @@
      下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
 
 
+
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#02060d" />
@@ -131,7 +132,11 @@ const CFG = {
   /* --- 主动技能（Q/E/F）：冷却制，要玩家自己按，绝不跟普攻一起自动放 --- */
   /* 2026-09-25 玩家反馈：冷却太长了 → 7s 降到 4s（「凝神」每级 ×0.88，点满 5 级约 2.1s） */
   shockCd: 4.0, shockR: 240, shockMob: 150, shockObst: 200,   // 冲击波：以本体为圆心的清场
-  dashCd: 5.0, dashT: 1.1, dashMul: 2.4, dashDmg: 80,         // 突进：无敌 + 提速 + 撞碎挡路的
+  dashCd: 5.0, dashT: 1.1, dashMul: 2.4, dashDmg: 80,         // 突进：提速 + 撞碎挡路的
+  /* 2026-09-26 玩家口径「冲锋期间无敌，CD 又够短，理论上能一直无敌，太超模」→ 只保开头一段。
+     关键：这个窗口**不跟着 afterburn 变长**（那座就是靠「+0.25s 突进时长」把无敌一起拉长的）。
+     实测 afterburn 3 级 = 冷却 2.0s / 突进 1.85s → 旧版无敌占比 92%（几乎永动），现在 0.5/2.0 = 25%。 */
+  dashInv: 0.5,
   flareCd: 10.0, flareT: 4.0, flareLight: 620,                // 探照：短时间内把黑暗推开
   /* 深水斜坡（不封顶）：1.2km 以内完全不变 —— 前段手感是玩家点名要保的；
      再深就按 deepSpan 线性加价。没有这一档，强化一多深水就成永动机，
@@ -158,6 +163,23 @@ const CFG = {
      可以免疫，但不能一刀切）。甲壳期持续伤害只吃 35%、钉住/烙印增伤只吃一半；
      直伤累到 30% 血就砸开壳，破壳 9s 内 DoT ×1.25、增伤全额 —— 这就是那条「打穿的窗口」。 */
   shellDotCut: 0.35, shellAmpCut: 0.5, shellOpen: 9, shellBreak: 0.30,
+  /* --- 2026-09-26 玩家口径「怪物数值太低、太容易被秒，做几个又有数值又有机制的」---
+     三只重装，血量是同级怪的 2~3 倍，每只都带一条必须应对的机制（按深度过线才出）。
+     共鸣母体（2400m）：自己不打人，替 300px 内的同伴扛 30% 伤害、每 1.5s 回 6% 血 —— 不先拆它，别的怪就是坦克。
+     铁幕鲎（2900m）：反导热甲 —— 合甲期直伤打 2 折、**持续伤害 ×1.5**（跟铁壳蟹正好反着来）；
+                     甲壳每 3.4s 合、3.0s 开，开甲那 3 秒是爆发流唯一的窗口。
+     缺氧鲸（3500m）：自带 230px 缺氧带 —— 站在里面气泡 / 击杀 / 噬血的回氧全部归零，还每秒多掉 2.5% 上限氧。
+                     它不快，所以是「要么退出去，要么先弄死它」的走位题。 */
+  broodFrom: 2400, broodHP: 620, broodEvery: [13, 20], broodRush: 155, broodVX: 105, broodDmg: 24, broodSpd: 0.72,   // 悬停怪：rush = 游到位的速度
+  broodAuraR: 300, broodCut: 0.30, broodHeal: 0.06, broodTick: 1.5,
+  curtainFrom: 2900, curtainHP: 780, curtainEvery: [15, 23], curtainRush: 172, curtainVX: 130, curtainDmg: 30, curtainSpd: 0.80,
+  curtainCut: 0.20, curtainDotMul: 1.5, curtainClose: 3.4, curtainOpenT: 3.0,
+  anoxFrom: 3500, anoxHP: 900, anoxEvery: [17, 25], anoxRush: 204, anoxVX: 70, anoxDmg: 34, anoxSpd: 0.95,   // 横向 70：故意留出「横着跑出缺氧带」这条路
+  anoxR: 230, anoxDrain: 0.025,
+  /* 重装三只有**独立名额**：它们悬停在场上不走，如果吃的是普通怪的 live 预算，
+     深段的普通怪就不刷了 —— 实测 2500m/40s 从 27~32 只掉到 22（verify 的「深段压力」判据当场抓住）。
+     现在普通怪照旧按 cap 刷，重装单独算，最多同时 2 只。 */
+  heavyCap: 2,
   nullifyShell: 1.6, nullifyGap: 4.2,
   mutateAt: 2000, t2At: 4000,          // t2At：到这里你那条质变长出两条进阶（二选一）
   /* 神器上限：一局最多持有几张（新神器只在持有数 < 上限时判定） */
@@ -858,7 +880,7 @@ function startRun(seed) {
   G.act.q = G.act.e = G.act.f = 0;
   G.actFx.dash = G.actFx.flare = G.actFx.shock = 0;
   G.actFx.sx = G.actFx.sy = 0;
-  G.kills = 0; G.o2Kill = 0; G.dashStamp = 0;
+  G.kills = 0; G.o2Kill = 0; G.dashStamp = 0; G.anoxCut = false;
   G.comboN = 0; G.comboT = -99;                  // 连杀回氧递减：计数 + 上一只的时间戳
   /* --- 新机制的运行时状态：场（zone）/ 骨片 / 层数 / 漩涡 / 白夜光球 / 行灯 / 审判计时 --- */
   G.zones = []; G.shards = []; G.beams = [];
@@ -980,18 +1002,19 @@ function killReward(e) {
   /* 连杀递减：距上一只超过 killComboReset 秒就重新满额，否则按 killComboMul 逐只打折 */
   const streak = (G.t - G.comboT <= CFG.killComboReset) ? G.comboN : 0;
   const mul = Math.pow(CFG.killComboMul, streak);
-  const gain = o2MaxNow() * G.m.killO2 * mul;    // 回的是「上限的 10%」× 连杀系数，深水压力再大也不缩水
+  const gain = o2MaxNow() * G.m.killO2 * mul * (G.anoxCut ? 0 : 1);    // 回的是「上限的 10%」× 连杀系数，深水压力再大也不缩水
   G.comboN = streak + 1; G.comboT = G.t;
   G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
   G.o2Kill += gain;
-  popup(e.x, e.y - e.r - 26, "击杀 +" + CFG.killScore + " · 氧 +" + gain.toFixed(1)
-    + (streak > 0 ? " ×" + mul.toFixed(2) : ""), "255,215,150");
+  popup(e.x, e.y - e.r - 26, "击杀 +" + CFG.killScore + " · " + (G.anoxCut ? "缺氧 · 氧 +0" : "氧 +" + gain.toFixed(1))
+    + (streak > 0 && !G.anoxCut ? " ×" + mul.toFixed(2) : ""), "255,215,150");
   burst(e.x, e.y, 22, e.kind === "hunter" ? "255,150,120" : "170,220,255");
   SFX.kill();
 }
 /* 战士·噬血：突进撞碎 / 撞死 按氧气上限的百分比回氧 */
 function healVamp(x, y) {
   if (G.m.vamp <= 0) return;
+  if (G.anoxCut) { popup(x, y - 30, "缺氧 · 吸不进", "255,150,150"); return; }
   const gain = o2MaxNow() * G.m.vamp;
   G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
   G.o2Kill += gain;
@@ -1067,6 +1090,12 @@ function hurtEnt(i, e, dmg, tag, raw, isDot) {
       popup(e.x, e.y - e.r - 22, "破壳!", "255,214,120");
       burst(e.x, e.y, 18, "255,214,120"); SFX.zap();
     }
+  }
+  /* 共鸣母体的光环：光环内的怪全部减伤 30%（母体自己不享受 —— 先拆它才有收益） */
+  if (e.kind !== "brood" && e.resonT > 0) dmg = Math.max(1, Math.round(dmg * (1 - CFG.broodCut)));
+  /* 铁幕鲎·反导热甲：合甲期直伤 ×0.2、**持续伤害 ×1.5**（铁壳蟹是反过来的：怕砸不怕烧） */
+  if (e.kind === "curtain" && e.armOn) {
+    dmg = isDot ? Math.max(1, Math.round(dmg * CFG.curtainDotMul)) : Math.max(1, Math.round(dmg * CFG.curtainCut));
   }
   e.hp -= dmg; e.flash = 0.16;
   popup(e.x, e.y - e.r - 8, "-" + dmg, tag || "255,175,125");
@@ -1500,11 +1529,12 @@ function tryActive(k) {
     }
     G.actFx.dash = G.m.dashT;
     G.dashStamp = (G.dashStamp || 0) + 1;                // 一次突进对每个障碍只算一次账
-    /* 突进期间无敌（撞怪不挨咬）—— 但战士只要选了质变，这条免费无敌就取消：
-       玩家口径「虽然冲锋期间会受到伤害」。三条战士质变各自用别的方式换生存：
-       漩涡给起手 0.5s · 骨甲花层顶伤 · 激流把怪推开。 */
+    /* 突进无敌：只保开头 CFG.dashInv 秒（2026-09-26 玩家口径「冲锋期间无敌 + CD 短 = 永动，太超模」）。
+       注意这里**故意用 CFG.dashInv 而不是 G.m.dashT** —— 突进时长会被 afterburn 拉长，无敌不能跟着涨。
+       战士选了质变照旧没有这条免费无敌（玩家口径「虽然冲锋期间会受到伤害」）：
+       漩涡给起手 0.5s · 骨甲花层顶伤 · 冲锋靠撞完刷冷却。 */
     const warriorMut = !!(G.mutate && MUT_MAP[G.mutate] && MUT_MAP[G.mutate].r === "warrior");
-    if (!warriorMut) p.invuln = Math.max(p.invuln, G.m.dashT);
+    if (!warriorMut) p.invuln = Math.max(p.invuln, CFG.dashInv);
     burst(p.x, p.y, 16, "150,255,220"); SFX.zap();
   } else if (k === "f") {
     /* 质变·光矛：按 F 只是「开灯 + 开始蓄力」，蓄力在 stepPlay 里累，松手才打出去 */
@@ -1594,6 +1624,31 @@ function spawnNullify() {
   ents.push({ kind: "nullify", x: rr(80, W0 - 80), y: H0 + 60, r: 24,
               hp: mobHP(CFG.nullifyHP), maxHp: mobHP(CFG.nullifyHP), seed: rnd() * 997,
               hit: false, near: false, flash: 0, invT: 0, shellT: CFG.nullifyGap, popT: 0 });
+}
+/* 2026-09-26 重装三只：数值高 + 一条必须应对的机制（对比：猎手 150 / 剃刀鲸 320 / 铁壳蟹 210 血） */
+function spawnBrood() {
+  ents.push({ kind: "brood", x: rr(90, W0 - 90), y: H0 + 60, r: 30,
+              hp: mobHP(CFG.broodHP), maxHp: mobHP(CFG.broodHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, tickT: CFG.broodTick });
+}
+function spawnCurtain() {
+  ents.push({ kind: "curtain", x: rr(90, W0 - 90), y: H0 + 60, r: 34,
+              hp: mobHP(CFG.curtainHP), maxHp: mobHP(CFG.curtainHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, armOn: true, armT: CFG.curtainClose, armFlash: 0 });
+}
+function spawnAnox() {
+  ents.push({ kind: "anox", x: rr(80, W0 - 80), y: H0 + 60, r: 27,
+              hp: mobHP(CFG.anoxHP), maxHp: mobHP(CFG.anoxHP), seed: rnd() * 997,
+              hit: false, near: false, flash: 0, breathT: 0 });
+}
+/* 缺氧带：站在里面「吸不进氧」。氧气收入的每个入口都要过这一道闸，
+   不然就是个假机制（击杀回氧 / 气泡 / 噬血各写各的，漏一个玩家就会发现「说好的断氧呢」）。 */
+function anoxNear() {
+  for (const e of ents) {
+    if (e.dead || e.kind !== "anox") continue;
+    if (Math.hypot(e.x - p.x, e.y - p.y) < CFG.anoxR) return true;
+  }
+  return false;
 }
 function hurtPlayer(dmg, col, pierce) {
   if (p.invuln > 0 && !pierce) return false;
@@ -2043,7 +2098,11 @@ function stepPlay(dt) {
   /* --- 氧气（深渊压力：越深耗得越快）--- */
   const dk = G.diff = diffK(G.depth);
   const deepMul = 1 + Math.max(0, G.depth - CFG.deepFrom) / CFG.deepSpan;    // 深水不封顶斜坡
-  const drain = CFG.o2Drain * (G.boosting ? CFG.boostDrainMul : 1) * (1 + dk * CFG.drainGain) * G.m.drain * deepMul;
+  /* 缺氧带（缺氧鲸）：站在圈里吸不进氧 + 每秒额外掉 2.5% 上限 —— 这里只算「多掉的那份」，
+     回氧端（气泡 / 击杀 / 噬血）各自过 anoxNear() 那道闸 */
+  G.anoxCut = G.depth >= CFG.anoxFrom && anoxNear();
+  const drain = CFG.o2Drain * (G.boosting ? CFG.boostDrainMul : 1) * (1 + dk * CFG.drainGain) * G.m.drain * deepMul
+    + (G.anoxCut ? o2MaxNow() * CFG.anoxDrain : 0);
   G.o2 -= drain * dt;
 
   /* --- 视野 --- */
@@ -2143,8 +2202,11 @@ function stepPlay(dt) {
     const intro = clamp((G.depth - CFG.mobFrom) / CFG.mobRamp, 0, 1);
     const rate = (CFG.mobIntro + (1 - CFG.mobIntro) * intro) * (CFG.mobDeepen[0] + CFG.mobDeepen[1] * dk);
     const cap = CFG.mobCapBase + Math.round(CFG.mobCapGain * dk) + (G.depth >= 2000 ? 1 : 0);
-    let live = 0;
-    for (const e of ents) if (e.kind !== "bubble" && e.kind !== "jelly" && e.kind !== "bolt" && e.kind !== "rock" && e.kind !== "cable") live++;
+    let live = 0, heavy = 0;
+    for (const e of ents) {
+      if (e.kind === "bubble" || e.kind === "jelly" || e.kind === "bolt" || e.kind === "rock" || e.kind === "cable") continue;
+      if (e.kind === "brood" || e.kind === "curtain" || e.kind === "anox") heavy++; else live++;
+    }
     G.huntT -= dt * rate;
     if (G.huntT <= 0) { G.huntT = rr(CFG.hunterEvery[0], CFG.hunterEvery[1]); if (live < cap) spawnHunter(); }
     G.spitT -= dt * rate;
@@ -2176,10 +2238,24 @@ function stepPlay(dt) {
     if (G.depth >= CFG.nullifyFrom) {
       if (gate(0, "nullifyT")) { G.nullifyT = rr(CFG.nullifyEvery[0], CFG.nullifyEvery[1]); if (live < cap) spawnNullify(); }
     }
+    /* 重装三只：2400 / 2900 / 3500m（跟精英三线的 2200/3100/3800 错开，免得两条过线提示挤同帧）。
+       名额独立：heavy < heavyCap，不占普通怪的 live 预算（否则深段普通怪被挤掉，压力判据当场红）。 */
+    if (G.depth >= CFG.broodFrom) {
+      if (gate(0, "broodT")) { G.broodT = rr(CFG.broodEvery[0], CFG.broodEvery[1]); if (heavy < CFG.heavyCap) spawnBrood(); }
+    }
+    if (G.depth >= CFG.curtainFrom) {
+      if (gate(0, "curtainT")) { G.curtainT = rr(CFG.curtainEvery[0], CFG.curtainEvery[1]); if (heavy < CFG.heavyCap) spawnCurtain(); }
+    }
+    if (G.depth >= CFG.anoxFrom) {
+      if (gate(0, "anoxT")) { G.anoxT = rr(CFG.anoxEvery[0], CFG.anoxEvery[1]); if (heavy < CFG.heavyCap) spawnAnox(); }
+    }
     G.introShown = G.introShown || {};
     for (const it of [[CFG.splitFrom, "裂腹鱼：打死会裂成两条"], [CFG.leechFrom, "吸氧蛭：贴上来抽你的氧"], [CFG.lampFrom, "熄灯鮟鱇：活着就吞你的光"],
                           [CFG.shellFrom, "铁壳蟹：甲壳挡掉六成半持续伤害，砸开壳后 9s 内反而吃更多"], [CFG.anchorFrom, "锚鲸：拉不动、钉不住、甩不走"],
-                          [CFG.nullifyFrom, "破免者：壳亮时无敌，咬你无视无敌帧"]]) {
+                          [CFG.nullifyFrom, "破免者：壳亮时无敌，咬你无视无敌帧"],
+                          [CFG.broodFrom, "共鸣母体：替周围的怪扛三成伤害还回血 —— 先拆它"],
+                          [CFG.curtainFrom, "铁幕鲎：合甲期砸不动、烧得动（直伤 2 折 · 持续伤害 1.5 倍）"],
+                          [CFG.anoxFrom, "缺氧鲸：贴上来就断氧 —— 要么退出圈，要么先弄死它"]]) {
       if (G.depth >= it[0] && !G.introShown[it[0]]) {
         G.introShown[it[0]] = 1;
         /* 只在「刚过线」那 400m 里播：不然跳深度时 3000/4000/5000 三条提示会叠成一坨糊字 */
@@ -2194,6 +2270,7 @@ function stepPlay(dt) {
     const e = ents[i];
     if (!e) continue;                 // 连锁爆炸可能已经删过前面的实体，倒序索引会踩空
     if (e.flash > 0) e.flash = Math.max(0, e.flash - dt);
+    if (e.resonT > 0) e.resonT = Math.max(0, e.resonT - dt);      // 共鸣加持：母体每 1.5s 续一次
     /* 电球：自带速度，不跟世界一起滚（它是「扑」过来的，不是「沉」上来的） */
     if (e.kind === "bolt") {
       e.x += e.vx * dt; e.y += e.vy * dt; e.life -= dt;
@@ -2207,7 +2284,10 @@ function stepPlay(dt) {
     }
     /* 电袭者是「悬停射手」：不跟着水流一起滚，靠自己慢慢游上来 ——
        否则世界滚动 + 自己的漂移会让它 3 秒穿过整屏，一枪都来不及放 */
-    if (e.kind !== "spitter" && e.kind !== "warden" && e.kind !== "lamp") e.y -= dy;
+    /* 悬停怪不跟水流滚（自己游到位就停）：电袭者/圣盾使/熄灯鮟鱇，加上 2026-09-26 的重装三只 ——
+       它们靠「一直在场」施加机制，跟着水流掠过屏幕的话光环/甲壳/缺氧带都来不及生效（实测 3 秒就飞到画外被清掉） */
+    if (e.kind !== "spitter" && e.kind !== "warden" && e.kind !== "lamp"
+        && e.kind !== "brood" && e.kind !== "curtain" && e.kind !== "anox") e.y -= dy;
     /* 怪物自己的动作：猎手加速上冲咬人，喷吐者保持距离放冷枪，
        剃刀鲸横冲直撞（撞完不消失），圣盾使悬停 + 三连电球 */
     if (e.kind === "hunter") {
@@ -2306,6 +2386,43 @@ function stepPlay(dt) {
       const sp2 = CFG.nullifySpd;
       e.y -= CFG.hunterRush * sp2 * dt;
       e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
+    } else if (e.kind === "brood") {
+      /* 共鸣母体：游到你下方 150px 悬停（不进咬合距离），自己不打人 —— 威胁全在光环上 */
+      e.y += clamp(p.y + 150 - e.y, -CFG.broodRush * dt, CFG.broodRush * dt);
+      e.x += clamp(p.x - e.x, -CFG.broodVX * dt, CFG.broodVX * dt);
+      e.tickT -= dt;
+      if (e.tickT <= 0) {
+        e.tickT = CFG.broodTick;
+        burst(e.x, e.y, 8, "150,255,200");
+        for (const o of ents) {
+          if (o === e || o.dead || !MOB_SET[o.kind] || o.kind === "bolt" || o.kind === "brood") continue;
+          if (Math.hypot(o.x - e.x, o.y - e.y) > CFG.broodAuraR) continue;
+          o.resonT = CFG.broodTick * 1.25;
+          if (o.hp < o.maxHp) {
+            const h = Math.max(1, Math.round(o.maxHp * CFG.broodHeal));
+            o.hp = Math.min(o.maxHp, o.hp + h);
+            popup(o.x, o.y - o.r - 18, "+" + h, "150,255,200");
+          }
+        }
+      }
+    } else if (e.kind === "curtain") {
+      /* 铁幕鲎：甲壳一合一开 —— 合甲期直伤砸不动、烧得动；开甲那 3 秒才是爆发流的窗口 */
+      e.armT -= dt;
+      if (e.armFlash > 0) e.armFlash = Math.max(0, e.armFlash - dt);
+      if (e.armT <= 0) {
+        if (e.armOn) { e.armOn = false; e.armT = CFG.curtainOpenT; e.armFlash = 0.5; popup(e.x, e.y - e.r - 24, "张甲 · 打它", "180,255,235"); }
+        else { e.armOn = true; e.armT = CFG.curtainClose; e.armFlash = 0.5; popup(e.x, e.y - e.r - 24, "合甲 · 烧它", "255,214,120"); }
+        burst(e.x, e.y, 12, e.armOn ? "255,214,120" : "180,255,235");
+      }
+      e.y += clamp(p.y + 40 - e.y, -CFG.curtainRush * dt, CFG.curtainRush * dt);
+      e.x += clamp(p.x - e.x, -CFG.curtainVX * dt, CFG.curtainVX * dt);
+    } else if (e.kind === "anox") {
+      /* 缺氧鲸：悬在你下方 150px 慢慢横向跟着 —— 缺氧带跟着它走。
+         它横向只有 70px/s，你横着加速就能拉出圈（缺氧带半径 230，横向拉开 175px 以上就出圈）。 */
+      e.y += clamp(p.y + 150 - e.y, -CFG.anoxRush * dt, CFG.anoxRush * dt);
+      e.x += clamp(p.x - e.x, -CFG.anoxVX * dt, CFG.anoxVX * dt);
+      e.breathT -= dt;
+      if (e.breathT <= 0) { e.breathT = 1.4; burst(e.x, e.y, 6, "255,140,140"); }
     } else if (e.kind === "lamp") {
       /* 熄灯鮟鱇：不跟水流滚，慢慢挪到你身边 —— 吞光是按距离算的（见视野那段） */
       e.y += clamp(p.y + 135 - e.y, -CFG.lampRush * dt, CFG.lampRush * dt);
@@ -2330,9 +2447,12 @@ function stepPlay(dt) {
     if (e.kind === "bubble" || e.kind === "jelly") {
       if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + rr2 + 2) {
         if (e.kind === "bubble") {
-          const gain = G.m.bubble * Math.max(0.58, 1 - dk * CFG.bubbleLoss);
-          G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
-          popup(e.x, e.y, "+" + Math.round(gain) + " 氧", "150,255,210"); SFX.bubble();
+          if (G.anoxCut) { popup(e.x, e.y, "缺氧 · 吸不进", "255,150,150"); }
+          else {
+            const gain = G.m.bubble * Math.max(0.58, 1 - dk * CFG.bubbleLoss);
+            G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+            popup(e.x, e.y, "+" + Math.round(gain) + " 氧", "150,255,210"); SFX.bubble();
+          }
         }
         else { G.lightBonus = Math.min(CFG.jellyCap, G.lightBonus + G.m.jellyLight); popup(e.x, e.y, "视野 +" + Math.round(G.m.jellyLight), "190,230,255"); SFX.jelly(); }
         burst(e.x, e.y, 10, e.kind === "bubble" ? "150,255,210" : "190,230,255");
@@ -2376,7 +2496,8 @@ function stepPlay(dt) {
       } else {
         hurtPlayer(Math.round(CFG.hitDamage * (1 + dk * CFG.hitGain) * G.m.dmg));
       }
-    } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden" || e.kind === "split" || e.kind === "lamp" || e.kind === "shell" || e.kind === "anchor" || e.kind === "nullify")) {
+    } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden" || e.kind === "split" || e.kind === "lamp" || e.kind === "shell" || e.kind === "anchor" || e.kind === "nullify"
+                                       || e.kind === "brood" || e.kind === "curtain" || e.kind === "anox")) {
       e.cd = Math.max(0, e.cd - dt);
       if (e.cd <= 0) e.hit = false;       // 大家伙咬完一口会绕回来再咬：冷却好了才能咬下一口
     } else if (!e.near && (e.kind === "rock" || e.kind === "cable") && d < rr2 + G.m.nearPad) {
@@ -3491,12 +3612,16 @@ function drawJellyGlow(e) {
    于是每块石头、每条泥鳅在黑暗里都顶着一只紫色水母（探针实测：石头 1479 个紫像素、
    泥鳅 629 个，最亮 rgb(187,159,243) 就是那只假水母的伞边）。 */
 const MOB_SET = { hunter: 1, spitter: 1, reaver: 1, warden: 1, bolt: 1, split: 1, leech: 1, lamp: 1,
-                  shell: 1, anchor: 1, nullify: 1 };   // 后三只是「精英三线」：免疫 / 免控 / 无视无敌
+                  shell: 1, anchor: 1, nullify: 1,
+                  brood: 1, curtain: 1, anox: 1 };   // 后三只是精英三线，再后三只是 2026-09-26 的重装三只
 /* 怪物判定的唯一入口：加一只怪只改 MOB_SET 一处，不再逐个补手写的 kind 列表
    （漏一处的老毛病就是「打上去不疼 / 撞了不掉氧」，这种 bug 找起来最费劲） */
 function mobKind(k) { return !!MOB_SET[k] && k !== "bolt"; }
 /* 接触伤害也收口：吸氧蛭返回 0 —— 它不咬血，它抽氧（吸附逻辑在实体推进里） */
 function contactDmg(e) {
+  if (e.kind === "brood") return CFG.broodDmg;
+  if (e.kind === "curtain") return CFG.curtainDmg;
+  if (e.kind === "anox") return CFG.anoxDmg;
   if (e.kind === "reaver") return CFG.reaverDmg;
   if (e.kind === "split") return CFG.splitDmg * (e.kid ? CFG.splitKidDmg : 1);
   if (e.kind === "lamp") return CFG.lampDmg;
@@ -3522,10 +3647,37 @@ function drawCombatGlow(e) {
   else if (e.kind === "shell") { g.addColorStop(0, "rgba(150,205,215,0.30)"); g.addColorStop(1, "rgba(90,150,165,0)"); }
   else if (e.kind === "anchor") { g.addColorStop(0, "rgba(255,170,90,0.34)"); g.addColorStop(1, "rgba(190,110,40,0)"); }
   else if (e.kind === "nullify") { g.addColorStop(0, "rgba(255,110,190,0.44)"); g.addColorStop(1, "rgba(200,40,140,0)"); }
+  else if (e.kind === "brood") { g.addColorStop(0, "rgba(120,255,190,0.42)"); g.addColorStop(1, "rgba(50,200,130,0)"); }
+  else if (e.kind === "curtain") { g.addColorStop(0, "rgba(255,205,120,0.38)"); g.addColorStop(1, "rgba(215,140,50,0)"); }
+  else if (e.kind === "anox") { g.addColorStop(0, "rgba(255,120,120,0.42)"); g.addColorStop(1, "rgba(185,35,60,0)"); }
   else { g.addColorStop(0, "rgba(180,225,255,0.45)"); g.addColorStop(1, "rgba(120,180,255,0)"); }
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(e.x, e.y, rad, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
+  /* 光环类怪必须把「势力范围」画出来 —— 不然玩家不知道自己是站在圈里被减伤/被断氧 */
+  if (e.kind === "brood" || e.kind === "anox") {
+    const ar = e.kind === "brood" ? CFG.broodAuraR : CFG.anoxR;
+    const col = e.kind === "brood" ? "120,255,190" : "255,120,120";
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    if (e.kind === "anox") {
+      const pulse = 0.5 + 0.5 * Math.sin(G.t * 3.4 + e.seed);
+      const ag = ctx.createRadialGradient(e.x, e.y, ar * 0.3, e.x, e.y, ar);
+      ag.addColorStop(0, "rgba(120,20,40,0.34)");
+      ag.addColorStop(0.8, "rgba(255,90,90," + (0.15 + 0.10 * pulse).toFixed(3) + ")");
+      ag.addColorStop(1, "rgba(255,120,120,0)");
+      ctx.fillStyle = ag;
+      ctx.beginPath(); ctx.arc(e.x, e.y, ar, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.setLineDash([10, 9]);
+    ctx.lineDashOffset = -G.t * 20;
+    ctx.strokeStyle = "rgba(" + col + ",0.45)";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(e.x, e.y, ar, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    text(e.kind === "brood" ? "共鸣" : "缺氧", e.x, e.y - ar - 8, 12, "rgba(" + col + ",0.9)", "center", 600);
+  }
   if (e.kind === "bolt") return;                       // 电球本体在 drawEntity 里已经够亮
   /* 本体轮廓：黑暗里只剩一团糊的话，玩家没法判断该往哪打 */
   const x = e.x, y = e.y;
@@ -3646,6 +3798,74 @@ function drawCombatGlow(e) {
       ctx.lineWidth = 3.4; ctx.stroke();
       ctx.beginPath(); ctx.arc(x, y, R0 * 1.5 + 5, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(255,200,235,0.35)"; ctx.lineWidth = 1.6; ctx.stroke();
+    }
+  } else if (e.kind === "brood") {
+    /* 共鸣母体：圆铃身 + 一圈触须；加持中的同伴会连一条绿线过来（一眼看出谁在被它护着） */
+    const R0 = e.r, puls = 1 + Math.sin(G.t * 2.6 + e.seed) * 0.07;
+    ctx.strokeStyle = "rgba(120,255,190,0.26)"; ctx.lineWidth = 1.2;
+    for (const o of ents) {
+      if (o === e || o.dead || !MOB_SET[o.kind] || o === undefined) continue;
+      if (Math.hypot(o.x - e.x, o.y - e.y) > CFG.broodAuraR) continue;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(o.x, o.y); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x, y, R0 * puls, 0, Math.PI * 2);
+    ctx.fillStyle = e.flash > 0 ? "rgba(235,255,240,0.95)" : "rgba(24,86,62,0.86)"; ctx.fill();
+    ctx.strokeStyle = "rgba(120,255,190,0.95)"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = "rgba(120,255,190,0.62)"; ctx.lineWidth = 1.6;
+    for (let k = 0; k < 7; k++) {
+      const a0 = -Math.PI * 0.15 + k * (Math.PI * 1.3 / 6) + Math.PI * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a0) * R0 * 0.7, y + Math.sin(a0) * R0 * 0.7);
+      ctx.quadraticCurveTo(x + Math.cos(a0) * R0 * 1.5, y + Math.sin(a0) * R0 * 1.5 + Math.sin(G.t * 4 + k) * 4,
+                           x + Math.cos(a0) * R0 * 1.9, y + Math.sin(a0) * R0 * 1.4);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(190,255,220,0.95)";
+    ctx.beginPath(); ctx.arc(x, y - R0 * 0.15, R0 * 0.3, 0, Math.PI * 2); ctx.fill();
+  } else if (e.kind === "curtain") {
+    /* 铁幕鲎：宽扁甲兽 —— 合甲时正面一条厚亮甲带（写着「甲」），张甲时甲带断开露出软腹（写着「软」） */
+    const R0 = e.r;
+    ctx.beginPath();
+    ctx.ellipse(x, y, R0 * 1.25, R0 * 0.9, 0, 0, Math.PI * 2);
+    ctx.fillStyle = e.flash > 0 ? "rgba(255,250,235,0.95)" : "rgba(78,62,26,0.9)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,214,120,0.9)"; ctx.lineWidth = 1.8; ctx.stroke();
+    if (e.armOn) {
+      ctx.beginPath();
+      ctx.moveTo(x - R0 * 1.25, y - R0 * 0.15);
+      ctx.quadraticCurveTo(x, y - R0 * 1.15, x + R0 * 1.25, y - R0 * 0.15);
+      ctx.lineWidth = e.armFlash > 0 ? 9 : 7;
+      ctx.strokeStyle = e.armFlash > 0 ? "rgba(255,252,220,0.95)" : "rgba(255,205,110,0.85)";
+      ctx.stroke();
+      ctx.lineWidth = 2.2; ctx.strokeStyle = "rgba(255,244,200,0.95)"; ctx.stroke();
+      text("甲", x, y - R0 * 1.34, 12, "rgba(255,222,145,0.92)", "center", 700);
+    } else {
+      ctx.strokeStyle = "rgba(180,255,235,0.88)"; ctx.lineWidth = 2.6;
+      ctx.beginPath(); ctx.arc(x, y + R0 * 0.12, R0 * 0.62, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+      text("软", x, y - R0 * 1.34, 12, "rgba(180,255,235,0.92)", "center", 700);
+    }
+    ctx.strokeStyle = "rgba(255,214,120,0.55)"; ctx.lineWidth = 1.6;
+    for (let k = -2; k <= 2; k++) {
+      ctx.beginPath(); ctx.moveTo(x + k * R0 * 0.42, y + R0 * 0.82); ctx.lineTo(x + k * R0 * 0.5, y + R0 * 1.28); ctx.stroke();
+    }
+  } else if (e.kind === "anox") {
+    /* 缺氧鲸：张着大嘴的暗红鲸 —— 咬上来就断氧，圈是它画的 */
+    const R0 = e.r, wob = Math.sin(G.t * 4 + e.seed) * 2;
+    ctx.beginPath();
+    ctx.moveTo(x - R0 * 1.35, y - R0 * 0.55);
+    ctx.quadraticCurveTo(x + R0 * 0.1, y - R0 * 1.15, x + R0 * 1.5, y - R0 * 0.15);
+    ctx.quadraticCurveTo(x + R0 * 0.75, y + R0 * 0.15 + wob, x + R0 * 1.28, y + R0 * 0.78);
+    ctx.quadraticCurveTo(x + R0 * 0.1, y + R0 * 0.98, x - R0 * 1.35, y + R0 * 0.55);
+    ctx.closePath();
+    ctx.fillStyle = e.flash > 0 ? "rgba(255,240,240,0.95)" : "rgba(72,18,26,0.9)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,130,130,0.9)"; ctx.lineWidth = 1.8; ctx.stroke();
+    ctx.fillStyle = "rgba(255,120,120,1)";
+    ctx.beginPath(); ctx.arc(x + R0 * 0.28, y - R0 * 0.38, 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,150,150,0.7)"; ctx.lineWidth = 1.4;
+    for (let k = 0; k < 3; k++) {
+      ctx.beginPath();
+      ctx.moveTo(x + R0 * (0.9 - k * 0.06), y + R0 * (0.02 + k * 0.2));
+      ctx.lineTo(x + R0 * (1.42 - k * 0.05), y + R0 * (0.18 + k * 0.2));
+      ctx.stroke();
     }
   } else if (e.kind === "warden") {
     /* 圣盾使：金钟水母 + 一圈护盾弧（盾开着才画）；蓄力时中央亮起 */
@@ -4388,7 +4608,7 @@ window.__SINK__ = {
   SKILLS, ROUTES, routeNow, flareBurn, lvNeed, skLv, o2MaxNow, boostMulNow, rollChoices, applyPick, aiPick, cardRect, cardHit,
   ents: () => ents, p, probePx, lightR: () => G.lightR,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp,
-  spawnShell, spawnAnchor, spawnNullify, mobKind, contactDmg, entSegDist, hurtPlayer,
+  spawnShell, spawnAnchor, spawnNullify, spawnBrood, spawnCurtain, spawnAnox, anoxNear, mobKind, contactDmg, entSegDist, hurtPlayer,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
