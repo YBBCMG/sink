@@ -9,6 +9,7 @@
 
 
 
+
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#02060d" />
@@ -140,6 +141,11 @@ const CFG = {
      关键：这个窗口**不跟着 afterburn 变长**（那座就是靠「+0.25s 突进时长」把无敌一起拉长的）。
      实测 afterburn 3 级 = 冷却 2.0s / 突进 1.85s → 旧版无敌占比 92%（几乎永动），现在 0.5/2.0 = 25%。 */
   dashInv: 0.5,
+  /* --- 2026-09-26 联机（玩家口径：各自算氧 · 倒下 10s 复活 · 双人时敌方血量与伤害翻倍）---
+     coopMul 只乘「敌方的血量与咬/撞/电伤害」，不乘持续伤害与 O2 百分比类效果
+     （吸血蛭 15%/s 翻倍就是 30%/s，3 秒必死 —— 那不是难度，是耍赖）。
+     这里的倍率只在**真的有客人连上**时生效，单机永远 ×1。 */
+  coopMul: 2, reviveT: 10, reviveO2: 0.5, coopInvuln: 2,
   flareCd: 10.0, flareT: 4.0, flareLight: 620,                // 探照：短时间内把黑暗推开
   /* 深水斜坡（不封顶）：1.2km 以内完全不变 —— 前段手感是玩家点名要保的；
      再深就按 deepSpan 线性加价。没有这一档，强化一多深水就成永动机，
@@ -924,6 +930,9 @@ function startRun(seed) {
   G.actFx.dash = G.actFx.flare = G.actFx.shock = 0;
   G.actFx.sx = G.actFx.sy = 0;
   G.kills = 0; G.o2Kill = 0; G.dashStamp = 0; G.anoxCut = false;
+  p.dead = false; p.reviveT = 0;
+  if (p2.active) { p2.x = W0 / 2; p2.y = CFG.playerY; p2.vx = 0; p2.dead = false; p2.reviveT = 0; p2.invuln = 0; p2.kbHold = 0; o2Set(p2, o2MaxNow()); }
+  NET.snapA = NET.snapB = null;
   G.comboN = 0; G.comboT = -99;                  // 连杀回氧递减：计数 + 上一只的时间戳
   /* --- 新机制的运行时状态：场（zone）/ 骨片 / 层数 / 漩涡 / 白夜光球 / 行灯 / 审判计时 --- */
   G.zones = []; G.shards = []; G.beams = [];
@@ -989,7 +998,7 @@ function entBodyDist(e, x, y) {
   if (e.kind === "cable") return distToSeg(x, y, e.x, e.y - e.len / 2, e.x, e.y + e.len / 2) - e.r;
   return Math.hypot(e.x - x, e.y - y) - e.r;
 }
-function obstacleDist(e) { return entBodyDist(e, p.x, p.y); }
+function obstacleDist(e, q) { const t = q || p; return entBodyDist(e, t.x, t.y); }
 /* 两条线段是否相交（真交点，不含平行重合） */
 function segHit(ax, ay, bx, by, cx, cy, dx2, dy2) {
   const d = (bx - ax) * (dy2 - cy) - (by - ay) * (dx2 - cx);
@@ -1040,14 +1049,15 @@ function killReward(e) {
   stackGain(1);                        // 骨甲（鲸落骨甲）/ 血怒（血鲸之牙）
   if (G.m.voidCd > 0) G.act.q = Math.max(0, G.act.q - G.m.voidCd);          // 虚空回响：击杀减冲击波冷却
   if (G.m.voidCdAll > 0) for (const kk in G.act) G.act[kk] = Math.max(0, G.act[kk] - G.m.voidCdAll);
-  if (G.m.voidO2 > 0) { const g = o2MaxNow() * G.m.voidO2; G.o2 = Math.min(o2MaxNow(), G.o2 + g); }
+  if (G.m.voidO2 > 0) { const g = o2MaxNow() * G.m.voidO2; o2Add(p, g); if (p2.active && !p2.dead) o2Add(p2, g); }
   if (G.m.fis && e.fisK) chainBoom(e, e.fisK, G.m.fis.r, G.m.fis.jump, e.fisDepth || 0);   // 熔核连锁
   /* 连杀递减：距上一只超过 killComboReset 秒就重新满额，否则按 killComboMul 逐只打折 */
   const streak = (G.t - G.comboT <= CFG.killComboReset) ? G.comboN : 0;
   const mul = Math.pow(CFG.killComboMul, streak);
   const gain = o2MaxNow() * G.m.killO2 * mul * (G.anoxCut ? 0 : 1);    // 回的是「上限的 10%」× 连杀系数，深水压力再大也不缩水
   G.comboN = streak + 1; G.comboT = G.t;
-  G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+  o2Add(p, gain);
+  if (p2.active && !p2.dead && !(G.depth >= CFG.anoxFrom && anoxNearFor(p2))) o2Add(p2, gain);
   G.o2Kill += gain;
   popup(e.x, e.y - e.r - 26, "击杀 +" + CFG.killScore + " · " + (G.anoxCut ? "缺氧 · 氧 +0" : "氧 +" + gain.toFixed(1))
     + (streak > 0 && !G.anoxCut ? " ×" + mul.toFixed(2) : ""), "255,215,150");
@@ -1059,7 +1069,8 @@ function healVamp(x, y) {
   if (G.m.vamp <= 0) return;
   if (G.anoxCut) { popup(x, y - 30, "缺氧 · 吸不进", "255,150,150"); return; }
   const gain = o2MaxNow() * G.m.vamp;
-  G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+  o2Add(p, gain);
+  if (p2.active && !p2.dead) o2Add(p2, gain);
   G.o2Kill += gain;
   popup(x, y - 30, "噬血 +" + gain.toFixed(1), "150,255,200");
 }
@@ -1175,10 +1186,10 @@ function hurtEnt(i, e, dmg, tag, raw, isDot) {
   if (ii >= 0) ents.splice(ii, 1);
   return true;
 }
-function fireAttack() {
-  const A = G.aim;
-  const [bx, by] = aimPoint();
-  A.sx = p.x; A.sy = p.y; A.ex = bx; A.ey = by;
+function fireAttack() { const [bx, by] = aimPoint(); return fireAttackFrom(p, G.aim, bx, by); }
+/* 参数化射手的普攻：单机永远走 fireAttack()（src = p、A = G.aim），联机时二号位走 p2 + A2 */
+function fireAttackFrom(src, A, bx, by) {
+  A.sx = src.x; A.sy = src.y; A.ex = bx; A.ey = by;
   A.beam = CFG.beamT;
   const halfw = G.m.atkHalfW;
   let hits = 0;
@@ -1188,7 +1199,7 @@ function fireAttack() {
     for (let i = ents.length - 1; i >= 0; i--) {
       const e = ents[i];
       if (e.kind === "bubble" || e.kind === "jelly" || e.kind === "bolt") continue;
-      if (entSegDist(e, p.x, p.y, ex, ey) > halfw) continue;
+      if (entSegDist(e, src.x, src.y, ex, ey) > halfw) continue;
       const isObst = e.kind === "rock" || e.kind === "cable";
       const d2 = G.m.atkDmg + (isObst ? G.m.atkObst : 0);
       const before = e.hp;
@@ -1402,9 +1413,11 @@ function flareCenter() {
   return { x: p.x, y: p.y, r: G.m.flare };
 }
 /* 光盾 / 回春生效的前提：你得站在自己的光里（白夜之后光在别处，站进去才算） */
-function flareInside() {
+function flareInside(q) {
   const c = flareCenter();
-  return !!c && Math.hypot(p.x - c.x, p.y - c.y) <= c.r + 40;
+  if (!c) return false;
+  const t = q || p;
+  return Math.hypot(t.x - c.x, t.y - c.y) <= c.r + 40;
 }
 /* 照明路线·灼光：探照半径内的怪持续挨烧（0.25s 一跳，不然每帧刷飘字） */
 function flareBurn() {
@@ -1544,6 +1557,7 @@ function t2Trigger() {
   return false;
 }
 function tryActive(k) {
+  if (p.dead) return false;                        // 倒下期间技能点不动
   if (G.state !== "play") return false;
   /* 进阶特判：技能键归路线所有（法师 Q / 战士 E / 灯使 F），进阶要按的键可能不是自己那条 ——
      这几条一律放在路线闸之前，否则「法师按 F 引爆」「战士按 E 射矛」永远按不动。 */
@@ -1611,7 +1625,7 @@ function spawnSpitter() {
 function mobHP(base) {
   const k = clamp((G.depth - CFG.mobHpFrom) / CFG.mobHpSpan, 0, 1);
   const mul = 1 + k * (CFG.mobHpCap - 1);
-  return Math.round(base * mul);
+  return Math.round(base * mul * (NET.connected ? CFG.coopMul : 1));      // 双人：血量 ×2（CFG.coopMul）
 }
 /* 剃刀鲸：2000m+。体型大、血厚、斜插猛冲，撞完不消失 —— 逼你真的挪位置，
    原地站桩放技能会先被它撞掉一层氧。 */
@@ -1692,22 +1706,27 @@ function spawnAnox() {
 }
 /* 缺氧带：站在里面「吸不进氧」。氧气收入的每个入口都要过这一道闸，
    不然就是个假机制（击杀回氧 / 气泡 / 噬血各写各的，漏一个玩家就会发现「说好的断氧呢」）。 */
-function anoxNear() {
+function anoxNear() { return anoxNearFor(p); }
+function anoxNearFor(q) {
   for (const e of ents) {
     if (e.dead || e.kind !== "anox") continue;
-    if (Math.hypot(e.x - p.x, e.y - p.y) < CFG.anoxR) return true;
+    if (Math.hypot(e.x - q.x, e.y - q.y) < CFG.anoxR) return true;
   }
   return false;
 }
-function hurtPlayer(dmg, col, pierce) {
-  if (p.invuln > 0 && !pierce) return false;
+function hurtPlayer(dmg, col, pierce) { return hurtPlayerOn(p, dmg, col, pierce); }
+/* 联机：伤害结算按「挨打的是谁」参数化 —— 减伤层（光盾/骨甲/血怒/破晓）是共享 build，双方都吃；
+   但氧气、无敌帧、飘字位置各算各的 */
+function hurtPlayerOn(q, dmg, col, pierce) {
+  if (q.dead) return false;
+  if (q.invuln > 0 && !pierce) return false;
   /* 破免者的咬：无视无敌帧 —— 突进无敌、受伤无敌帧在它面前都不算 */
-  if (pierce && p.invuln > 0) popup(p.x, p.y - 62, "无视无敌", "255,120,200");
+  if (pierce && q.invuln > 0) popup(q.x, q.y - 62, "无视无敌", "255,120,200");
   /* 照明路线·光盾：探照生效期间伤害打折（白夜之后要站在那片白昼区里才算） */
   if (G.actFx.flare > 0 && G.m.flareShield > 0 && flareInside()) {
     const cut = Math.round(dmg * G.m.flareShield);
     dmg = Math.max(1, dmg - cut);
-    popup(p.x, p.y - 46, "光盾 -" + cut, "210,240,255");
+    popup(q.x, q.y - 46, "光盾 -" + cut, "210,240,255");
   }
   /* 质变·鲸落骨甲：花 1 层骨甲顶掉一大截伤害（层数是拿来花的，不是拿来供的） */
   if (G.mutate === "bone" && G.m.bone && G.bone > 0) {
@@ -1716,12 +1735,12 @@ function hurtPlayer(dmg, col, pierce) {
     /* 进阶·骨甲反噬：花掉的这层当场炸成一圈骨刺（挨打反而清场） */
     if (G.t2 === "boneA" && (G.boneACd || 0) <= 0) {
       G.boneACd = 0.45;                            // 内置冷却：密集挨打不许变成无限骨刺机关枪
-      aoeHit(p.x, p.y, 160, 30, "225,240,255", null);
-      burst(p.x, p.y, 14, "225,240,255");
-      fxRing(p.x, p.y, 22, 160, "225,240,255", 0.32, "ring");       // 骨刺炸开的那圈
+      aoeHit(q.x, q.y, 160, 30, "225,240,255", null);
+      burst(q.x, q.y, 14, "225,240,255");
+      fxRing(q.x, q.y, 22, 160, "225,240,255", 0.32, "ring");       // 骨刺炸开的那圈
     }
-    popup(p.x, p.y - 60, "骨甲 -" + cut + "（剩 " + G.bone + " 层）", "225,240,255");
-    burst(p.x, p.y, 10, "225,240,255");
+    popup(q.x, q.y - 60, "骨甲 -" + cut + "（剩 " + G.bone + " 层）", "225,240,255");
+    burst(q.x, q.y, 10, "225,240,255");
   }
   /* 神器·血鲸之牙：受击掉层 —— 连挨打会把攒的血怒赔光 */
   if (G.m.frenzy && G.frenzy > 0) G.frenzy = Math.max(0, G.frenzy - G.m.frenzy.lose);
@@ -1729,19 +1748,19 @@ function hurtPlayer(dmg, col, pierce) {
   const ck = stackCutK();
   if (ck > 0) {
     const cut = Math.round(dmg * ck);
-    if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(p.x, p.y - 74, "硬壳 -" + cut, "180,255,220"); }
+    if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(q.x, q.y - 74, "硬壳 -" + cut, "180,255,220"); }
   }
   /* 神器·破晓之灯：光越亮你越硬（视野半径 / 100 × 系数，封顶在 cap） */
   if (G.m.dawn) {
     const dk2 = Math.min(G.m.dawn.cap, G.lightR / 100 * G.m.dawn.per);
     const cut = Math.round(dmg * dk2);
-    if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(p.x, p.y - 88, "破晓 -" + cut, "255,245,200"); }
+    if (cut > 0) { dmg = Math.max(1, dmg - cut); popup(q.x, q.y - 88, "破晓 -" + cut, "255,245,200"); }
   }
-  G.o2 -= dmg;
-  p.invuln = G.m.invuln; p.hurtT = 0.4; G.slowT = CFG.hitSlowTime;
+  o2Sub(q, dmg);
+  q.invuln = G.m.invuln; p.hurtT = 0.4; G.slowT = CFG.hitSlowTime;
   G.shakeT = 0.45; G.shakeMag = 13; G.redFlash = 0.9;
-  burst(p.x, p.y, 18, col || "255,150,150");
-  popup(p.x, p.y - 26, "-" + dmg + " 氧", "255,160,160");
+  burst(q.x, q.y, 18, col || "255,150,150");
+  popup(q.x, q.y - 26, "-" + dmg + " 氧", "255,160,160");
   SFX.hit();
   return true;
 }
@@ -2153,7 +2172,7 @@ function stepPlay(dt) {
   const deepMul = 1 + Math.max(0, G.depth - CFG.deepFrom) / CFG.deepSpan;    // 深水不封顶斜坡
   /* 缺氧带（缺氧鲸）：站在圈里吸不进氧 + 每秒额外掉 2.5% 上限 —— 这里只算「多掉的那份」，
      回氧端（气泡 / 击杀 / 噬血）各自过 anoxNear() 那道闸 */
-  G.anoxCut = G.depth >= CFG.anoxFrom && anoxNear();
+  G.anoxCut = G.depth >= CFG.anoxFrom && anoxNearFor(p);
   const drain = CFG.o2Drain * (G.boosting ? CFG.boostDrainMul : 1) * (1 + dk * CFG.drainGain) * G.m.drain * deepMul
     + (G.anoxCut ? o2MaxNow() * CFG.anoxDrain : 0);
   G.o2 -= drain * dt;
@@ -2178,7 +2197,7 @@ function stepPlay(dt) {
 
   /* --- 转向：键盘＝按住踩油门（轻点微调 / 长按全速），鼠标＝比例控制 --- */
   let want = 0;
-  const kdir = (I.right ? 1 : 0) - (I.left ? 1 : 0);
+  const kdir = p.dead ? 0 : ((I.right ? 1 : 0) - (I.left ? 1 : 0));      // 倒下了就只能等复活
   if (kdir) {
     I.kbHold = (I.kbHold || 0) + dt;
     const k = clamp((I.kbHold - CFG.kbHold) / CFG.kbRamp, 0, 1);
@@ -2230,7 +2249,7 @@ function stepPlay(dt) {
   A.y += (A.ty - A.y) * Math.min(1, dt * CFG.aimLerp);
   if (A.beam > 0) A.beam = Math.max(0, A.beam - dt);
   A.cd -= dt;
-  if (A.cd <= 0) { A.cd = G.m.atkEvery; fireAttack(); }
+  if (A.cd <= 0) { A.cd = G.m.atkEvery; if (!p.dead) fireAttack(); }
 
   /* --- 生成 --- */
   const prog = clamp(G.depth / CFG.rowSpan, 0, 1);
@@ -2322,6 +2341,8 @@ function stepPlay(dt) {
   for (let i = ents.length - 1; i >= 0; i--) {
     const e = ents[i];
     if (!e) continue;                 // 连锁爆炸可能已经删过前面的实体，倒序索引会踩空
+    /* 联机：这只怪这帧盯谁（最近的活人）。单机时 p2.active=false → 永远 p —— 老行为一字不改 */
+    const TGT = p2.active ? nearestAlive(e.x, e.y) : p;
     if (e.flash > 0) e.flash = Math.max(0, e.flash - dt);
     if (e.resonT > 0) e.resonT = Math.max(0, e.resonT - dt);      // 共鸣加持：母体每 1.5s 续一次
     /* 电球：自带速度，不跟世界一起滚（它是「扑」过来的，不是「沉」上来的） */
@@ -2329,7 +2350,7 @@ function stepPlay(dt) {
       e.x += e.vx * dt; e.y += e.vy * dt; e.life -= dt;
       if (e.life <= 0 || e.x < -60 || e.x > W0 + 60 || e.y < -60 || e.y > H0 + 60) { ents.splice(i, 1); continue; }
       if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + CFG.playerR) {
-        hurtPlayer(Math.round(CFG.boltDmg * (1 + dk * CFG.hitGain) * G.m.dmg), "190,220,255");
+        hurtPlayer(Math.round(CFG.boltDmg * (1 + dk * CFG.hitGain) * G.m.dmg * coopHit()), "190,220,255");
         burst(e.x, e.y, 8, "170,215,255");
         ents.splice(i, 1);
       }
@@ -2345,14 +2366,14 @@ function stepPlay(dt) {
        剃刀鲸横冲直撞（撞完不消失），圣盾使悬停 + 三连电球 */
     if (e.kind === "hunter") {
       e.y -= CFG.hunterRush * dt;
-      e.x += clamp(p.x - e.x, -CFG.hunterVX * dt, CFG.hunterVX * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.hunterVX * dt, CFG.hunterVX * dt);
     } else if (e.kind === "spitter") {
       e.y -= CFG.spitterRush * dt;
-      e.x += clamp(p.x - e.x, -CFG.spitterVX * dt, CFG.spitterVX * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.spitterVX * dt, CFG.spitterVX * dt);
       e.fireT -= dt;
-      if (e.fireT <= 0 && e.y > p.y + 70 && e.y < H0 + 30) {
+      if (e.fireT <= 0 && e.y > TGT.y + 70 && e.y < H0 + 30) {
         e.fireT = rr(CFG.boltEvery[0], CFG.boltEvery[1]);
-        const a = Math.atan2(p.y - e.y, p.x - e.x);
+        const a = Math.atan2(TGT.y - e.y, TGT.x - e.x);
         ents.push({ kind: "bolt", x: e.x, y: e.y, r: CFG.boltR, vx: Math.cos(a) * CFG.boltSpeed, vy: Math.sin(a) * CFG.boltSpeed, life: 4.5, seed: rnd() * 997 });
         SFX.zap();
       }
@@ -2367,12 +2388,12 @@ function stepPlay(dt) {
       e.x += Math.sin(G.t * 1.4 + e.seed) * 24 * dt;
       e.fireT -= dt;
       if (e.breakT > 0) e.breakT = Math.max(0, e.breakT - dt); else if (e.shieldHp <= 0) { e.shield = true; e.shieldHp = 3; }
-      if (e.fireT <= 0 && e.fanN <= 0 && e.y > p.y + 90 && e.y < H0 + 10) { e.fanN = 3; e.fanT = 0; e.fireT = rr(CFG.wardenFan[0], CFG.wardenFan[1]); }
+      if (e.fireT <= 0 && e.fanN <= 0 && e.y > TGT.y + 90 && e.y < H0 + 10) { e.fanN = 3; e.fanT = 0; e.fireT = rr(CFG.wardenFan[0], CFG.wardenFan[1]); }
       if (e.fanN > 0) {
         e.fanT -= dt;
         if (e.fanT <= 0) {
           e.fanT = 0.22; e.fanN -= 1;
-          const a = Math.atan2(p.y - e.y, p.x - e.x) + rr(-0.16, 0.16);
+          const a = Math.atan2(TGT.y - e.y, TGT.x - e.x) + rr(-0.16, 0.16);
           ents.push({ kind: "bolt", x: e.x, y: e.y, r: CFG.boltR, vx: Math.cos(a) * CFG.boltSpeed, vy: Math.sin(a) * CFG.boltSpeed, life: 4.5, seed: rnd() * 997 });
           SFX.zap();
         }
@@ -2381,13 +2402,13 @@ function stepPlay(dt) {
       /* 裂腹鱼：猎手的胖版 —— 慢一档，幼体快 1.55 倍（追上来的那两条才是真麻烦） */
       const sp = e.kid ? CFG.splitKidSpd : 1;
       e.y -= CFG.splitRush * sp * dt;
-      e.x += clamp(p.x - e.x, -CFG.splitVX * sp * dt, CFG.splitVX * sp * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.splitVX * sp * dt, CFG.splitVX * sp * dt);
     } else if (e.kind === "leech") {
       /* 吸氧蛭：贴上就抽氧。抽的是「氧气上限的 15%/秒」，所以越到深处越要命；
          松口条件：计时到 / 你突进（fx.dash）/ 它被打死。甩完有 1.4s 冷却，不许贴脸秒回。 */
       if (e.on > 0 && e.relT <= 0) {
         e.on -= dt;
-        const tx2 = p.x + e.side * 17, ty2 = p.y + 7 + Math.sin(G.t * 9 + e.seed) * 3;
+        const tx2 = TGT.x + e.side * 17, ty2 = TGT.y + 7 + Math.sin(G.t * 9 + e.seed) * 3;
         e.x += (tx2 - e.x) * Math.min(1, dt * 14);
         e.y += (ty2 - e.y) * Math.min(1, dt * 14);
         G.o2 -= o2MaxNow() * CFG.leechDrain * dt;
@@ -2405,10 +2426,10 @@ function stepPlay(dt) {
         e.x += e.side * 130 * dt;
       } else {
         e.y -= CFG.leechRush * dt;
-        e.x += clamp(p.x - e.x, -CFG.leechVX * dt, CFG.leechVX * dt);
-        if (p.invuln <= 0 && Math.hypot(e.x - p.x, e.y - p.y) < e.r + CFG.playerR + 4) {
+        e.x += clamp(TGT.x - e.x, -CFG.leechVX * dt, CFG.leechVX * dt);
+        if (TGT.invuln <= 0 && Math.hypot(e.x - TGT.x, e.y - TGT.y) < e.r + CFG.playerR + 4) {
           e.on = CFG.leechHold; e.side = rnd() < 0.5 ? -1 : 1; e.popT = 0;
-          popup(p.x, p.y - 36, "吸附!", "255,140,190");
+          popup(TGT.x, TGT.y - 36, "吸附!", "255,140,190");
           burst(e.x, e.y, 10, "255,150,200"); SFX.zap();
         }
       }
@@ -2420,12 +2441,12 @@ function stepPlay(dt) {
       }
       const sp2 = CFG.shellSpd;
       e.y -= CFG.hunterRush * sp2 * dt;
-      e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
     } else if (e.kind === "anchor") {
       /* 锚鲸：匀速下坠式逼近，拐弯很笨（免控的代价是它自己也转不动） */
       const sp2 = CFG.anchorSpd;
       e.y -= CFG.hunterRush * sp2 * dt;
-      e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * 0.55 * dt, CFG.hunterVX * sp2 * 0.55 * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.hunterVX * sp2 * 0.55 * dt, CFG.hunterVX * sp2 * 0.55 * dt);
     } else if (e.kind === "nullify") {
       /* 破免者：壳一亮一灭（灭的时候才打得动），追得最紧 */
       e.shellT -= dt;
@@ -2438,11 +2459,11 @@ function stepPlay(dt) {
       }
       const sp2 = CFG.nullifySpd;
       e.y -= CFG.hunterRush * sp2 * dt;
-      e.x += clamp(p.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.hunterVX * sp2 * dt, CFG.hunterVX * sp2 * dt);
     } else if (e.kind === "brood") {
       /* 共鸣母体：游到你下方 150px 悬停（不进咬合距离），自己不打人 —— 威胁全在光环上 */
-      e.y += clamp(p.y + 150 - e.y, -CFG.broodRush * dt, CFG.broodRush * dt);
-      e.x += clamp(p.x - e.x, -CFG.broodVX * dt, CFG.broodVX * dt);
+      e.y += clamp(TGT.y + 150 - e.y, -CFG.broodRush * dt, CFG.broodRush * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.broodVX * dt, CFG.broodVX * dt);
       e.tickT -= dt;
       if (e.tickT <= 0) {
         e.tickT = CFG.broodTick;
@@ -2467,19 +2488,19 @@ function stepPlay(dt) {
         else { e.armOn = true; e.armT = CFG.curtainClose; e.armFlash = 0.5; popup(e.x, e.y - e.r - 24, "合甲 · 烧它", "255,214,120"); }
         burst(e.x, e.y, 12, e.armOn ? "255,214,120" : "180,255,235");
       }
-      e.y += clamp(p.y + 40 - e.y, -CFG.curtainRush * dt, CFG.curtainRush * dt);
-      e.x += clamp(p.x - e.x, -CFG.curtainVX * dt, CFG.curtainVX * dt);
+      e.y += clamp(TGT.y + 40 - e.y, -CFG.curtainRush * dt, CFG.curtainRush * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.curtainVX * dt, CFG.curtainVX * dt);
     } else if (e.kind === "anox") {
       /* 缺氧鲸：悬在你下方 150px 慢慢横向跟着 —— 缺氧带跟着它走。
          它横向只有 70px/s，你横着加速就能拉出圈（缺氧带半径 230，横向拉开 175px 以上就出圈）。 */
-      e.y += clamp(p.y + 150 - e.y, -CFG.anoxRush * dt, CFG.anoxRush * dt);
-      e.x += clamp(p.x - e.x, -CFG.anoxVX * dt, CFG.anoxVX * dt);
+      e.y += clamp(TGT.y + 150 - e.y, -CFG.anoxRush * dt, CFG.anoxRush * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.anoxVX * dt, CFG.anoxVX * dt);
       e.breathT -= dt;
       if (e.breathT <= 0) { e.breathT = 1.4; burst(e.x, e.y, 6, "255,140,140"); }
     } else if (e.kind === "lamp") {
       /* 熄灯鮟鱇：不跟水流滚，慢慢挪到你身边 —— 吞光是按距离算的（见视野那段） */
-      e.y += clamp(p.y + 135 - e.y, -CFG.lampRush * dt, CFG.lampRush * dt);
-      e.x += clamp(p.x - e.x, -CFG.lampVX * dt, CFG.lampVX * dt);
+      e.y += clamp(TGT.y + 135 - e.y, -CFG.lampRush * dt, CFG.lampRush * dt);
+      e.x += clamp(TGT.x - e.x, -CFG.lampVX * dt, CFG.lampVX * dt);
       e.popT = (e.popT || 0) - dt;
       if (G.lightEat > 0.05 && e.popT <= 0) { e.popT = 1.4; popup(e.x, e.y - e.r - 26, "吞光 " + Math.round(G.lightEat * 100) + "%", "190,160,255"); }
     }
@@ -2489,21 +2510,31 @@ function stepPlay(dt) {
        （实测：正上方 90px 的气泡最近只到 96px 就出屏了）。收拢量按剩余距离比例
        （每秒 6 倍），越近拽得越紧，也不会过冲。 */
     if (G.m.magnet > 0 && (e.kind === "bubble" || e.kind === "jelly")) {
-      const mdx = p.x - e.x, mdy = p.y - e.y;
+      const mdx = TGT.x - e.x, mdy = TGT.y - e.y;
       if (Math.hypot(mdx, mdy) < G.m.magnet) {
         const mk = Math.min(1, dt * 6);
         e.x += mdx * mk; e.y += mdy * mk;
       }
     }
-    const d = obstacleDist(e);
+    /* 联机：这一帧「最近的那个活人」和到他的距离。单机时 party() 只有 p —— 数值与老版完全一致 */
+    let d = 1e9, HITQ = p;
+    for (const q of party()) {
+      if (q.dead) continue;
+      const dd = obstacleDist(e, q);
+      if (dd < d) { d = dd; HITQ = q; }
+    }
     const rr2 = CFG.playerR;
     if (e.kind === "bubble" || e.kind === "jelly") {
-      if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + rr2 + 2) {
+      /* 资源：谁碰到算谁的（各捡各的 —— 玩家口径「氧气要各自算」） */
+      const picker = !p.dead && Math.hypot(e.x - p.x, e.y - p.y) < e.r + rr2 + 2 ? p
+                   : (p2.active && !p2.dead && Math.hypot(e.x - p2.x, e.y - p2.y) < e.r + rr2 + 2 ? p2 : null);
+      if (picker) {
         if (e.kind === "bubble") {
-          if (G.anoxCut) { popup(e.x, e.y, "缺氧 · 吸不进", "255,150,150"); }
+          const cut = G.depth >= CFG.anoxFrom && anoxNearFor(picker);
+          if (cut) { popup(e.x, e.y, "缺氧 · 吸不进", "255,150,150"); }
           else {
             const gain = G.m.bubble * Math.max(0.58, 1 - dk * CFG.bubbleLoss);
-            G.o2 = Math.min(o2MaxNow(), G.o2 + gain);
+            o2Add(picker, gain);
             popup(e.x, e.y, "+" + Math.round(gain) + " 氧", "150,255,210"); SFX.bubble();
           }
         }
@@ -2536,19 +2567,19 @@ function stepPlay(dt) {
       }
       ramOnHit(e, diedM);
       continue;
-    } else if (d < rr2 && (p.invuln <= 0 || e.kind === "nullify") && !e.hit && !(e.pullImm > 0) && e.kind !== "leech") {
+    } else if (d < rr2 && (HITQ.invuln <= 0 || e.kind === "nullify") && !e.hit && !(e.pullImm > 0) && e.kind !== "leech") {
       /* pullImm：正被虚空奇点拽着的怪不撞人（玩家口径「拉过来把自己撞死」）；
          只有「真被拽过来」的才算 —— 血量不够、被奇点直接打死的那些不吃这个豁免 */
       e.hit = true;
       const isMob2 = mobKind(e.kind);
       if (isMob2) {
         /* 咬人结算：猎手/电袭者同归于尽；剃刀鲸/圣盾使活着走开（e.cd 冷却后再咬） */
-        const dmg = Math.round(contactDmg(e) * (1 + dk * CFG.hitGain) * G.m.dmg);
-        hurtPlayer(dmg, e.kind === "reaver" ? "255,190,120" : "255,150,120", e.kind === "nullify");
+        const dmg = Math.round(contactDmg(e) * (1 + dk * CFG.hitGain) * G.m.dmg * coopHit());
+        hurtPlayerOn(HITQ, dmg, e.kind === "reaver" ? "255,190,120" : "255,150,120", e.kind === "nullify");
         if (e.kind === "hunter" || e.kind === "spitter") { burst(e.x, e.y, 20, "255,140,110"); ents.splice(i, 1); }
         else e.cd = 1.2;
       } else {
-        hurtPlayer(Math.round(CFG.hitDamage * (1 + dk * CFG.hitGain) * G.m.dmg));
+        hurtPlayerOn(HITQ, Math.round(CFG.hitDamage * (1 + dk * CFG.hitGain) * G.m.dmg * coopHit()));
       }
     } else if (e.cd > 0 && e.hit && (e.kind === "reaver" || e.kind === "warden" || e.kind === "split" || e.kind === "lamp" || e.kind === "shell" || e.kind === "anchor" || e.kind === "nullify"
                                        || e.kind === "brood" || e.kind === "curtain" || e.kind === "anox")) {
@@ -2557,12 +2588,522 @@ function stepPlay(dt) {
     } else if (!e.near && (e.kind === "rock" || e.kind === "cable") && d < rr2 + G.m.nearPad) {
       e.near = true;
       G.bonus += G.m.nearBonus;
-      popup(p.x + (e.x > p.x ? 30 : -30), p.y - 20, "擦身 +" + G.m.nearBonus, "255,225,150");
+      popup(HITQ.x + (e.x > HITQ.x ? 30 : -30), HITQ.y - 20, "擦身 +" + G.m.nearBonus, "255,225,150");
       SFX.nomiss();
     }
   }
 
-  if (G.o2 <= 0) { G.o2 = 0; gameOver(); }
+  /* --- 联机：二号位（客人的小人）+ 各自的氧 + 各自的倒下/复活 --- */
+  if (p2.active) {
+    coopHostStep(dt);
+    if (!p2.dead) {
+      const anox2 = (G.depth >= CFG.anoxFrom && anoxNearFor(p2));
+      o2Sub(p2, (drain + (anox2 ? o2MaxNow() * CFG.anoxDrain : 0)) * dt);
+      if (o2Get(p2) <= 0) { o2Set(p2, 0); killPlayer(p2); }
+    }
+  }
+  if (G.o2 <= 0) { G.o2 = 0; killPlayer(p); }
+  reviveTick(p, dt);
+}
+
+/* ========================= 12. 联机 · 实时同屏合作（WebRTC 点对点）=========================
+   2026-09-26 玩家口径「能做联机功能吗」→ 选「实时同屏合作」，随后又补了三条硬规矩：
+     ① 氧气各自算（谁捡的谁喝，各背各的瓶子）
+     ② 倒下的玩家 10s 后自动复活（两条命各算各的，同时倒下才结束）
+     ③ 代价：双人模式下敌方的**血量与伤害都是单人的两倍**（CFG.coopMul）
+   架构：**房主跑全量模拟**（一切数值只有一份），客人只送操作、收快照、自己插值渲染 ——
+        客人不跑第二份物理，所以不会出现「两边怪的位置不一样」这种经典同步灾难。
+   信令：默认走 ntfy.sh 公共主题（房间码 = 主题名，不需要我们养服务器）；
+        也可以切「手动模式」纯复制粘贴 SDP，全程不碰第三方（探针就走这条路，可离线自测）。
+   节奏：快照 15Hz · 操作 30Hz · ping 1Hz。实体按 nid 配对做插值，丢帧不闪。
+   已知边界（M2 待做）：客人的技能键（Q/E/F）还没接、卡牌由房主选、断线不自动重连。
+*/
+const NET = {
+  on: false, role: null, code: "", pc: null, dc: null, connected: false,
+  rtt: 0, lastPing: 0, lastInput: 0, lastSnap: 0,
+  snapA: null, snapB: null, nidSeq: 0, err: "", log: "", manual: false,
+  in: { l: 0, p: null, ax: W0 / 2, ay: CFG.playerY + 200, b: 0 },
+  sigES: null, token: Math.random().toString(36).slice(2, 8), lastSk: ""
+};
+/* 二号位（客人）的小人：没客人时 active=false，一切按单机跑，零行为变化 */
+const p2 = { x: W0 / 2, y: CFG.playerY, vx: 0, invuln: 0, hurtT: 0, o2: CFG.o2Max, dead: false,
+             reviveT: 0, kbHold: 0, active: false, name: "潜伴", ghost: 0 };
+const A2 = { x: W0 / 2, y: CFG.playerY + CFG.atkReach, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0, beamDmg: 0 };
+const ICE_CFG = { iceServers: [
+  { urls: "stun:stun.l.google.com:19302" },
+  /* 对称 NAT（手机热点、部分公司网）下必须靠中继才能连通。这是公共免费 TURN，不保证长期可用；
+     介意流量过第三方就删掉它，代价是那部分网络环境连不上（或者自己搭 coturn）。 */
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" }
+] };
+
+/* ---------- 双人规则的地基：谁是活的、氧气在谁身上、死了怎么复活 ---------- */
+function coopHit() { return NET.connected ? CFG.coopMul : 1; }         // 咬 / 撞 / 电 的伤害倍率
+function o2Get(q) { return q === p ? G.o2 : q.o2; }
+function o2Set(q, v) { const m = o2MaxNow(); if (q === p) G.o2 = clamp(v, 0, m); else q.o2 = clamp(v, 0, m); }
+function o2Sub(q, v) { o2Set(q, o2Get(q) - v); }
+function o2Add(q, v) { o2Set(q, o2Get(q) + v); }
+function party() { return p2.active ? [p, p2] : [p]; }
+function aliveParty() { return party().filter((q) => !q.dead); }
+/* 怪的索敌：盯最近的活人（单机时永远返回 p —— 老行为一字不改） */
+function nearestAlive(x, y) {
+  let best = p, bd = 1e9;
+  for (const q of party()) {
+    if (q.dead) continue;
+    const d = Math.hypot(q.x - x, q.y - y);
+    if (d < bd) { bd = d; best = q; }
+  }
+  return best;
+}
+function killPlayer(q) {
+  if (q.dead) return;
+  q.dead = true; q.reviveT = CFG.reviveT; q.vx = 0;
+  popup(q.x, q.y - 70, (q === p ? "你倒下了" : "潜伴倒下了") + " · " + CFG.reviveT + "s 后复活", "255,140,140");
+  burst(q.x, q.y, 26, "255,150,150");
+  if (aliveParty().length === 0) gameOver();          // 全灭才算结束（双人：同时倒下）
+}
+function reviveTick(q, dt) {
+  if (!q.dead) return;
+  q.reviveT -= dt;
+  if (q.reviveT <= 0) {
+    q.dead = false;
+    o2Set(q, o2MaxNow() * CFG.reviveO2);
+    q.invuln = Math.max(q.invuln, CFG.coopInvuln);
+    popup(q.x, q.y - 70, q === p ? "你回来了" : "潜伴回来了", "150,255,200");
+    burst(q.x, q.y, 30, "150,255,220");
+  }
+}
+/* 二号位的移动：跟本体同一套「轻点微调 / 长按全速 / 鼠标比例控制」，只是输入来自网络 */
+function moveSide(pl, inp, dt) {
+  let want = 0;
+  const kdir = inp.l | 0;
+  if (kdir) {
+    pl.kbHold = (pl.kbHold || 0) + dt;
+    const k = clamp((pl.kbHold - CFG.kbHold) / CFG.kbRamp, 0, 1);
+    const ease = k * k * (3 - 2 * k);
+    want = kdir * CFG.maxVX * (CFG.kbTapMul + (1 - CFG.kbTapMul) * ease);
+  } else {
+    pl.kbHold = 0;
+    if (inp.p != null) want = clamp((inp.p - pl.x) * (G.m ? G.m.steer : 4), -CFG.maxVX, CFG.maxVX);
+  }
+  if (want > 0) want *= clamp((CFG.xMax - pl.x) / CFG.kbSoftEdge, 0, 1);
+  else if (want < 0) want *= clamp((pl.x - CFG.xMin) / CFG.kbSoftEdge, 0, 1);
+  pl.vx += (want - pl.vx) * Math.min(1, dt * (kdir ? CFG.kbAccel : (G.m ? G.m.accel : 8)));
+  pl.x += pl.vx * dt;
+  if (pl.x < CFG.xMin) { pl.x = CFG.xMin; pl.vx = 0; }
+  if (pl.x > CFG.xMax) { pl.x = CFG.xMax; pl.vx = 0; }
+}
+function aimAt(src, A, reach) {
+  let tx = clamp(A.x, 14, W0 - 14), ty = clamp(A.y, 70, H0 - 12);
+  const dx = tx - src.x, dy = ty - src.y, L = Math.hypot(dx, dy);
+  if (L > reach) { tx = src.x + (dx / L) * reach; ty = src.y + (dy / L) * reach; }
+  return [tx, ty];
+}
+/* 房主侧：把客人送来的操作跑成二号位（移动 + 自动瞄准射击 + 复活计时） */
+function coopHostStep(dt) {
+  if (!p2.active) return;
+  reviveTick(p2, dt);
+  if (p2.dead) return;
+  moveSide(p2, NET.in, dt);
+  A2.x = NET.in.ax; A2.y = NET.in.ay;
+  if (A2.beam > 0) A2.beam = Math.max(0, A2.beam - dt);
+  A2.cd -= dt;
+  if (A2.cd <= 0) {
+    A2.cd = G.m.atkEvery;
+    const [ex, ey] = aimAt(p2, A2, CFG.atkReach);
+    fireAttackFrom(p2, A2, ex, ey);
+  }
+  if (p2.invuln > 0) p2.invuln = Math.max(0, p2.invuln - dt);
+  p2.hurtT = Math.max(0, p2.hurtT - dt);
+}
+
+/* ---------- 快照 ---------- */
+function netPackEnt(e) {
+  if (e.nid === undefined) e.nid = ++NET.nidSeq;
+  const f = (e.flash > 0 ? 1 : 0) | (e.shield && e.breakT <= 0 ? 2 : 0) | (e.armOn ? 4 : 0) | (e.kid ? 8 : 0)
+          | (e.invT > 0 ? 16 : 0) | (e.dead ? 32 : 0) | ((e.vx || 0) >= 0 ? 64 : 0) | (e.pinT > 0 ? 128 : 0);
+  return [e.nid, e.kind, Math.round(e.x), Math.round(e.y), Math.round(e.r), Math.round(e.hp),
+          Math.round(e.maxHp || e.hp), f, Math.round(e.seed || 0), Math.round(e.seal || 0), Math.round(e.shellT || 0)];
+}
+function netSnapBuild() {
+  const S = {
+    t: performance.now() | 0, st: G.state, d: Math.round(G.depth), sp: Math.round(G.speed),
+    o2: +G.o2.toFixed(1), lr: Math.round(G.lightR), lb: Math.round(G.lightBonus), le: +(G.lightEat || 0).toFixed(2),
+    bn: Math.round(G.bonus), lv: G.level, kn: G.kills, ac: [+G.act.q.toFixed(1), +G.act.e.toFixed(1), +G.act.f.toFixed(1)],
+    mu: G.mutate || "", t2: G.t2 || "", sk: G.sk,
+    a: [Math.round(p.x), Math.round(p.y), +p.invuln.toFixed(1), p.dead ? 1 : 0, +p.reviveT.toFixed(1)],
+    b: [Math.round(p2.x), Math.round(p2.y), +p2.invuln.toFixed(1), p2.dead ? 1 : 0, +p2.reviveT.toFixed(1), +o2Get(p2).toFixed(1)],
+    ab: [+A2.beam.toFixed(2), Math.round(A2.sx), Math.round(A2.sy), Math.round(A2.ex), Math.round(A2.ey)],
+    e: [], z: []
+  };
+  for (const e of ents) S.e.push(netPackEnt(e));
+  for (const z of G.zones) S.z.push([z.type, Math.round(z.x), Math.round(z.y), Math.round(z.r || 0), +(z.life || 0).toFixed(1),
+                                     z.col || "", z.nx === undefined ? null : +z.nx.toFixed(2), z.ny === undefined ? null : +z.ny.toFixed(2)]);
+  return S;
+}
+/* 客人侧：解包 → 按 nid 配对插值 → 写进本地世界（渲染代码一个字都不用改） */
+const NET_ENT_MAP = new Map();
+function netEntFrom(arr, prev) {
+  const [nid, kind, x, y, r, hp, maxHp, f, seed, seal, shellT] = arr;
+  let o = NET_ENT_MAP.get(nid);
+  if (!o) { o = { nid: nid }; NET_ENT_MAP.set(nid, o); }
+  if (prev) { o.px = prev[2]; o.py = prev[3]; } else { o.px = x; o.py = y; }
+  o.kind = kind; o.x = x; o.y = y; o.r = r; o.hp = hp; o.maxHp = maxHp; o.seed = seed; o.seal = seal; o.shellT = shellT;
+  o.flash = (f & 1) ? 0.16 : 0;
+  o.shield = !!(f & 2); o.breakT = 0; o.shieldHp = 1;
+  o.armOn = !!(f & 4); o.armFlash = 0; o.kid = !!(f & 8); o.invT = (f & 16) ? 0.5 : 0;
+  o.dead = !!(f & 32); o.vx = (f & 64) ? 1 : -1; o.pinT = (f & 128) ? 1 : 0;
+  o.near = false; o.chip = 0; o.dashS = 0;
+  return o;
+}
+function netApplySnap() {
+  const A = NET.snapA, B = NET.snapB;
+  if (!B) return;
+  const sb = B.s, sa = A ? A.s : null;
+  const span = A ? Math.max(1, B.t - A.t) : 1;
+  const a = A ? clamp((performance.now() - 120 - A.t) / span, 0, 1) : 1;
+  const L = (k, d) => {
+    if (!sa) return sb[k] === undefined ? d : sb[k];
+    const v1 = sa[k], v2 = sb[k];
+    return (typeof v1 === "number" && typeof v2 === "number") ? v1 + (v2 - v1) * a : (v2 === undefined ? d : v2);
+  };
+  /* 世界标量 */
+  G.state = sb.st; G.depth = L("d", G.depth); G.speed = L("sp", G.speed);
+  G.lightR = L("lr", G.lightR); G.lightBonus = L("lb", G.lightBonus); G.lightEat = L("le", 0);
+  G.bonus = L("bn", G.bonus); G.level = sb.lv; G.kills = sb.kn;
+  for (let k = 0; k < 3; k++) {
+    const key = ["q", "e", "f"][k];
+    G.act[key] = sa ? (sa.ac[k] + (sb.ac[k] - sa.ac[k]) * a) : sb.ac[k];
+  }
+  if (NET.lastSk !== JSON.stringify(sb.sk) || G.mutate !== sb.mu || G.t2 !== sb.t2) {
+    NET.lastSk = JSON.stringify(sb.sk);
+    G.mutate = sb.mu || null; G.t2 = sb.t2 || null; G.sk = JSON.parse(NET.lastSk);
+    recalcMods();
+  }
+  /* 房主（远端）那个小人 */
+  const pa = sa ? sa.a : sb.a, pb = sb.a;
+  p.x = pa[0] + (pb[0] - pa[0]) * a; p.y = pa[1] + (pb[1] - pa[1]) * a;
+  p.invuln = pb[2]; p.dead = !!pb[3]; p.reviveT = pb[4] || 0;
+  p.o2 = L("o2", 100);                                   // 队友的氧（HUD 第二条读它）
+  G.o2 = L("o2b", G.o2);                                 // 我自己的氧 = 二号位那瓶（HUD 主条读它）
+  /* 我自己那个小人（客人 = 二号位） */
+  const ba = sa ? sa.b : sb.b, bb = sb.b;
+  const tgtX = ba[0] + (bb[0] - ba[0]) * a, tgtY = ba[1] + (bb[1] - ba[1]) * a;
+  if (Math.abs(p2.x - tgtX) > 60) p2.x = tgtX; else p2.x += (tgtX - p2.x) * 0.18;   // 本地预测为主，误差大了才纠
+  p2.y = tgtY; p2.invuln = bb[2]; p2.dead = !!bb[3]; p2.reviveT = bb[4] || 0; p2.o2 = bb[5];
+  /* 实体：按 nid 配对插值 */
+  const list = [];
+  for (let i = 0; i < sb.e.length; i++) {
+    const arr = sb.e[i];
+    const prev = sa ? sa.e.find((q) => q[0] === arr[0]) : null;
+    const o = netEntFrom(arr, prev);
+    o.x = o.px + (arr[2] - o.px) * a; o.y = o.py + (arr[3] - o.py) * a;
+    list.push(o);
+  }
+  ents.length = 0;
+  for (const o of list) ents.push(o);
+  /* 场：直接照抄（不用插值，踩在上面看不出抖） */
+  G.zones.length = 0;
+  for (const z of sb.z) {
+    G.zones.push({ type: z[0], x: z[1], y: z[2], r: z[3], life: z[4], col: z[5],
+                   nx: z[6] === null ? undefined : z[6], ny: z[7] === null ? undefined : z[7] });
+  }
+}
+/* 客人侧的每帧：不跑模拟，只跑纯视觉系统 + 套快照 + 本地预测自己的小人 */
+function netGuestFrame(dt) {
+  G.t += dt;
+  updateSnow(dt); updateParticles(dt); updateFxRings(dt); updatePopups(dt);
+  if (G.shakeT > 0) G.shakeT = Math.max(0, G.shakeT - dt);
+  if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 3.2);
+  if (G.redFlash > 0) G.redFlash = Math.max(0, G.redFlash - dt * 2.2);
+  if (G.state === "play" && G.m && !p2.dead) {
+    /* 本地预测：自己的小人先动起来（不等房主回包），快照回来再小幅校正 */
+    const inp = { l: (G.input.right ? 1 : 0) - (G.input.left ? 1 : 0),
+                  p: G.input.ptrActive ? G.input.ptrX : null, ax: G.aim.x, ay: G.aim.y, b: G.boosting ? 1 : 0 };
+    NET.in = inp;
+    moveSide(p2, inp, dt);
+    A2.x = G.aim.x; A2.y = G.aim.y;
+    if (A2.beam > 0) A2.beam = Math.max(0, A2.beam - dt);
+    A2.cd -= dt;
+    if (A2.cd <= 0) {                                   // 只画光束，伤害由房主算
+      A2.cd = G.m.atkEvery;
+      const [ex, ey] = aimAt(p2, A2, CFG.atkReach);
+      A2.sx = p2.x; A2.sy = p2.y; A2.ex = ex; A2.ey = ey; A2.beam = CFG.beamT;
+    }
+    if (p2.invuln > 0) p2.invuln = Math.max(0, p2.invuln - dt);
+  }
+  if (!NET.connected) return;                            // 还没连上：先只跑视觉，等握手
+  netApplySnap();
+  /* 操作上行 30Hz */
+  if (performance.now() - NET.lastInput >= 33) {
+    NET.lastInput = performance.now();
+    netSend({ k: "i", l: NET.in.l, x: Math.round(NET.in.ax), y: Math.round(NET.in.ay), b: NET.in.b, p: NET.in.p === null ? null : Math.round(NET.in.p) });
+  }
+}
+/* 房主侧的每帧：p2 由 stepPlay 里的 coopHostStep 跑，这里只负责下行快照 + ping */
+function netHostTick(dt) {
+  if (!NET.connected) return;
+  if (performance.now() - NET.lastSnap >= 66) { NET.lastSnap = performance.now(); netSend({ k: "s", s: netSnapBuild() }); }
+  if (performance.now() - NET.lastPing >= 1000) { NET.lastPing = performance.now(); netSend({ k: "p", t: performance.now() | 0 }); }
+}
+
+/* ---------- 传输 ---------- */
+function netSend(obj) {
+  if (NET.dc && NET.dc.readyState === "open") { try { NET.dc.send(JSON.stringify(obj)); } catch (e) { NET.err = "发送失败"; } }
+}
+function netLog(s) { NET.log = s; const el = document.getElementById("netStatus"); if (el) el.textContent = s; }
+function netWire(pc, isHost) {
+  pc.onconnectionstatechange = () => {
+    const st = pc.connectionState;
+    NET.connected = st === "connected";
+    if (!isHost) p2.active = false;                      // 客人的小人由房主模拟，自己这边只画
+    netLog(netLogText());
+  };
+  if (isHost) {
+    pc.ondatachannel = null;
+  } else {
+    pc.ondatachannel = (ev) => { NET.dc = ev.channel; netWireDC(); };
+  }
+}
+function netWireDC() {
+  if (!NET.dc) return;
+  NET.dc.onopen = () => {
+    NET.connected = true;
+    p2.active = true;                      // 二号位登场（房主负责模拟它，客人只画它）
+    p2.dead = false; p2.reviveT = 0; o2Set(p2, o2MaxNow() * 0.75);
+    popup(p.x, p.y - 90, "潜伴已连接 · 双人难度 ×" + CFG.coopMul, "150,255,200");
+    netLog(netLogText());
+  };
+  NET.dc.onclose = () => { NET.connected = false; p2.active = false; netLog(netLogText()); };
+  NET.dc.onmessage = (ev) => {
+    let m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.k === "s") { NET.snapA = NET.snapB; NET.snapB = { s: m.s, t: performance.now() }; }
+    else if (m.k === "i") { NET.in = { l: m.l | 0, p: m.p === null ? null : m.p, ax: m.x, ay: m.y, b: m.b | 0 }; }
+    else if (m.k === "p") { NET.rtt = Math.max(0, (performance.now() | 0) - m.t); netSend({ k: "q", t: m.t }); }
+    else if (m.k === "q") { NET.rtt = Math.max(0, (performance.now() | 0) - m.t); }
+  };
+}
+function netLogText() {
+  if (!NET.on) return "未联机";
+  const role = NET.role === "host" ? "房主" : "客人";
+  if (!NET.connected) return role + " · 房间 " + NET.code + " · 等待连接…";
+  return role + " · 房间 " + NET.code + " · 已连接 · " + NET.rtt + "ms" + (NET.role === "host" ? " · 双人难度 ×" + CFG.coopMul : "");
+}
+async function netWaitIce(pc, ms) {
+  if (pc.iceGatheringState === "complete") return;
+  await new Promise((res) => {
+    const t = setTimeout(res, ms || 2500);
+    pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === "complete") { clearTimeout(t); res(); } };
+  });
+}
+/* ---------- 信令：ntfy.sh 公共主题（房间码当主题名） ---------- */
+const netTopic = (code) => "sink-" + code + "-r1";
+async function netPub(code, obj) {
+  try {
+    const r = await fetch("https://ntfy.sh/" + netTopic(code), { method: "POST", body: JSON.stringify(obj) });
+    return r.ok;
+  } catch (e) { NET.err = "信令发送失败（网络被挡？可切手动模式）"; return false; }
+}
+function netSub(code, onMsg) {
+  try {
+    if (NET.sigES) NET.sigES.close();
+    const es = new EventSource("https://ntfy.sh/" + netTopic(code) + "/sse");
+    es.onmessage = (ev) => {
+      try { const d = JSON.parse(ev.data); if (!d.message) return; const m = JSON.parse(d.message); if (m.tk !== NET.token) onMsg(m); } catch (e) {}
+    };
+    es.onerror = () => { NET.err = "信令通道异常（可切手动模式）"; };
+    NET.sigES = es;
+  } catch (e) { NET.err = "信令订阅失败：" + e.message; }
+}
+function netCode() {
+  const AB = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++) s += AB[Math.floor(Math.random() * AB.length)];
+  return s;
+}
+/* ---------- 建连：房主 / 客人（自动 + 手动两套入口，走的是同一份 SDP 逻辑） ---------- */
+async function netHostCreate(code, manual) {
+  netClose(true);
+  NET.on = true; NET.role = "host"; NET.code = code; NET.manual = !!manual;
+  NET.pc = new RTCPeerConnection(ICE_CFG);
+  NET.dc = NET.pc.createDataChannel("sink", { ordered: true });
+  netWireDC();
+  netWire(NET.pc, true);
+  const offer = await NET.pc.createOffer();
+  await NET.pc.setLocalDescription(offer);
+  await netWaitIce(NET.pc);
+  if (!manual) {
+    netSub(code, async (m) => {
+      if (m.k === "hello") { await netPub(code, { k: "off", tk: NET.token, sdp: NET.pc.localDescription.sdp }); }
+      else if (m.k === "ans") { try { await NET.pc.setRemoteDescription({ type: "answer", sdp: m.sdp }); } catch (e) { NET.err = "应答无效"; } }
+    });
+    await netPub(code, { k: "off", tk: NET.token, sdp: NET.pc.localDescription.sdp });
+  }
+  netLog(netLogText());
+  return NET.pc.localDescription.sdp;
+}
+async function netGuestJoin(code, manual) {
+  netClose(true);
+  NET.on = true; NET.role = "guest"; NET.code = code; NET.manual = !!manual;
+  netLog(netLogText());
+  if (!manual) netSub(code, async (m) => { if (m.k === "off") await netGuestAnswer(m.sdp); });
+  await netPub(code, { k: "hello", tk: NET.token });
+}
+async function netGuestAnswer(offerSdp) {
+  if (NET.pc && NET.pc.currentRemoteDescription) return "";
+  NET.pc = new RTCPeerConnection(ICE_CFG);
+  netWire(NET.pc, false);
+  await NET.pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+  const ans = await NET.pc.createAnswer();
+  await NET.pc.setLocalDescription(ans);
+  await netWaitIce(NET.pc);
+  NET.guestReady = true;
+  if (!NET.manual) { await netPub(NET.code, { k: "ans", tk: NET.token, sdp: NET.pc.localDescription.sdp }); netLog("已把应答发回房主，等通道建立…"); }
+  return NET.pc.localDescription.sdp;
+}
+async function netHostAccept(answerSdp) {
+  if (!NET.pc) return false;
+  try { await NET.pc.setRemoteDescription({ type: "answer", sdp: answerSdp }); return true; }
+  catch (e) { NET.err = "应答无效：" + e.message; return false; }
+}
+function netClose(silent) {
+  try { if (NET.sigES) NET.sigES.close(); } catch (e) {}
+  try { if (NET.dc) NET.dc.close(); } catch (e) {}
+  try { if (NET.pc) NET.pc.close(); } catch (e) {}
+  NET.sigES = null; NET.dc = null; NET.pc = null; NET.connected = false;
+  NET.snapA = NET.snapB = null; NET_ENT_MAP.clear();
+  p2.active = false; p2.dead = false; p2.reviveT = 0;
+  if (!silent) { NET.on = false; NET.role = null; NET.code = ""; }
+  netLog(netLogText());
+}
+
+/* ---------- 联机面板（DOM 覆盖层，桌面/手机都能点） ---------- */
+function netPanelInit() {
+  if (document.getElementById("netPanel")) return;
+  const d = document.createElement("div");
+  d.id = "netPanel";
+  d.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;display:none;"
+    + "flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;width:min(520px,92vw);"
+    + "background:rgba(6,18,30,0.96);border:1px solid rgba(120,190,230,0.35);color:#cfe8f6;"
+    + "font:13px/1.5 system-ui,'Microsoft YaHei',sans-serif;box-shadow:0 10px 40px rgba(0,0,0,0.6)";
+  d.innerHTML = '<div style="font-size:15px;font-weight:700;color:#dff6ff">联机 · 实时同屏合作</div>'
+    + '<div style="color:#8fb6cf">氧气各算各的 · 倒下 10s 复活 · 敌方血量与伤害 ×2（双人）</div>'
+    + '<div id="netStatus" style="color:#9fe3c0;min-height:18px">未联机</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<button id="netHostBtn" style="flex:1">创建房间</button>'
+    + '<input id="netCodeIn" placeholder="房间码" maxlength="4" style="width:88px;text-align:center;text-transform:uppercase;'
+    + 'background:rgba(10,30,46,0.9);border:1px solid rgba(120,190,230,0.3);border-radius:8px;color:#dff6ff;padding:6px">'
+    + '<button id="netJoinBtn" style="flex:1">加入房间</button></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<button id="netManualHost" style="flex:1">手动：生成邀请码</button>'
+    + '<button id="netManualGuest" style="flex:1">手动：应答别人的邀请码</button></div>'
+    + '<textarea id="netTa1" placeholder="手动模式：邀请码 / 应答码 出现在这里（复制给对方）" style="height:64px;'
+    + 'background:rgba(10,30,46,0.9);border:1px solid rgba(120,190,230,0.3);border-radius:8px;color:#cfeeff;padding:6px;font:11px monospace"></textarea>'
+    + '<textarea id="netTa2" placeholder="手动模式：把对方给你的那段贴在这里" style="height:64px;'
+    + 'background:rgba(10,30,46,0.9);border:1px solid rgba(120,190,230,0.3);border-radius:8px;color:#cfeeff;padding:6px;font:11px monospace"></textarea>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="netAccept" style="flex:1">手动：接入上面那段</button>'
+    + '<button id="netClose" style="flex:1">断开 / 关闭</button></div>';
+  document.body.appendChild(d);
+  const btn = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+  const style = (el) => { el.style.cssText = "background:rgba(24,66,96,0.9);border:1px solid rgba(120,190,230,0.35);"
+    + "border-radius:8px;color:#dff6ff;padding:7px 10px;cursor:pointer;font:13px system-ui"; };
+  for (const id of ["netHostBtn", "netJoinBtn", "netManualHost", "netManualGuest", "netAccept", "netClose"]) style(document.getElementById(id));
+  const show = (on) => { d.style.display = on ? "flex" : "none"; };
+  NET.panelShow = show;
+  netLog(netLogText());                 // 面板一开就写当前状态（不然刚连上还写着「未联机」）
+  btn("netClose", () => { netClose(false); show(false); });
+  btn("netHostBtn", async () => {
+    const sdp = await netHostCreate(netCode(), false);
+    if (document.getElementById("netTa1")) document.getElementById("netTa1").value = sdp;
+    netLog(netLogText() + "（把房间码给朋友）");
+  });
+  btn("netJoinBtn", async () => {
+    const code = (document.getElementById("netCodeIn").value || "").trim().toUpperCase();
+    if (code.length < 3) { netLog("先填房间码"); return; }
+    await netGuestJoin(code, false);
+  });
+  btn("netManualHost", async () => {
+    const sdp = await netHostCreate(netCode(), true);
+    document.getElementById("netTa1").value = sdp;
+    netLog("手动模式（房主）：把下面这段发给对方，然后把对方的应答贴进第二个框再点「接入」");
+  });
+  btn("netManualGuest", async () => {
+    const offer = (document.getElementById("netTa2").value || "").trim();
+    if (offer.length < 40) { netLog("先把房主给你的邀请码贴进第二个框"); return; }
+    NET.on = true; NET.role = "guest"; NET.code = "MANUAL"; NET.manual = true;
+    const ans = await netGuestAnswer(offer);
+    document.getElementById("netTa1").value = ans;
+    netLog("手动模式（客人）：把上面这段应答发回房主，等房主接入");
+  });
+  btn("netAccept", async () => {
+    const txt = (document.getElementById("netTa2").value || "").trim();
+    if (txt.length < 40) { netLog("先贴对方的码"); return; }
+    if (NET.role === "host") { const ok = await netHostAccept(txt); netLog(ok ? "已接入应答，等通道建立…" : "应答无效"); }
+    else if (NET.role === "guest") { const a = await netGuestAnswer(txt); document.getElementById("netTa1").value = a; }
+    else netLog("先创建房间或加入房间");
+  });
+}
+function netPanelToggle() {
+  netPanelInit();
+  const d = document.getElementById("netPanel");
+  const on = d.style.display !== "flex";
+  d.style.display = on ? "flex" : "none";
+}
+/* ---------- 联机 HUD：状态行 + 队友氧气条 ---------- */
+function drawNetHud() {
+  if (!NET.on || G.state === "title") return;
+  const col = NET.connected ? "rgba(150,255,200,0.9)" : "rgba(255,215,150,0.9)";
+  text(netLogText(), W0 - 24, 108, 12, col, "right", 600);
+  if (!p2.active) return;
+  /* 队友氧气条（自己的那条还是原来那根主条） */
+  const bw = 190, bh = 9, bx = 24, by = H0 - 58;
+  const mate = NET.role === "guest" ? p : p2;
+  const r = clamp(o2Get(mate) / o2MaxNow(), 0, 1);
+  rrRect(bx, by, bw, bh, 4.5);
+  ctx.fillStyle = "rgba(8,22,36,0.85)"; ctx.fill();
+  ctx.strokeStyle = "rgba(120,190,230,0.26)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.save(); rrRect(bx, by, bw, bh, 4.5); ctx.clip();
+  ctx.fillStyle = mate.dead ? "rgba(120,60,70,0.9)" : (r > 0.25 ? "rgba(150,205,255,0.85)" : "rgba(255,140,140,0.9)");
+  ctx.fillRect(bx, by, bw * r, bh);
+  ctx.restore();
+  text("潜伴" + (mate.dead ? " · 倒下 " + Math.max(0, mate.reviveT).toFixed(1) + "s" : ""), bx, by - 6, 11, "rgba(150,200,235,0.85)", "left", 600);
+  text(mate.dead ? "复活中" : Math.ceil(o2Get(mate)) + "%", bx + bw + 8, by + 9, 12, "rgba(190,230,250,0.9)", "left", 600);
+}
+/* 二号位的本体（跟主玩家同一套皮肤，颜色偏蓝、头顶挂名） */
+function drawPlayer2() {
+  if (!p2.active) return;
+  const bob = Math.sin(G.t * 2.2 + 1.7) * 3;
+  const x = p2.x, y = p2.y + bob;
+  ctx.save();
+  if (p2.dead || (p2.invuln > 0 && Math.floor(G.t * 14) % 2 === 0)) ctx.globalAlpha = 0.4;
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(x, y, 2, x, y, 120);
+  g.addColorStop(0, "rgba(150,255,235,0.30)");
+  g.addColorStop(1, "rgba(60,200,190,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, 120, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(clamp(p2.vx / 700, -0.5, 0.5) * 0.6);
+  ctx.beginPath();
+  const R = CFG.playerR;
+  ctx.moveTo(R * 1.5, 0);
+  ctx.quadraticCurveTo(R * 0.2, -R * 1.05, -R * 1.1, -R * 0.35);
+  ctx.quadraticCurveTo(-R * 1.7, 0, -R * 1.1, R * 0.35);
+  ctx.quadraticCurveTo(R * 0.2, R * 1.05, R * 1.5, 0);
+  ctx.closePath();
+  /* 队友必须一眼看得见：深水里「暗青鱼」跟背景糊成一团（第一版就是这个问题，截图里几乎找不到人），
+     所以本体给亮青 + 白描边，头顶常驻名牌 */
+  ctx.fillStyle = p2.dead ? "rgba(70,80,90,0.75)" : "rgba(64,200,178,0.95)";
+  ctx.fill();
+  ctx.strokeStyle = p2.dead ? "rgba(170,190,200,0.6)" : "rgba(225,255,250,0.98)";
+  ctx.lineWidth = 2.2; ctx.stroke();
+  ctx.fillStyle = "rgba(240,255,252,0.98)";
+  ctx.beginPath(); ctx.arc(R * 0.42, -R * 0.2, 2.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  text(p2.dead ? "潜伴 · 复活 " + Math.max(0, p2.reviveT).toFixed(1) + "s" : "潜伴",
+       x, y - 34, 12, p2.dead ? "rgba(255,170,170,0.95)" : "rgba(180,255,240,0.95)", "center", 700);
 }
 
 function update(dt) {
@@ -3388,6 +3929,9 @@ function drawWorld() {
   /* 猎食者/电球也是生物光：不在光照半径内照样看得见它们扑过来（否则 1000m 以下纯挨打）；
      但障碍物不是光源 —— 光照半径外它就该是黑的（玩家口径：半径外啥也看不见） */
   for (const e of ents) if (MOB_SET[e.kind]) drawCombatGlow(e);
+  /* 队友也算「生物光」：他不在你的光照半径内时，得能看见他在哪（实测：画在黑暗层以下 = 远了就纯黑，
+     截图上根本找不到人 —— 这一条是拿截图抓出来的） */
+  drawPlayer2();
   for (const e of ents) drawHpBar(e);
   for (const e of ents) if (e.seal > 0) drawSeal(e);
   drawZones();
@@ -4266,6 +4810,15 @@ function helpBtnHit(lx, ly) {
   const r = helpBtnRect();
   return lx >= r.x - 6 && lx <= r.x + r.w + 6 && ly >= r.y - 6 && ly <= r.y + r.h + 6;
 }
+/* 标题页的「联机」按钮：实时同屏合作（WebRTC 点对点，见第 12 节） */
+function netBtnRect() {
+  const s = clamp(cssPx(22), 26, 52);
+  return { x: W0 / 2 + 168, y: 246 + s * 0.72, w: s, h: s };
+}
+function netBtnHit(lx, ly) {
+  const r = netBtnRect();
+  return lx >= r.x - 6 && lx <= r.x + r.w + 6 && ly >= r.y - 6 && ly <= r.y + r.h + 6;
+}
 function drawTitle() {
   ctx.save();
   ctx.globalAlpha = 0.92;
@@ -4285,6 +4838,18 @@ function drawTitle() {
     ctx.strokeStyle = "rgba(140,215,255,0.75)"; ctx.lineWidth = 1.6; ctx.stroke();
     ctx.restore();
     text("?", r.x + r.w / 2, r.y + r.h * 0.76, r.h * 0.62, "#cfeeff", "center", 700);
+  }
+  /* 「联机」按钮：实时同屏合作（点开是房间码面板，见第 12 节） */
+  {
+    const r = netBtnRect(), hot = netBtnHit(TOUCH ? G.input.ptrX : G.input.ax, TOUCH ? G.input.ptrY : G.input.ay);
+    ctx.save();
+    rrRect(r.x, r.y, r.w, r.h, r.h / 2);
+    ctx.fillStyle = NET.connected ? "rgba(24,96,84,0.96)" : hot ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.85)";
+    ctx.fill();
+    ctx.strokeStyle = NET.connected ? "rgba(150,255,220,0.9)" : "rgba(140,215,255,0.75)"; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.restore();
+    text(NET.on ? "联" : "联", r.x + r.w / 2, r.y + r.h * 0.76, r.h * 0.5, "#cfeeff", "center", 700);
+    if (NET.connected) text("已连接", r.x + r.w + 8, r.y + r.h * 0.72, 12, "rgba(150,255,200,0.9)", "left", 600);
   }
   if (G.helpOpen) {
     /* 规则弹层：把原来糊在标题上的一屏字全搬进来 */
@@ -4559,6 +5124,7 @@ function render() {
   else if (G.state === "pause") drawPause();
   else if (G.state === "levelup") drawLevelUp();
   ctx.restore();
+  drawNetHud();                       // 联机状态行 + 队友氧气条（见第 12 节）
   /* 竖屏提示：画面是 16:10，竖屏只能缩成中间一条 —— 占用空白黑边明说，别让玩家以为是坏了 */
   const barH = (R.ch - R.scale * H0) / 2;
   if (barH > 60) {
@@ -4625,9 +5191,10 @@ canvas.addEventListener("pointerdown", (ev) => {
   else { G.input.mouseDown = true; G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y; }
   syncPointerBoost();
   if (G.state === "over" && homeBtnHit(q.x, q.y)) { G.state = "title"; return; }
-  if (G.state === "title") {                       // 标题页先认规则弹层 → 皮肤条 → 「开始下潜」
+  if (G.state === "title") {                       // 标题页先认规则弹层 → 联机 → 皮肤条 → 「开始下潜」
     if (G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }   // 弹层开着：点哪都是关
     if (helpBtnHit(q.x, q.y)) { G.helpOpen = true; ev.preventDefault(); return; }
+    if (netBtnHit(q.x, q.y)) { netPanelToggle(); ev.preventDefault(); return; }   // 联机（实时同屏合作）
     const si = skinHit(q.x, q.y);
     if (si >= 0) { setSkin(si); ev.preventDefault(); return; }
   }
@@ -4690,6 +5257,7 @@ window.addEventListener("keydown", (ev) => {
   }
   else if (k === "KeyP" || k === "Escape") {
     if (k === "Escape" && G.state === "title" && G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }
+    if ((k === "n" || k === "N" || k === "m" || k === "M") && (G.state === "title" || G.state === "pause")) { netPanelToggle(); ev.preventDefault(); return; }
     if (k === "Escape" && G.state !== "play") { G.state = "title"; return; }
     if (G.state === "play") G.state = "pause"; else if (G.state === "pause") G.state = "play";
   } else if (k === "KeyS") {                        // 换皮肤：标题页 / 暂停页循环
@@ -4717,12 +5285,17 @@ function frame(now) {
   let dt = (now - last) / 1000; last = now;
   if (!(dt > 0)) dt = 0;
   if (dt > 0.25) dt = 0.25;
-  if (!AUTO_FREEZE) {
+  if (NET.on && NET.role === "guest") {
+    /* 客人只跑视觉 + 套房主快照（不跑第二份物理）—— 见第 12 节。
+       不受 AUTO_FREEZE 影响：冻结是「本机自动演示」用的，联机时不适用。 */
+    netGuestFrame(dt);
+  } else if (!AUTO_FREEZE) {
     acc += dt;
     let n = 0;
     while (acc >= STEP && n < 10) { update(STEP); acc -= STEP; n++; }
     if (n >= 10) acc = 0;
   }
+  if (NET.on && NET.role === "host") netHostTick(dt);   // 房主的下行快照/心跳（冻结时也照发，探针要用）
   render();
 }
 
@@ -4827,6 +5400,8 @@ window.__SINK__ = {
   ents: () => ents, p, probePx, lightR: () => G.lightR, H0: () => H0,
   fireAttack, aimPoint, spawnHunter, spawnSpitter, spawnReaver, spawnWarden, spawnSplit, spawnSplitKid, spawnLeech, spawnLamp,
   spawnShell, spawnAnchor, spawnNullify, spawnBrood, spawnCurtain, spawnAnox, anoxNear, mobKind, contactDmg, entSegDist, hurtPlayer,
+  NET, p2, A2, hurtPlayerOn, o2Get, o2Set, o2Add, party, aliveParty, nearestAlive, killPlayer, reviveTick, coopHit, moveSide,
+  netHostCreate, netGuestAnswer, netHostAccept, netClose, netPanelToggle, netSnapBuild, netWireDC, netApplySnap, netGuestFrame,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
