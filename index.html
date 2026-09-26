@@ -357,7 +357,12 @@ function lvNeed(_l) { return CFG.lvEvery; }   // 每 100m 一次（恒定；原�
 let aiRng = mulberry32(1);                       // 脚本选牌用的独立随机流（自检/截图可复现）
 const aiRnd = () => aiRng();
 function skLv(id) { return G.sk[id] || 0; }
-function o2MaxNow() { return CFG.o2Max + 18 * skLv("seal") + 22 * skLv("w_hp"); }
+/* 氧气上限按「谁的 build」算 —— 封印 / 鲸血是各人自己的牌（联机三期：两个人的效果不互通）。
+   不带参数 = 当前上下文里的那个人（withActor 换过之后就是客人的那份）。 */
+function o2MaxNow(q) {
+  const s = (!q || q === p) ? G.sk : (q.sk || {});
+  return CFG.o2Max + 18 * (s.seal || 0) + 22 * (s.w_hp || 0);
+}
 function boostMulNow() { return CFG.boostMul + 0.30 * skLv("greed"); }
 /* 所有强化在这里汇总成一份系数表，玩法里只读 G.m —— 改数值不用翻遍 stepPlay */
 function recalcMods() {
@@ -491,7 +496,13 @@ function combatOwned() {
   for (const s of SKILLS) if (s.t === "战斗") n += skLv(s.id);
   return n;
 }
-function rollChoices(salt) {
+function rollChoices(salt, who) {
+  /* 联机三期：两张牌桌 —— 房主抽他那份（按他的路线 / 已选牌过滤），客人抽他那份。
+     路线 / 质变 / 进阶卡也一样各自出现（玩家口径「让房员也可以自己选择职业」）。 */
+  const me = who && who !== p ? who : null;
+  return withActor(me, () => rollChoicesBody(salt));
+}
+function rollChoicesBody(salt) {
   /* 质变：2000m 后的第一次强化 = 你这个角色的三条质变方向（别的牌一律不给；不可刷新，和选流派同规）
      角色 = 路线（法师 / 照明使者 / 战士）：一人三条，一共 9 条 —— 另外六条这辈子不会出现在你面前。
      每局只能选这一次（选完 G.mutate 定住，这段分支再也不进）。 */
@@ -616,51 +627,75 @@ function rollChoices(salt) {
 function rerollChoices() {
   if (G.state !== "levelup" || !G.choices) return false;
   if (G.choices.some((s) => s.route)) return false;      // 路线 / 质变都不给刷：选完才继续
-  /* 客人这边没有抽卡的随机流（世界是房主那份），刷新只能发请求让房主重抽一份发回来 */
+  /* 联机四期（玩家口径「刷新是要分离的：房主和房员的刷新都是自己决定的，次数也是每人两次」）：
+     两张牌桌各刷各的 —— 我刷我手上那三张、扣我自己那两次；他刷他手上那三张、扣他自己那两次。
+     谁也别想顺走对方的次数（上一版把客人锁死了，是玩家抓到的 bug）。 */
   if (NET.role === "guest") {
-    if (G.lvPicked !== null && G.lvPicked !== undefined) return false;
-    if (!(G.rerolls > 0)) return false;
-    G.rerolls -= 1;
-    netSend({ k: "rr" });
-    G.flash = 0.4;
-    SFX.pick();
+    if (G.lvPicked !== null && G.lvPicked !== undefined) { G.hint = "已经拍板了 —— 这一轮不能再刷"; G.hintT = G.t + 1.6; return false; }
+    if (G.rerolls <= 0) { G.hint = "刷新次数用完了（每局两次）"; G.hintT = G.t + 1.6; return false; }
+    netSend({ k: "rr" });                                // 房主替我重抽我自己那三张，回一条 ch 带真数
     return true;
   }
+  if (G.lvMine !== null && G.lvMine !== undefined) return false;   // 拍过板了不给刷：不然「一人一张」就有缝
   if (G.rerolls <= 0) return false;
   G.rerolls -= 1; G.rerollN += 1;
-  /* 联机：队友那份跟着一起重抽 —— 否则他手上那三张和房主要落账的三张就对不上了（选了 A 落成 B） */
-  if (G.lvTeam) {
-    G.guestChoices = rollChoices(1);
-    netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls });
-  }
   const c = rollChoices();
-  if (!c.length) return false;
-  G.choices = c;
+  if (!c.length) { G.rerolls += 1; G.rerollN -= 1; return false; }   // 池子空了：这一次不算，次数还给他
+  G.choices = c;                                          // 只换房主这三张；队友那三张一动不动
   G.flash = 0.5;
   SFX.pick();
   return true;
 }
+/* 队友请求刷新（联机四期：各刷各的）—— 只动他那三张、只扣他那两次，房主自己那三张不碰 */
+function netSideReroll() {
+  if (NET.role !== "host" || !p2.active) return false;
+  if (!(G.state === "levelup" && G.lvTeam && G.guestChoices)) return false;
+  if (G.lvPeer !== null && G.lvPeer !== undefined) return false;    // 他已经拍板了
+  if (G.guestChoices.some((s) => s.route)) return false;
+  if (G.rerolls2 <= 0) { netSend({ k: "ch", list: G.guestChoices, rr: 0 }); return false; }   // 用完了：回一句真数给他
+  G.rerolls2 -= 1; G.rerollN2 = (G.rerollN2 | 0) + 1;
+  const c = rollChoices(1 + G.rerollN2, p2);               // 换一批盐：免得原样端回来
+  if (!c.length) { G.rerolls2 += 1; G.rerollN2 -= 1; return false; }   // 池子空了：次数还给他
+  G.guestChoices = c;
+  netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls2 });
+  popup(p.x + 150, p.y - 62, "队友刷新 · 他自己还剩 " + G.rerolls2 + " 次", "150,225,255");
+  return true;
+}
+/* 这张牌现在还能不能拿：路线 / 质变 / 进阶卡不看等级；技能 / 神器各有个 max ——
+   满级了就不许再点（玩家口径：节氧 max 5，被连点刷成 6 次是 bug）。 */
+function cardPickable(s) {
+  if (!s) return false;
+  if (s.route) return true;
+  if (!(s.max > 0)) return true;
+  return skLv(s.id) < s.max;
+}
 /* 一张牌真正落到这份 build 上。
    2026-09-26 从 applyPick 里拆出来：联机要「两边各选一张、都选完才继续」，落账就不能跟「关掉选牌页」绑死。 */
-function applyCard(s) {
+function applyCard(s, who) {
+  const me = who && who !== p ? who : null;
+  return withActor(me, () => applyCardBody(s, me || p));
+}
+/* 一张牌落到**谁**那份 build 上：房主抽的落房主，客人抽的落客人（联机三期：效果不互通） */
+function applyCardBody(s, me) {
   if (!s) return false;
+  if (!s.route && !cardPickable(s)) return false;      // 满级兜底：卡面可能是旧的（刷新前就发出去的），这里再拦一道
   if (s.route) {                        // 路线 / 质变：选一条，另外两条从此不再出现
-    if (s.t2) { G.t2 = s.route.id; popup(p.x, p.y - 44, "进阶 · " + s.route.n, s.route.col.join(String.fromCharCode(44))); }
-    else if (s.mutate) { G.mutate = s.route.id; popup(p.x, p.y - 44, "质变 · " + s.route.n, s.route.col.join(",")); }
-    else { G.route = s.route.id; popup(p.x, p.y - 44, s.route.n, s.route.col.join(",")); }
+    if (s.t2) { G.t2 = s.route.id; popup(me.x, me.y - 44, "进阶 · " + s.route.n, s.route.col.join(String.fromCharCode(44))); }
+    else if (s.mutate) { G.mutate = s.route.id; popup(me.x, me.y - 44, "质变 · " + s.route.n, s.route.col.join(",")); }
+    else { G.route = s.route.id; popup(me.x, me.y - 44, s.route.n, s.route.col.join(",")); }
     recalcMods();
     G.flash = 0.7;
-    burst(p.x, p.y, 28, s.route.col.join(","));
+    burst(me.x, me.y, 28, s.route.col.join(","));
     SFX.pick();
     return true;
   }
   G.sk[s.id] = skLv(s.id) + 1;
   recalcMods();
   const col = KIND_COL[s.t] || [190, 240, 255];
-  if (s.id === "seal") G.o2 = Math.min(o2MaxNow(), G.o2 + 18);
+  if (s.id === "seal") o2Add(me, 18);
   if (G.m.frenzy) G.frenzy = Math.min(G.frenzy, G.m.frenzy.max);   // 拿到 / 升级血鲸之牙：把已攒层数夹进新上限
-  popup(p.x, p.y - 48, s.n + (s.max > 1 ? " Lv" + G.sk[s.id] : ""), col.join(","));
-  burst(p.x, p.y, 20, col.join(","));
+  popup(me.x, me.y - 48, s.n + (s.max > 1 ? " Lv" + G.sk[s.id] : ""), col.join(","));
+  burst(me.x, me.y, 20, col.join(","));
   G.shakeT = 0.2; G.shakeMag = 5;
   SFX.pick();
   return true;
@@ -673,7 +708,7 @@ function lvSpecial(c) { return !!(c && c.some((s) => s.route)); }
 /* 选牌页收尾：单人 / 特殊牌 = 老行为（立刻继续下潜） */
 function levelUpDone() {
   G.choices = null; G.guestChoices = null;
-  G.lvTeam = false; G.lvMine = null; G.lvPeer = null; G.lvAuto = false; G.lvT = 0;
+  G.lvTeam = false; G.lvMine = null; G.lvPeer = null; G.lvAuto = false; G.lvT = 0;   // lvDone 不复位：这一轮的收账闸门要一直关到下一轮开牌
   G.state = "play";
   return true;
 }
@@ -683,21 +718,24 @@ function levelUp() {
   const c = rollChoices();
   if (!c.length) return;                 // 全满级：安静地继续下潜
   G.choices = c;
-  G.lvMine = null; G.lvPeer = null; G.lvAuto = false; G.lvT = 0;
-  /* 联机：队友也有一份自己的三选一（另抽一份，不吃房主这三张），两边都选完才继续下潜 */
-  G.lvTeam = lvCoop() && !lvSpecial(c);
-  G.guestChoices = G.lvTeam ? rollChoices(1) : null;
+  G.lvMine = null; G.lvPeer = null; G.lvAuto = false; G.lvT = 0; G.lvDone = false;
+  /* 联机三期：队友抽的是「按他自己那份 build」的一桌 —— 他自己的路线 / 自己的已选牌。
+     路线 / 质变 / 进阶卡也不再是房主专享：各选各的，谁选的算谁的（玩家口径「不要互通效果」）。 */
+  G.lvTeam = lvCoop();
+  G.guestChoices = G.lvTeam ? rollChoices(1, p2) : null;
   if (G.lvTeam && (!G.guestChoices || !G.guestChoices.length)) { G.lvTeam = false; G.guestChoices = null; }  // 队友牌池空了：别把他锁在这
-  if (G.lvTeam) netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls });
+  if (G.lvTeam) netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls2 });   // rr 必须是**他自己的**剩余次数（发 G.rerolls 会把房主的次数画到客人屏幕上）
   G.state = "levelup";
   G.flash = 0.55;
   SFX.level();
 }
 /* 队友那张（或超时代选的那张）落账 → 开闸 */
 function finishTeamPick() {
+  if (G.lvDone) return true;              // 这一轮已经收过账了：多来一次也不重复加
+  G.lvDone = true;
   const s = G.guestChoices ? G.guestChoices[G.lvPeer] : null;
   if (s) {
-    applyCard(s);
+    applyCard(s, p2);                       // 落账落**客人自己那份**：路线 / 质变 / 牌全进他的 build
     popup(p.x + 150, p.y - 48, (G.lvAuto ? "代队友选 · " : "队友选了 · ") + s.n, "150,225,255");
   }
   return levelUpDone();
@@ -708,6 +746,7 @@ function applyPick(i) {
   if (NET.role === "guest") {
     if (G.lvPicked !== null && G.lvPicked !== undefined) return false;
     if (!G.choices[i]) return false;
+    if (!cardPickable(G.choices[i])) return false;        // 满级 / 越界：本地就先拦，别浪费一条报文
     G.lvPicked = i;
     netSend({ k: "pk", i: i });
     SFX.pick();
@@ -715,8 +754,12 @@ function applyPick(i) {
   }
   const s = G.choices[i];
   if (!s) return false;
+  /* 一人一张：这一轮已经拍过板了，再点（鼠标 / 触屏数字键 / 连点）一律不认 ——
+     旧版这里不设防，联机等队友那段只要一直点就能把三张的效果全吃满（玩家口径抓到的）。 */
+  if (G.lvMine !== null && G.lvMine !== undefined) return false;
+  if (!cardPickable(s)) return false;                   // 满级牌点不进去：节氧 max 5，别想点成第 6 次
   G.lvMine = i;
-  applyCard(s);
+  applyCard(s, p);
   if (!G.lvTeam) return levelUpDone();                              // 单人 / 特殊牌：老行为
   if (G.lvPeer === null || G.lvPeer === undefined) return true;      // 队友还没选：模拟先冻着
   return finishTeamPick();
@@ -893,9 +936,11 @@ const G = {
   aim: { x: W0 / 2, y: CFG.playerY + CFG.atkReach, tx: W0 / 2, ty: CFG.playerY + CFG.atkReach, idle: 99, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0, extra: [], beamDmg: 0 },
   /* --- 深渊馈赠（割草式三选一） --- */
   level: 0, nextLv: 0, sk: {}, choices: null, m: null, rerolls: 2, rerollN: 0,
+  /* 联机四期：队友那份的刷新次数（各刷各的、每人两次）—— 计数在房主这边记，客人屏幕上显示他自己的那份 */
+  rerolls2: 2, rerollN2: 0,
   /* 联机选牌（两边各选一张、都选完才继续）：lvTeam 这轮是不是两人局、lvMine/lvPeer 各自选的第几张、
      guestChoices 发给队友的那三张、lvPicked 客人在自己那边选的、gRerolls 队友看到的重抽次数 */
-  lvTeam: false, lvMine: null, lvPeer: null, lvPicked: null, guestChoices: null, gRerolls: 0, lvAuto: false, lvT: 0,
+  lvTeam: false, lvMine: null, lvPeer: null, lvPicked: null, guestChoices: null, gRerolls: 0, lvAuto: false, lvT: 0, lvDone: false,
   /* --- 主动技能：act = 剩余冷却，actFx = 正在生效的持续时间；kills/o2Kill 供探针核对 --- */
   act: { q: 0, e: 0, f: 0 }, actFx: { dash: 0, flare: 0, shock: 0, sx: 0, sy: 0 },
   kills: 0, o2Kill: 0,
@@ -991,14 +1036,17 @@ function startRun(seed) {
   G.depth = 0; G.bonus = 0; G.diff = 0; G.o2 = CFG.o2Max; G.lightBonus = 0; G.lightR = CFG.lightNear;
   /* 深渊馈赠：清空强化、重算系数表、把氧气上限按当前技能（此时为空）定死 */
   G.level = 0; G.nextLv = lvNeed(1); G.sk = {}; G.choices = null; G.route = null;
-  G.rerolls = CFG.rerollPerRun; G.rerollN = 0;                 // 刷新次数每局重置
+  G.rerolls = CFG.rerollPerRun; G.rerollN = 0;                 // 刷新次数每局重置（每人两次，各刷各的）
+  G.rerolls2 = CFG.rerollPerRun; G.rerollN2 = 0;               // 队友那份：也是每局两次，只扣他自己的
   recalcMods(); G.o2 = o2MaxNow();
   G.act.q = G.act.e = G.act.f = 0;
   G.actFx.dash = G.actFx.flare = G.actFx.shock = 0;
   G.actFx.sx = G.actFx.sy = 0;
   G.kills = 0; G.o2Kill = 0; G.dashStamp = 0; G.anoxCut = false;
   p.dead = false; p.reviveT = 0;
-  if (p2.active) { p2.x = W0 / 2; p2.y = CFG.playerY; p2.vx = 0; p2.dead = false; p2.reviveT = 0; p2.invuln = 0; p2.kbHold = 0; o2Set(p2, o2MaxNow()); }
+  /* 联机三期：客人那份 build 与技能状态也重开一份（两个人的牌桌各清各的） */
+  sideBuildReset();
+  if (p2.active) { p2.x = W0 / 2; p2.y = CFG.playerY; p2.vx = 0; p2.dead = false; p2.reviveT = 0; p2.invuln = 0; p2.kbHold = 0; o2Set(p2, o2MaxNow(p2)); }
   NET.snapA = NET.snapB = null;
   G.comboN = 0; G.comboT = -99;                  // 连杀回氧递减：计数 + 上一只的时间戳
   /* --- 新机制的运行时状态：场（zone）/ 骨片 / 层数 / 漩涡 / 白夜光球 / 行灯 / 审判计时 --- */
@@ -1369,7 +1417,8 @@ function dropCore(x, y) {
   if (!G.m.core) return;
   addZone({ type: "core", x: x, y: y, r: G.m.core.r, dmg: G.m.core.d, life: G.m.core.life, pull: 0, col: "185,160,255" });
 }
-function shockwave() {
+function shockwave(who) {
+  const me = who || p;     // 落点 / 扣氧 / 飘字都跟着「谁放的」走（联机三期）
   const Rr = G.m.shockR;
   const asp = G.m.asp, sing = G.m.sing, fis = G.m.fis;
   let D = G.m.shockD;
@@ -1378,34 +1427,34 @@ function shockwave() {
   let noHeal = false;                             // 高氧档：这一发噬氧停用（玩家口径「50% 以上不触发吸血」）
   if (asp) {
     const maxO2 = o2MaxNow();
-    const frac = clamp(1 - G.o2 / maxO2, 0, 1);
+    const frac = clamp(1 - o2Get(me) / maxO2, 0, 1);
     ember = G.t2 === "aspA" && frac >= 0.75;      // 氧低于 25%
     /* 玩家口径「50% 血量以上则改为每次释放技能减少 10% 血，且不触发吸血效果」——
        本作的血就是氧：氧 ≥50% 上限 → 这一发固定扣 10% 上限氧（硬数字，不吃「省耗」牌）+ 噬氧停用；
        氧 <50% → 老规矩（6% 起 · 省耗牌可压到 2% · 照常吸血）。缺氧增伤两档都照旧按 frac 算。
        分档看的是「施放瞬间」的氧，所以「绝息一击」补满氧只影响下一发（下一发自然进 10% 档）。 */
-    noHeal = G.o2 >= maxO2 * asp.hiAt;
+    noHeal = o2Get(me) >= maxO2 * asp.hiAt;
     const cost = ember ? 0 : maxO2 * (noHeal ? asp.costHi : asp.cost);
-    G.o2 = Math.max(0, G.o2 - cost);
+    o2Sub(me, cost);
     const k = 1 + Math.min(1.70, frac * asp.rate);
     D = Math.round(D * k);
     /* 进阶·绝息一击：氧低于 15% 时这一发 ×2.5 并把氧补满（玩家口径：8s 太短，改成 60s 一次的大招） */
     if (G.t2 === "aspB" && frac >= 0.85 && (G.aspBCd || 0) <= 0) {
-      G.aspBCd = 60; D = Math.round(D * 2.5); G.o2 = o2MaxNow();
-      popup(p.x, p.y - 108, "绝息 ×2.5 · 氧已补满", "255,90,130");
+      G.aspBCd = 60; D = Math.round(D * 2.5); o2Set(me, o2MaxNow());
+      popup(me.x, me.y - 108, "绝息 ×2.5 · 氧已补满", "255,90,130");
       G.flash = Math.max(G.flash, 0.5);
-      fxRing(p.x, p.y, 30, 320, "255,90,130", 0.7, "ember");        // 绝息：一圈红潮推出去（60s 一次的大招得看得见）
+      fxRing(me.x, me.y, 30, 320, "255,90,130", 0.7, "ember");        // 绝息：一圈红潮推出去（60s 一次的大招得看得见）
     }
-    popup(p.x, p.y - 92, (ember ? "余烬 ×" : "窒息 ×") + k.toFixed(2) +
+    popup(me.x, me.y - 92, (ember ? "余烬 ×" : "窒息 ×") + k.toFixed(2) +
           (ember ? "（不扣氧）" : "（−" + cost.toFixed(1) + " 氧" + (noHeal ? " · 无吸血" : "") + "）"), "255,140,170");
     /* 窒息燃烧：越缺氧圈越红越大 —— 伤害系数 k 直接写进特效，不然「缺氧增伤」全靠背数字 */
-    fxRing(p.x, p.y, 28, Math.round(G.m.shockR * (0.55 + 0.45 * k / 2.7)), ember ? "255,170,110" : "255,120,150", 0.42, "ember");
+    fxRing(me.x, me.y, 28, Math.round(G.m.shockR * (0.55 + 0.45 * k / 2.7)), ember ? "255,170,110" : "255,120,150", 0.42, "ember");
   }
   /* 虚空奇点：直伤让位给控场 —— 总额 = 冲击波那一发 × k，再按持续时间平分成每段（段数越多每段越薄，总额不变）
      进阶·吞噬奇点：档位制 —— 第 1 档吃满 5 只，之后每档多要 2 只（5/7/9/…），每档给奇点总伤害 +10（上限 +100） */
   const singTotal = sing ? Math.round(D * sing.k) + (G.singGrow || 0) : 0;
   if (sing) D = singTotal;
-  G.actFx.shock = 0.45; G.actFx.sx = p.x; G.actFx.sy = p.y;
+  G.actFx.shock = 0.45; G.actFx.sx = me.x; G.actFx.sy = me.y;
   /* 质变·虚空奇点：不炸 —— 丢一个「拉 + 钉」的场，钉住的怪吃你后面所有伤害 +30% */
   if (sing) {
     /* z.dmg 的约定是「每秒速率」（stepZones 每 0.5s 结算 dmg/2）。
@@ -1413,17 +1462,17 @@ function shockwave() {
     const nTick = Math.max(1, Math.floor((sing.life - 1e-6) / 0.5));
     /* 进阶·双生奇点：场上已经有一颗，就存一颗「待炸的」（不拉不结算），按左键手动引爆 */
     if (G.t2 === "singB" && !G.zones.some((z) => z.type === "singHold") && G.zones.some((z) => z.type === "sing")) {
-      addZone({ type: "singHold", x: p.x, y: p.y, r: sing.r, dmg: Math.max(1, singTotal * 2 / nTick),
+      addZone({ type: "singHold", x: me.x, y: me.y, r: sing.r, dmg: Math.max(1, singTotal * 2 / nTick),
                 total: singTotal, ticks: nTick, life: 10, tick: 0, pull: 0, col: "190,170,255" });
-      popup(p.x, p.y - 92, "存了一颗奇点 · 左键引爆", "255,150,255");
-      burst(p.x, p.y, 18, "190,170,255");
+      popup(me.x, me.y - 92, "存了一颗奇点 · 左键引爆", "255,150,255");
+      burst(me.x, me.y, 18, "190,170,255");
       return 0;
     }
-    addZone({ type: "sing", x: p.x, y: p.y, r: sing.r,
+    addZone({ type: "sing", x: me.x, y: me.y, r: sing.r,
               dmg: Math.max(1, singTotal * 2 / nTick),
               total: singTotal, ticks: nTick, life: sing.life, pull: 0, col: "190,170,255" });
-    dropCore(p.x, p.y);                       // 奇点也落核心：控场神器 + 场神器不该互相抵消
-    burst(p.x, p.y, 26, "190,170,255"); G.shakeT = 0.3; G.shakeMag = 10; SFX.zap();
+    dropCore(me.x, me.y);                       // 奇点也落核心：控场神器 + 场神器不该互相抵消
+    burst(me.x, me.y, 26, "190,170,255"); G.shakeT = 0.3; G.shakeMag = 10; SFX.zap();
     return 0;
   }
   let n = 0, dealt = 0;
@@ -1433,7 +1482,7 @@ function shockwave() {
   for (const e of ents) {
     if (e.dead) continue;
     if (e.kind === "bubble" || e.kind === "jelly") continue;
-    if (e.kind !== "bolt" && entBodyDist(e, p.x, p.y) > Rr) continue;
+    if (e.kind !== "bolt" && entBodyDist(e, me.x, me.y) > Rr) continue;
     wave.push(e);
   }
   for (const e of wave) {
@@ -1447,23 +1496,24 @@ function shockwave() {
     hurtEnt(i, e, isObst ? Math.round(D * 1.3) : D, "255,220,160");
     if (e.hp !== before || e.dead) {
       n++;
-      if (ember) G.o2 = Math.min(o2MaxNow(), G.o2 + o2MaxNow() * 0.015);   // 每命中一只回 1.5% 氧
+      if (ember) o2Add(me, o2MaxNow() * 0.015);   // 每命中一只回 1.5% 氧
     }
     dealt += Math.max(0, before - Math.max(0, e.hp));       // 吸血按「真掉的血」算，超杀不算
   }
   /* 神器·湮灭核心（法师专属）：落点留下一颗持续工作的核心 */
-  dropCore(p.x, p.y);                       // 普通爆发也一样落核心（同一个函数，两条路不会走岔）
+  dropCore(me.x, me.y);                       // 普通爆发也一样落核心（同一个函数，两条路不会走岔）
   /* 质变·窒息燃烧：吸血 —— 回氧 = 实际打出伤害的 10%（升级牌每级 +2%）
      玩家口径「50% 血量以上不触发吸血」：高氧档整发停用，并明示一句，免得看起来像 bug。 */
   if (asp && dealt > 0 && !noHeal) {
     const g = dealt * asp.heal;
-    G.o2 = Math.min(o2MaxNow(), G.o2 + g);
-    popup(p.x, p.y - 70, "噬氧 +" + g.toFixed(1) + "（伤害 " + dealt + " 的 " + Math.round(asp.heal * 100) + "%）", "255,170,190");
+    o2Add(me, g);
+    popup(me.x, me.y - 70, "噬氧 +" + g.toFixed(1) + "（伤害 " + dealt + " 的 " + Math.round(asp.heal * 100) + "%）", "255,170,190");
   } else if (asp && dealt > 0 && noHeal) {
-    popup(p.x, p.y - 70, "噬氧停用（氧 ≥50% · 本发已扣 10% 上限氧）", "255,150,175");
+    popup(me.x, me.y - 70, "噬氧停用（氧 ≥50% · 本发已扣 10% 上限氧）", "255,150,175");
   }
   G.shakeT = 0.35; G.shakeMag = 12;
-  burst(p.x, p.y, 30, "180,240,255");
+  netFxToGuest("shock", me.x, me.y, "180,240,255", Rr);
+  burst(me.x, me.y, 30, "180,240,255");
   SFX.zap();
   return n;
 }
@@ -1477,20 +1527,22 @@ function ramOnHit(e, died) {
   if (wasObst && M.bone && M.bone.gain > 1) stackGain(1);              // 碎骨牌：撞碎障碍额外 +1 层
   if (M.tusk) spawnShards(e.x, e.y, M.tusk.n, M.tusk.d, M.tusk.o2);    // 鲸骨撞角：碎掉的障碍溅骨片
 }
-/* 照明：探照的圆心 = 你自己（灯一直挂在你身上） */
-function flareCenter() {
-  return { x: p.x, y: p.y, r: G.m.flare };
+/* 照明：探照的圆心 = 施放者本人（灯挂在谁身上就是谁的圈）—— 联机时两个人的圈各算各的 */
+function flareCenter(who) {
+  const q = who || p;
+  return { x: q.x, y: q.y, r: G.m.flare };
 }
-/* 光盾 / 回春生效的前提：你得站在自己的光里（白夜之后光在别处，站进去才算） */
-function flareInside(q) {
-  const c = flareCenter();
-  if (!c) return false;
+/* 光盾 / 回春生效的前提：你得站在自己的光里（白夜之后光在别处，站进去才算）。
+   默认查「挨打的那个人」自己的圈 —— 房主的圈不给客人挡伤，客人的圈也不给房主挡。 */
+function flareInside(q, src) {
   const t = q || p;
+  const c = flareCenter(src || t);
+  if (!c) return false;
   return Math.hypot(t.x - c.x, t.y - c.y) <= c.r + 40;
 }
 /* 照明路线·灼光：探照半径内的怪持续挨烧（0.25s 一跳，不然每帧刷飘字） */
-function flareBurn() {
-  const c = flareCenter();
+function flareBurn(who) {
+  const c = flareCenter(who);
   if (!c) return 0;
   const D = G.m.flareDot;
   let n = 0;
@@ -1517,23 +1569,44 @@ function lockHint() {
   G.hint = routeNow() ? "这条路线没选 · 技能已封闭" : "强化到 Lv2 · 选一条路线才有技能";
   G.hintT = G.t + 1.8;
 }
+/* 联机三期：客人的按键不在本机放技能 —— 这份世界是房主在跑的，客人这边放等于放给空气。
+   把「我按了哪个键」发上去，由房主以**客人自己那份 build** 结算（冷却 / 伤害 / 氧气全靠他那份）。
+   单机与房主走老路（tryActive），一个字节都没变。 */
+function isSideGuest() { return NET.role === "guest" && NET.connected; }
+/* HUD 上的冷却 / 探照读谁：读**自己那一份**。客人这边 G.act 是房主那份（快照镜像下来的），
+   他自己那份在 G.act2（房主从快照里带下来）—— 不然客人的技能图标一直显示房主的冷却。 */
+function hudAct() { return isSideGuest() ? (G.act2 || G.act) : G.act; }
+function hudFlare() { return isSideGuest() ? ((G.act2 && G.act2.fl) || 0) : G.actFx.flare; }
+function skillPress(k, hold) {
+  if (isSideGuest()) {
+    if (G.state !== "play") return false;
+    netSend({ k: "sk", a: k, hold: hold === undefined || hold === null ? null : (hold ? 1 : 0) });
+    return true;
+  }
+  return tryActive(k);
+}
+function t2Press() {
+  if (isSideGuest()) { if (G.state !== "play") return false; netSend({ k: "t2" }); return true; }
+  return t2Trigger();
+}
 /* 右键 / HUD 按钮 / Q E F 三键共用：永远只放「你选的那一条」 */
 function useRouteSkill() {
   const rt = routeNow();
   if (!rt) { lockHint(); return false; }
-  return tryActive(rt.k);
+  return skillPress(rt.k);
 }
 /* 进阶·骸骨长矛：把攒下的骨甲一次射出去（每层一根 · 贯穿 · 打完归零）—— 被动层数终于有出口 */
-function boneSpears() {
+function boneSpears(who) {
+  const me = who || p;
   const n0 = Math.min(8, G.bone | 0);
   if (n0 <= 0) return false;
   const [tx, ty] = aimPoint();
-  const dx = tx - p.x, dy = ty - p.y, D0 = Math.max(1, Math.hypot(dx, dy));
+  const dx = tx - me.x, dy = ty - me.y, D0 = Math.max(1, Math.hypot(dx, dy));
   const ux = dx / D0, uy = dy / D0;
   const reach = 620, halfw = 22, dmg = 60;
   for (let k = 0; k < n0; k++) {
     const off = (k - (n0 - 1) / 2) * 26;
-    const sx = p.x + (-uy) * off, sy = p.y + ux * off;
+    const sx = me.x + (-uy) * off, sy = me.y + ux * off;
     const ex = sx + ux * reach, ey = sy + uy * reach;
     G.beams.push({ x1: sx, y1: sy, x2: ex, y2: ey, t: 0.3, lance: true, w: halfw, col: "225,240,255" });
     const list = [];
@@ -1547,24 +1620,27 @@ function boneSpears() {
     for (const e of list) { const i = ents.indexOf(e); if (i >= 0) hurtEnt(i, e, dmg, "225,240,255"); }
   }
   G.bone = 0;
-  burst(p.x, p.y, 20, "225,240,255");
+  netFxToGuest("bone", me.x, me.y, "225,240,255");
+  burst(me.x, me.y, 20, "225,240,255");
   G.shakeT = Math.max(G.shakeT, 0.16); G.shakeMag = Math.max(G.shakeMag, 6); SFX.zap();
   return true;
 }
 /* 质变·光矛：沿准星打出一道贯穿光束（沿途所有目标一起吃，障碍也一起清） */
-function lanceFire(k2) {
+function lanceFire(k2, who) {
+  const me = who || p;
   const L2 = G.m.lance;
   if (!L2 || k2 <= 0.02) return;
   const [tx, ty] = aimPoint();
-  const dx = tx - p.x, dy = ty - p.y, D0 = Math.max(1, Math.hypot(dx, dy));
+  const dx = tx - me.x, dy = ty - me.y, D0 = Math.max(1, Math.hypot(dx, dy));
   const ux = dx / D0, uy = dy / D0;
   const reach = L2.range;                                  // 贯穿到底：不借普攻那 300px 的射程上限
-  const ex = p.x + ux * reach, ey = p.y + uy * reach;
+  const ex = me.x + ux * reach, ey = me.y + uy * reach;
   const full = clamp(k2, 0, 1);
   const dmg = Math.round(L2.dmg * (0.45 + 0.55 * full));
   const halfw = L2.w * (0.75 + 0.25 * full);
-  G.beams.push({ x1: p.x, y1: p.y, x2: ex, y2: ey, t: 0.34, lance: true, w: halfw });
-  burst(p.x + ux * 40, p.y + uy * 40, 18, "255,250,215");
+  G.beams.push({ x1: me.x, y1: me.y, x2: ex, y2: ey, t: 0.34, lance: true, w: halfw });
+  netFxToGuest("lance", me.x, me.y, "255,245,200", halfw, ex, ey);
+  burst(me.x + ux * 40, me.y + uy * 40, 18, "255,250,215");
   G.shakeT = Math.max(G.shakeT, 0.18); G.shakeMag = Math.max(G.shakeMag, 7);
   G.flash = Math.max(G.flash, 0.25); SFX.zap();
   const list = [];
@@ -1572,7 +1648,7 @@ function lanceFire(k2) {
     if (e.dead) continue;
     if (e.kind !== "rock" && e.kind !== "cable" && !MOB_SET[e.kind]) continue;
     if (e.kind === "bolt") continue;
-    if (entSegDist(e, p.x, p.y, ex, ey) > halfw) continue;      // 贯穿：够得着就一起打
+    if (entSegDist(e, me.x, me.y, ex, ey) > halfw) continue;      // 贯穿：够得着就一起打
     list.push(e);
   }
   /* 进阶·分光：主矛之外再散三道小矛（各 50% 伤害），一条线变扇面 */
@@ -1580,14 +1656,14 @@ function lanceFire(k2) {
     for (const off of [-0.34, 0, 0.34]) {
       const ca = Math.cos(off), sa = Math.sin(off);
       const ux2 = ux * ca - uy * sa, uy2 = ux * sa + uy * ca;
-      const sx2 = p.x + ux2 * reach * 0.72, sy2 = p.y + uy2 * reach * 0.72;
-      G.beams.push({ x1: p.x, y1: p.y, x2: sx2, y2: sy2, t: 0.26, lance: true, w: halfw * 0.7, col: "255,245,200" });
+      const sx2 = me.x + ux2 * reach * 0.72, sy2 = me.y + uy2 * reach * 0.72;
+      G.beams.push({ x1: me.x, y1: me.y, x2: sx2, y2: sy2, t: 0.26, lance: true, w: halfw * 0.7, col: "255,245,200" });
       const l2 = [];
       for (const e of ents) {
         if (e.dead) continue;
         if (e.kind !== "rock" && e.kind !== "cable" && !MOB_SET[e.kind]) continue;
         if (e.kind === "bolt") continue;
-        if (entSegDist(e, p.x, p.y, sx2, sy2) > halfw * 0.7) continue;
+        if (entSegDist(e, me.x, me.y, sx2, sy2) > halfw * 0.7) continue;
         if (list.indexOf(e) >= 0) continue;                  // 主矛已经吃过的别重复算
         l2.push(e);
       }
@@ -1604,8 +1680,13 @@ function lanceFire(k2) {
 }
 /* 二段触发（左键 = 主入口，原键位保留为别名）：
    玩家口径（2026-09-26）「大部分技能的二段触发键你都设成 F 了，把它设成左键；左键加速用空格代替」。
-   目前有两个「再按一下就干别的」的二段动作：引爆存好的奇点 / 把骨甲射出去。 */
-function t2Trigger() {
+   目前有两个「再按一下就干别的」的二段动作：引爆存好的奇点 / 把骨甲射出去。
+   联机三期：who = 谁触发的（缺省 = 本机玩家）—— 客人的二段在房主那边按**客人自己那份 build** 结算。 */
+function t2Trigger(who) {
+  const me = who || p;
+  return withActor(me, () => t2TriggerBody(me));
+}
+function t2TriggerBody(me) {
   if (G.state !== "play") return false;
   /* 进阶·双生奇点：把存好的那颗当场引爆 */
   if (G.t2 === "singB" && G.zones.some((z) => z.type === "singHold")) {
@@ -1615,48 +1696,56 @@ function t2Trigger() {
     }
     G.act.f = 1.2;
     G.shakeT = Math.max(G.shakeT, 0.3); G.shakeMag = Math.max(G.shakeMag, 10); SFX.zap();
-    popup(p.x, p.y - 92, "引爆", "255,150,255");
+    popup(me.x, me.y - 92, "引爆", "255,150,255");
     return true;
   }
   /* 进阶·骸骨长矛：有层数就把 E 借来射矛（冷却照吃，连点不许刷矛） */
-  if (G.mutate === "bone" && G.t2 === "boneB" && G.bone > 0 && G.act.e <= 0 && boneSpears()) {
+  if (G.mutate === "bone" && G.t2 === "boneB" && G.bone > 0 && G.act.e <= 0 && boneSpears(me)) {
     G.act.e = 3.0;
     return true;
   }
   return false;
 }
-function tryActive(k) {
-  if (p.dead) return false;                        // 倒下期间技能点不动
+/* 放技能：who = 谁放的（缺省 = 本机玩家）。里头的 G.act / G.m / G.route / G.bone 都已经被
+   withActor 换成「他那一份」—— 所以房主和客人各按各的冷却、各吃各的牌，效果不互通。 */
+function tryActive(k, who) {
+  const me = who || p;
+  return withActor(me, () => tryActiveBody(k, me));
+}
+function tryActiveBody(k, me) {
+  if (me.dead) return false;                       // 倒下期间技能点不动
   if (G.state !== "play") return false;
   /* 进阶特判：技能键归路线所有（法师 Q / 战士 E / 灯使 F），进阶要按的键可能不是自己那条 ——
      这几条一律放在路线闸之前，否则「法师按 F 引爆」「战士按 E 射矛」永远按不动。 */
-  if ((k === "f" || k === "e") && t2Trigger()) return true;
+  if ((k === "f" || k === "e") && t2Trigger(me)) return true;
   /* 技能是「选」出来的：路线没定 → 三个全锁；定完 → 另外两条永久关闭。
      三个入口（右键 / 按钮 / 快捷键）全从这道闸过，不会有一条路漏放。 */
   const rt = routeNow();
   if (!rt || rt.k !== k) { lockHint(); return false; }
   if (G.act[k] > 0) return false;                        // 冷却中：按不动
-  if (k === "q") { G.act.q = G.m.shockCd; shockwave(); }
+  if (k === "q") { G.act.q = G.m.shockCd; shockwave(me); }
   else if (k === "e") {
     /* 进阶·骸骨长矛：有层数就射出去，没层数照常突进（不会把 E 锁死） */
-    if (G.mutate === "bone" && G.t2 === "boneB" && G.bone > 0 && boneSpears()) { G.act.e = 3.0; return true; }
+    if (G.mutate === "bone" && G.t2 === "boneB" && G.bone > 0 && boneSpears(me)) { G.act.e = 3.0; return true; }
     G.act.e = G.m.dashCd;
     /* 质变·鲸吞漩涡：E 不再是突进 —— 原地张口，把四周的怪吸到嘴边打（起手 0.5s 无敌兜底） */
     if (G.mutate === "whirl" && G.m.whirl) {
       G.whirlT = G.m.whirl.t; G.whirlStamp = (G.whirlStamp || 0) + 1; G.whirlPh = 0;
       G.whirlChain = 0;                                  // 新的一口：连噬链从 0 开始
-      p.invuln = Math.max(p.invuln, 0.5);
-      burst(p.x, p.y, 26, "135,235,255"); G.shakeT = 0.2; G.shakeMag = 6; SFX.zap();
+      me.invuln = Math.max(me.invuln, 0.5);
+      netFxToGuest("shock", me.x, me.y, "135,235,255", G.m.whirl ? G.m.whirl.r : 260);
+      burst(me.x, me.y, 26, "135,235,255"); G.shakeT = 0.2; G.shakeMag = 6; SFX.zap();
       return true;
     }
     /* 质变·怒涛冲锋：E 变成朝准星的高速冲刺（方向在按下的这一瞬间锁死，之后甩鼠标也不改） */
     if (G.mutate === "chg" && G.m.chg) {
-      const [tx2, ty2] = aimPoint();
-      const dx2 = tx2 - p.x, dy2 = ty2 - p.y, L2 = Math.max(1, Math.hypot(dx2, dy2));
+      const [tx2, ty2] = aimFor(me);
+      const dx2 = tx2 - me.x, dy2 = ty2 - me.y, L2 = Math.max(1, Math.hypot(dx2, dy2));
       G.dashVX = dx2 / L2; G.dashVY = dy2 / L2;
       G.actFx.dash = G.m.chg.t;
       G.dashStamp = (G.dashStamp || 0) + 1;
-      burst(p.x, p.y, 18, "150,255,220"); SFX.zap();
+      netFxToGuest("dash", me.x, me.y, "150,255,220");
+      burst(me.x, me.y, 18, "150,255,220"); SFX.zap();
       return true;
     }
     G.actFx.dash = G.m.dashT;
@@ -1666,22 +1755,28 @@ function tryActive(k) {
        战士选了质变照旧没有这条免费无敌（玩家口径「虽然冲锋期间会受到伤害」）：
        漩涡给起手 0.5s · 骨甲花层顶伤 · 冲锋靠撞完刷冷却。 */
     const warriorMut = !!(G.mutate && MUT_MAP[G.mutate] && MUT_MAP[G.mutate].r === "warrior");
-    if (!warriorMut) p.invuln = Math.max(p.invuln, CFG.dashInv);
-    burst(p.x, p.y, 16, "150,255,220"); SFX.zap();
+    if (!warriorMut) me.invuln = Math.max(me.invuln, CFG.dashInv);
+    netFxToGuest("dash", me.x, me.y, "150,255,220");
+    burst(me.x, me.y, 16, "150,255,220"); SFX.zap();
   } else if (k === "f") {
     /* 质变·光矛：按 F 只是「开灯 + 开始蓄力」，蓄力在 stepPlay 里累，松手才打出去 */
     if (G.m.lance) {
       G.act.f = G.m.lance.cd;
       G.charge = 0;
       G.actFx.flare = G.m.flareT;
-      burst(p.x, p.y, 18, "255,245,200"); SFX.jelly();
+      burst(me.x, me.y, 18, "255,245,200"); SFX.jelly();
       return true;
     }
     G.act.f = G.m.flareCd;
     G.actFx.flare = G.m.flareT;
-    burst(p.x, p.y, 18, "210,240,255"); SFX.jelly();
+    netFxToGuest("flare", me.x, me.y, "210,240,255", G.m.flare);
+    burst(me.x, me.y, 18, "210,240,255"); SFX.jelly();
   } else return false;
   return true;
+}
+/* 瞄准点按「从谁身上量」取：本机玩家走鼠标准星，客人走他自己上行过来的准星（A2） */
+function aimFor(q) {
+  return q === p ? aimPoint() : aimPointFrom(q, A2, CFG.atkReach);
 }
 
 function spawnHunter() {
@@ -1787,12 +1882,16 @@ function hurtPlayer(dmg, col, pierce) { return hurtPlayerOn(p, dmg, col, pierce)
 /* 联机：伤害结算按「挨打的是谁」参数化 —— 减伤层（光盾/骨甲/血怒/破晓）是共享 build，双方都吃；
    但氧气、无敌帧、飘字位置各算各的 */
 function hurtPlayerOn(q, dmg, col, pierce) {
+  return withActor(q, () => hurtPlayerOnBody(q, dmg, col, pierce));
+}
+/* 挨打的那个人按**他自己那份 build** 结算（联机三期：光盾 / 骨甲 / 血怒 / 破晓各算各的） */
+function hurtPlayerOnBody(q, dmg, col, pierce) {
   if (q.dead) return false;
   if (q.invuln > 0 && !pierce) return false;
   /* 破免者的咬：无视无敌帧 —— 突进无敌、受伤无敌帧在它面前都不算 */
   if (pierce && q.invuln > 0) popup(q.x, q.y - 62, "无视无敌", "255,120,200");
   /* 照明路线·光盾：探照生效期间伤害打折（白夜之后要站在那片白昼区里才算） */
-  if (G.actFx.flare > 0 && G.m.flareShield > 0 && flareInside()) {
+  if (G.actFx.flare > 0 && G.m.flareShield > 0 && flareInside(q, q)) {
     const cut = Math.round(dmg * G.m.flareShield);
     dmg = Math.max(1, dmg - cut);
     popup(q.x, q.y - 46, "光盾 -" + cut, "210,240,255");
@@ -2003,6 +2102,58 @@ function stackCutK() {
   if (G.m.frenzy) k += G.m.frenzy.cut * G.frenzy;
   return Math.min(0.55, k);
 }
+/* 质变·鲸吞漩涡：张口期间把怪和气泡往身上吸，吸到嘴边结一次撞击伤害 ——
+   抽成函数是为了让**客人也能张口**（联机三期）：me = 谁在吞；里头读的 G.whirlT / G.m / G.t2
+   都由 withActor 换成他自己那份 build，房主和客人共用同一份逻辑（不复制一遍）。 */
+function stepWhirl(me, dt) {
+  if (!(G.whirlT > 0 && G.m.whirl)) return;
+    G.whirlT = Math.max(0, G.whirlT - dt);
+    const W2 = G.m.whirl;
+    /* 进阶·涡心压缩：前半程拢到 120px 外，后半程二次收口 —— 收口那一刻清戳记，好让第二段再咬一口 */
+    const W2b = G.t2 === "whirlB";
+    const ph2 = W2b && G.whirlT > W2.t * 0.5 ? 0 : 1;
+    if (W2b && ph2 === 1 && G.whirlPh === 0) for (const q of ents) q.whirlS = 0;
+    G.whirlPh = ph2;
+    for (let i = ents.length - 1; i >= 0; i--) {
+      const e = ents[i];
+      if (!e || e.dead) continue;
+      const dx = me.x - e.x, dy = me.y - e.y, d = Math.hypot(dx, dy);
+      const wr = W2.r * (1 - 0.10 * (G.t2 === "whirlA" ? (G.whirlChain || 0) : 0));   // 连噬：越连口越小
+      if (d > wr || d < 0.5) continue;
+      if (e.kind === "bubble" || e.kind === "jelly") {                            // 顺手把资源也捞过来
+        e.x += dx * Math.min(0.6, dt * 5); e.y += dy * Math.min(0.6, dt * 5);
+        continue;
+      }
+      if (!MOB_SET[e.kind] || e.kind === "bolt") continue;
+      const hold2 = W2b && ph2 === 0 ? 120 : 0;                     // 前半程停在外圈
+      const heavy = !!e.ctrlImm;                                   // 锚鲸：吸不动、钉不住
+      const pullK = W2b && ph2 === 1 ? dt * 12 : dt * 6;            // 涡心压缩：后半程收口更狠
+      if (!heavy && d > hold2 + e.r + 6) { e.x += dx * Math.min(0.6, pullK); e.y += dy * Math.min(0.6, pullK); }
+      /* 咬合判定：涡心压缩前半程咬外圈（120），后半程咬内圈（贴身 +34，怪会保持站位，纯贴身到不了） */
+      const bite2 = W2b ? (ph2 === 0 ? d <= hold2 + e.r + 10 : d <= CFG.playerR + e.r + 34) : d < CFG.playerR + e.r + 12;
+      if (bite2 && e.whirlS !== G.whirlStamp) {
+        e.whirlS = G.whirlStamp;
+        /* 进阶·连噬：第 N 口咬合 +25% 伤害（最多连 3 口） */
+        const chain = G.t2 === "whirlA" ? (G.whirlChain || 0) : 0;
+        const died = hurtEnt(i, e, Math.round((W2.d + stackRamBonus()) * (1 + 0.25 * chain)), "135,235,255");
+        ramOnHit(e, died);
+        /* 进阶·连噬（玩家口径：原「回旋鲸吞」把人甩到身后没用 —— 背后根本不会有怪）：
+           改成「咬死就免费再开一口」，最多连 3 口；每一口伤害更高、吸域更小。 */
+        if (died && G.t2 === "whirlA" && (G.whirlChain || 0) < 3) {
+          G.whirlChain = (G.whirlChain || 0) + 1;
+          G.whirlT = Math.max(G.whirlT, W2.t * 0.8);
+          G.whirlStamp += 1;                                    // 新的一口：所有怪都能再被咬一次
+          popup(me.x, me.y - 100, "连噬 ×" + G.whirlChain + " · 咬合 +" + (25 * G.whirlChain) + "%", "135,235,255");
+          burst(me.x, me.y, 22, "135,235,255"); SFX.nomiss();
+        }
+        if (W2.o2 > 0) {
+          const g = o2MaxNow() * W2.o2;
+          o2Add(me, g);        // 吞到的氧进**吞噬者自己**的瓶子（联机三期：不互通）
+          popup(me.x, me.y - 70, "吞氧 +" + g.toFixed(1), "135,235,255");
+        }
+      }
+    }
+}
 function stepPlay(dt) {
   const I = G.input;
   G.runTime += dt;
@@ -2072,55 +2223,7 @@ function stepPlay(dt) {
   if (G.aspBCd > 0) G.aspBCd = Math.max(0, G.aspBCd - dt);                     // 绝息一击：60s 一次
   if (G.boneACd > 0) G.boneACd = Math.max(0, G.boneACd - dt);                  // 骨甲反噬：0.45s 一次
 
-  /* 质变·鲸吞漩涡：张口期间把怪和气泡往身上吸，吸到嘴边结一次撞击伤害 */
-  if (G.whirlT > 0 && G.m.whirl) {
-    G.whirlT = Math.max(0, G.whirlT - dt);
-    const W2 = G.m.whirl;
-    /* 进阶·涡心压缩：前半程拢到 120px 外，后半程二次收口 —— 收口那一刻清戳记，好让第二段再咬一口 */
-    const W2b = G.t2 === "whirlB";
-    const ph2 = W2b && G.whirlT > W2.t * 0.5 ? 0 : 1;
-    if (W2b && ph2 === 1 && G.whirlPh === 0) for (const q of ents) q.whirlS = 0;
-    G.whirlPh = ph2;
-    for (let i = ents.length - 1; i >= 0; i--) {
-      const e = ents[i];
-      if (!e || e.dead) continue;
-      const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy);
-      const wr = W2.r * (1 - 0.10 * (G.t2 === "whirlA" ? (G.whirlChain || 0) : 0));   // 连噬：越连口越小
-      if (d > wr || d < 0.5) continue;
-      if (e.kind === "bubble" || e.kind === "jelly") {                            // 顺手把资源也捞过来
-        e.x += dx * Math.min(0.6, dt * 5); e.y += dy * Math.min(0.6, dt * 5);
-        continue;
-      }
-      if (!MOB_SET[e.kind] || e.kind === "bolt") continue;
-      const hold2 = W2b && ph2 === 0 ? 120 : 0;                     // 前半程停在外圈
-      const heavy = !!e.ctrlImm;                                   // 锚鲸：吸不动、钉不住
-      const pullK = W2b && ph2 === 1 ? dt * 12 : dt * 6;            // 涡心压缩：后半程收口更狠
-      if (!heavy && d > hold2 + e.r + 6) { e.x += dx * Math.min(0.6, pullK); e.y += dy * Math.min(0.6, pullK); }
-      /* 咬合判定：涡心压缩前半程咬外圈（120），后半程咬内圈（贴身 +34，怪会保持站位，纯贴身到不了） */
-      const bite2 = W2b ? (ph2 === 0 ? d <= hold2 + e.r + 10 : d <= CFG.playerR + e.r + 34) : d < CFG.playerR + e.r + 12;
-      if (bite2 && e.whirlS !== G.whirlStamp) {
-        e.whirlS = G.whirlStamp;
-        /* 进阶·连噬：第 N 口咬合 +25% 伤害（最多连 3 口） */
-        const chain = G.t2 === "whirlA" ? (G.whirlChain || 0) : 0;
-        const died = hurtEnt(i, e, Math.round((W2.d + stackRamBonus()) * (1 + 0.25 * chain)), "135,235,255");
-        ramOnHit(e, died);
-        /* 进阶·连噬（玩家口径：原「回旋鲸吞」把人甩到身后没用 —— 背后根本不会有怪）：
-           改成「咬死就免费再开一口」，最多连 3 口；每一口伤害更高、吸域更小。 */
-        if (died && G.t2 === "whirlA" && (G.whirlChain || 0) < 3) {
-          G.whirlChain = (G.whirlChain || 0) + 1;
-          G.whirlT = Math.max(G.whirlT, W2.t * 0.8);
-          G.whirlStamp += 1;                                    // 新的一口：所有怪都能再被咬一次
-          popup(p.x, p.y - 100, "连噬 ×" + G.whirlChain + " · 咬合 +" + (25 * G.whirlChain) + "%", "135,235,255");
-          burst(p.x, p.y, 22, "135,235,255"); SFX.nomiss();
-        }
-        if (W2.o2 > 0) {
-          const g = o2MaxNow() * W2.o2;
-          G.o2 = Math.min(o2MaxNow(), G.o2 + g);
-          popup(p.x, p.y - 70, "吞氧 +" + g.toFixed(1), "135,235,255");
-        }
-      }
-    }
-  }
+  if (G.whirlT > 0 && G.m.whirl) stepWhirl(p, dt);
   /* （原「回声冲撞」的激流带已按玩家口径改成怒涛冲锋 —— 位移本身变成操作，不再铺场） */
   /* 质变·行灯拖尾：走一段掉一盏灯蕊（上一盏的位置记在 px/py，连成串就是火线） */
   /* 质变·行灯环（玩家口径：做成符咒那种环绕）：点亮靠走，亮起来就绕着你转，永远不灭 */
@@ -2262,6 +2365,8 @@ function stepPlay(dt) {
   G.lightEat = eat;
   let litTarget = (lit + G.lightBonus) * (1 - eat);
   if (fx.flare > 0) litTarget = Math.max(litTarget, G.m.flare);
+  /* 联机三期：客人的探照也把黑暗推开（两个人的圈都是世界的光，不分你我） */
+  if (p2.active && p2.actFx && p2.actFx.flare > 0 && p2.m) litTarget = Math.max(litTarget, p2.m.flare);
   G.lightR += (litTarget - G.lightR) * Math.min(1, dt * 3);
 
   /* --- 转向：键盘＝按住踩油门（轻点微调 / 长按全速），鼠标＝比例控制 --- */
@@ -2708,9 +2813,70 @@ const NET = {
      pub = 这个房间已经发布到联机大厅；view = 面板当前视图 home/room/lobby */
   waiting: false, started: false, pub: false, view: "home", lastTick: 0
 };
-/* 二号位（客人）的小人：没客人时 active=false，一切按单机跑，零行为变化 */
+/* 二号位（客人）的小人：没客人时 active=false，一切按单机跑，零行为变化。
+   联机三期（玩家口径「技能键也做一下 / 房员和房主选择技能不要互通效果 / 让房员也可以自己选择职业」）：
+   客人有**自己的一份 build** —— 路线 / 质变 / 进阶 / 深渊馈赠 / 系数表 / 层数，外加三个技能各自的
+   冷却与瞬时状态。谁的技能算谁的账：房主的牌不会给客人的技能加成，反过来也一样。 */
 const p2 = { x: W0 / 2, y: CFG.playerY, vx: 0, invuln: 0, hurtT: 0, o2: CFG.o2Max, dead: false,
-             reviveT: 0, kbHold: 0, active: false, name: "潜伴", ghost: 0 };
+             reviveT: 0, kbHold: 0, active: false, name: "潜伴", ghost: 0, skinI: 0,
+             /* 自己那份 build（字段名跟 G 上那份一致 —— withActor 换的就是它们） */
+             route: null, mutate: null, t2: null, sk: {}, m: null, bone: 0, frenzy: 0, atkCount: 0,
+             act: { q: 0, e: 0, f: 0 }, actFx: { dash: 0, flare: 0, shock: 0, sx: 0, sy: 0 },
+             dashVX: null, dashVY: null, dashStamp: 0, whirlT: 0, whirlPh: 0, whirlChain: 0, whirlStamp: 0,
+             charge: 0, holdF: false, aspBCd: 0, boneACd: 0, t2cd: 0, orb: null,
+             lampN: 0, lampA: 0, lampX: W0 / 2, lampY: CFG.playerY - 1,
+             singGrow: 0, singEat: 0, prismT: 0, prismFired: 0, lanceBack: null, pullT: 0 };
+/* ---------- 谁的 build：withActor(q, fn) 把 q 那份临时换到 G 上 ----------
+   换的只有「纯数据」那一批（见 ACTOR_KEYS）：路线 / 技能等级 / 系数表 / 层数 / 技能冷却与瞬时状态。
+   世界状态（怪、场、光、震动、深度）一律不动；q === p 时直接跑 —— 单机路径一次都不进这里，行为一字不改。 */
+const ACTOR_KEYS = ["route", "mutate", "t2", "sk", "m", "bone", "frenzy", "atkCount",
+                    "act", "actFx", "dashVX", "dashVY", "dashStamp", "whirlT", "whirlPh", "whirlChain",
+                    "whirlStamp", "charge", "holdF", "aspBCd", "boneACd", "t2cd", "orb", "lampN", "lampA",
+                    "lampX", "lampY", "singGrow", "singEat", "prismT", "prismFired", "lanceBack", "pullT"];
+let ACTOR = null;                                   // G 上现在挂的是谁那份（null = 房主 p 自己那份）
+let OWN = null;                                     // 房主那份的存档（只在「进了别人上下文」期间存在）
+function buildOf(q) { return q === p ? G : q; }
+function actorSnap() { const o = {}; for (const k of ACTOR_KEYS) o[k] = G[k]; return o; }
+function actorPut(src) { for (const k of ACTOR_KEYS) G[k] = src[k]; }
+function withActor(q, fn) {
+  const want = (!q || q === p) ? null : q;          // 要进谁的上下文（null = 房主那份）
+  /* 已经在同一个人的上下文里：直接跑。**必须早退** —— 再换一次的话，
+     内层的改动会在外层退场时被「进内层之前那个旧值」冲掉（p2.dashVX 就栽在这上面：
+     客人按怒涛冲锋，冷却进了、特效进了，位移是 0）。 */
+  if (want === ACTOR) return fn();
+  const here = actorSnap();                         // 现在 G 上这份（属于 ACTOR）
+  const prev = ACTOR, prevOwn = OWN;
+  const src = want ? want : OWN;
+  if (!src) return fn();
+  actorPut(src);
+  if (want) OWN = prev ? prevOwn : here;            // 进别人的上下文：把「房主那份」存起来（只存第一次）
+  else OWN = null;                                  // 回房主上下文：换上来的就是存档，存档作废
+  ACTOR = want;
+  if (!G.sk) G.sk = {};
+  if (!G.act) G.act = { q: 0, e: 0, f: 0 };
+  if (!G.actFx) G.actFx = { dash: 0, flare: 0, shock: 0, sx: 0, sy: 0 };
+  if (!G.m) recalcMods();                           // 还没算过系数表：按他这份 build 现算一份
+  try { return fn(); }
+  finally {
+    const done = actorSnap();                       // 跑完的这份写回它主人身上
+    if (want) { for (const k of ACTOR_KEYS) want[k] = done[k]; } else { OWN = done; }
+    if (prev) { actorPut(here); ACTOR = prev; OWN = prevOwn; }   // 恢复上一层
+    else { actorPut(OWN); ACTOR = null; OWN = null; }
+  }
+}
+function recalcModsFor(q) { return withActor(q, recalcMods); }
+/* 开新一局：把客人那份 build 与技能状态清干净（没客人时也只是几个字段归零，零副作用） */
+function sideBuildReset() {
+  p2.route = null; p2.mutate = null; p2.t2 = null; p2.sk = {}; p2.m = null;
+  p2.bone = 0; p2.frenzy = 0; p2.atkCount = 0;
+  p2.act = { q: 0, e: 0, f: 0 }; p2.actFx = { dash: 0, flare: 0, shock: 0, sx: 0, sy: 0 };
+  p2.dashVX = null; p2.dashVY = null; p2.dashStamp = 0; p2.whirlT = 0; p2.whirlPh = 0;
+  p2.whirlChain = 0; p2.whirlStamp = 0; p2.charge = 0; p2.holdF = false;
+  p2.aspBCd = 0; p2.boneACd = 0; p2.t2cd = 0; p2.orb = null;
+  p2.lampN = 0; p2.lampA = 0; p2.singGrow = 0; p2.singEat = 0; p2.prismT = 0; p2.prismFired = 0;
+  p2.lanceBack = null; p2.pullT = 0;
+  recalcModsFor(p2);
+}
 const A2 = { x: W0 / 2, y: CFG.playerY + CFG.atkReach, cd: 0.4, beam: 0, sx: 0, sy: 0, ex: 0, ey: 0, beamDmg: 0 };
 const ICE_CFG = { iceServers: [
   { urls: "stun:stun.l.google.com:19302" },
@@ -2722,7 +2888,7 @@ const ICE_CFG = { iceServers: [
 /* ---------- 双人规则的地基：谁是活的、氧气在谁身上、死了怎么复活 ---------- */
 function coopHit() { return NET.connected ? CFG.coopMul : 1; }         // 咬 / 撞 / 电 的伤害倍率
 function o2Get(q) { return q === p ? G.o2 : q.o2; }
-function o2Set(q, v) { const m = o2MaxNow(); if (q === p) G.o2 = clamp(v, 0, m); else q.o2 = clamp(v, 0, m); }
+function o2Set(q, v) { const m = o2MaxNow(q); if (q === p) G.o2 = clamp(v, 0, m); else q.o2 = clamp(v, 0, m); }
 function o2Sub(q, v) { o2Set(q, o2Get(q) - v); }
 function o2Add(q, v) { o2Set(q, o2Get(q) + v); }
 function party() { return p2.active ? [p, p2] : [p]; }
@@ -2756,7 +2922,7 @@ function reviveTick(q, dt) {
   }
 }
 /* 二号位的移动：跟本体同一套「轻点微调 / 长按全速 / 鼠标比例控制」，只是输入来自网络 */
-function moveSide(pl, inp, dt) {
+function moveSide(pl, inp, dt, boost) {
   let want = 0;
   const kdir = inp.l | 0;
   if (kdir) {
@@ -2770,6 +2936,7 @@ function moveSide(pl, inp, dt) {
   }
   if (want > 0) want *= clamp((CFG.xMax - pl.x) / CFG.kbSoftEdge, 0, 1);
   else if (want < 0) want *= clamp((pl.x - CFG.xMin) / CFG.kbSoftEdge, 0, 1);
+  if (boost) want *= boost;                    // 联机三期：客人的突进也提速（跟 p 的 dashMul 一个意思）
   pl.vx += (want - pl.vx) * Math.min(1, dt * (kdir ? CFG.kbAccel : (G.m ? G.m.accel : 8)));
   pl.x += pl.vx * dt;
   if (pl.x < CFG.xMin) { pl.x = CFG.xMin; pl.vx = 0; }
@@ -2784,9 +2951,25 @@ function aimAt(src, A, reach) {
 /* 房主侧：把客人送来的操作跑成二号位（移动 + 自动瞄准射击 + 复活计时） */
 function coopHostStep(dt) {
   if (!p2.active) return;
+  /* 联机三期：整段按**客人自己那份 build** 跑 —— 他的攻击伤害 / 间隔 / 技能系数全是他的牌 */
+  return withActor(p2, () => coopHostStepBody(dt));
+}
+function coopHostStepBody(dt) {
+  /* 客人自己那份技能的计时：冷却 + 生效窗口（房主那份由 stepPlay 管，两边互不干扰） */
+  for (const k in G.act) if (G.act[k] > 0) G.act[k] = Math.max(0, G.act[k] - dt);
+  if (G.actFx.dash > 0) G.actFx.dash = Math.max(0, G.actFx.dash - dt);
+  if (G.actFx.flare > 0) G.actFx.flare = Math.max(0, G.actFx.flare - dt);
+  if (G.actFx.shock > 0) G.actFx.shock = Math.max(0, G.actFx.shock - dt);
+  if (G.aspBCd > 0) G.aspBCd = Math.max(0, G.aspBCd - dt);
+  if (G.boneACd > 0) G.boneACd = Math.max(0, G.boneACd - dt);
+  if (G.t2cd > 0) G.t2cd = Math.max(0, G.t2cd - dt);
+  sideDashMove(dt);
+  sideWhirlTick(dt);
+  sideFlareTick(dt);
+  sideLanceTick(dt);
   reviveTick(p2, dt);
   if (p2.dead) return;
-  moveSide(p2, NET.in, dt);
+  moveSide(p2, NET.in, dt, sideDashMul());
   A2.x = NET.in.ax; A2.y = NET.in.ay;
   if (A2.beam > 0) A2.beam = Math.max(0, A2.beam - dt);
   A2.cd -= dt;
@@ -2797,6 +2980,65 @@ function coopHostStep(dt) {
   }
   if (p2.invuln > 0) p2.invuln = Math.max(0, p2.invuln - dt);
   p2.hurtT = Math.max(0, p2.hurtT - dt);
+}
+/* ---------- 客人自己那套技能的逐帧结算（只在 withActor(p2) 上下文里调用）---------- */
+/* 突进期间提速：跟 p 那边同一个系数 */
+function sideDashMul() { return G.actFx.dash > 0 ? CFG.dashMul : 1; }
+/* 突进：怒涛冲锋按方向位移 + 撞碎挡路的 / 撞怪（判据与 p 那边逐条对齐；各算一次账靠 dashStamp） */
+function sideDashMove(dt) {
+  if (!(G.actFx.dash > 0)) return;
+  if (G.m.chg && G.dashVX !== null) {
+    const V = G.m.chg.speed;
+    p2.x += G.dashVX * V * dt;
+    p2.y += G.dashVY * V * dt;
+    if (p2.y < CFG.playerY - 190) p2.y = CFG.playerY - 190;
+    if (p2.y > CFG.playerY + 190) p2.y = CFG.playerY + 190;
+    if (p2.x < CFG.xMin) { p2.x = CFG.xMin; p2.vx = 0; }
+    if (p2.x > CFG.xMax) { p2.x = CFG.xMax; p2.vx = 0; }
+  } else if (G.m.chg && Math.abs(p2.y - CFG.playerY) > 0.5) {
+    const back = 300 * dt;
+    p2.y += clamp(CFG.playerY - p2.y, -back, back);
+  }
+  const rr2 = CFG.playerR;
+  for (let i = ents.length - 1; i >= 0; i--) {
+    const e = ents[i];
+    if (!e || e.dead) continue;
+    const d = Math.hypot(e.x - p2.x, e.y - p2.y);
+    if ((e.kind === "rock" || e.kind === "cable") && d < rr2 + 10 && e.dashS !== G.dashStamp) {
+      e.dashS = G.dashStamp;
+      const diedO = hurtEnt(i, e, CFG.dashDmg + G.m.ramDmg + stackRamBonus(), "150,255,220");
+      if (diedO && G.m.vamp > 0) healVamp(e.x, e.y);
+      ramOnHit(e, diedO);
+    } else if ((G.m.ramDmg > 0 || G.m.chg) && mobKind(e.kind) && d < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
+      e.dashS = G.dashStamp;
+      const diedM = hurtEnt(i, e, (G.m.chg ? G.m.chg.dmg : G.m.ramDmg) + stackRamBonus(), "150,255,220");
+      if (diedM && G.m.vamp > 0) healVamp(e.x, e.y);
+      /* 进阶·连涛：撞死就刷新冲锋冷却（跟房主那边同一条规矩） */
+      if (diedM && G.t2 === "chgB") {
+        G.act.e = Math.min(G.act.e, 0.15);
+        popup(p2.x, p2.y - 96, "连涛 · 冲锋就绪", "150,255,220");
+        burst(p2.x, p2.y, 18, "150,255,220");
+      }
+      ramOnHit(e, diedM);
+    }
+  }
+}
+/* 鲸吞漩涡：客人也能张口（同一份 stepWhirl，只是换成他） */
+function sideWhirlTick(dt) { if (G.whirlT > 0 && G.m.whirl) stepWhirl(p2, dt); }
+/* 探照的两条福利（灼光 / 回春）发给**客人自己**；世界被照亮那部分在光照里统一算 */
+function sideFlareTick(dt) {
+  if (!(G.actFx.flare > 0)) { G.dotT = 0; return; }
+  if (G.m.flareDot > 0) {
+    G.dotT = (G.dotT || 0) + dt;
+    if (G.dotT >= 0.25) { G.dotT = 0; flareBurn(p2); }
+  }
+  if (G.m.flareHeal > 0 && flareInside(p2, p2)) o2Add(p2, o2MaxNow() * G.m.flareHeal / 100 * dt);
+}
+/* 光矛：按住蓄力、松手打出去（跟 p 那边同一套，只是蓄力条在客人身上） */
+function sideLanceTick(dt) {
+  if (!(G.m.lance && G.actFx.flare > 0)) return;
+  if (G.holdF) G.charge = Math.min(G.m.lance.charge, (G.charge || 0) + dt);
+  else if (G.charge > 0) { lanceFire(G.charge / G.m.lance.charge, p2); G.charge = 0; }
 }
 
 /* ---------- 快照 ---------- */
@@ -2812,6 +3054,9 @@ function netSnapBuild() {
     t: performance.now() | 0, st: G.state, d: Math.round(G.depth), sp: Math.round(G.speed),
     o2: +G.o2.toFixed(1), lr: Math.round(G.lightR), lb: Math.round(G.lightBonus), le: +(G.lightEat || 0).toFixed(2),
     bn: Math.round(G.bonus), lv: G.level, kn: G.kills, ac: [+G.act.q.toFixed(1), +G.act.e.toFixed(1), +G.act.f.toFixed(1)],
+    /* 联机三期：队友那份的冷却与 build（他自己那份，和房主这份互不相干） */
+    ac2: [+p2.act.q.toFixed(1), +p2.act.e.toFixed(1), +p2.act.f.toFixed(1)], fl2: +p2.actFx.flare.toFixed(2),
+    b2: { r: p2.route || null, mu: p2.mutate || "", t2: p2.t2 || "", sk: Object.assign({}, p2.sk) },
     mu: G.mutate || "", t2: G.t2 || "", sk: G.sk, ski: SKIN_I,
     /* 房主自己那道普攻光束的远端副本：没有它客人永远看不到房主在打（只能看见怪自己掉血） */
     hb: [+G.aim.beam.toFixed(2), Math.round(G.aim.sx), Math.round(G.aim.sy), Math.round(G.aim.ex), Math.round(G.aim.ey)],
@@ -2866,22 +3111,30 @@ function netApplySnap() {
     const key = ["q", "e", "f"][k];
     G.act[key] = sa ? (sa.ac[k] + (sb.ac[k] - sa.ac[k]) * a) : sb.ac[k];
   }
-  if (NET.lastSk !== JSON.stringify(sb.sk) || G.mutate !== sb.mu || G.t2 !== sb.t2) {
-    NET.lastSk = JSON.stringify(sb.sk);
-    G.mutate = sb.mu || null; G.t2 = sb.t2 || null; G.sk = JSON.parse(NET.lastSk);
+  /* 联机三期：本地这份 build = **我自己那份**（房主把他那份 b2 发下来）。
+     以前镜像的是房主的牌 —— 客人 HUD 上的冷却 / 技能图标全是房主的，自己的牌子看不出效果。 */
+  if (sb.b2 && NET.lastB2 !== JSON.stringify(sb.b2)) {
+    NET.lastB2 = JSON.stringify(sb.b2);
+    G.route = sb.b2.r || null; G.mutate = sb.b2.mu || null; G.t2 = sb.b2.t2 || null;
+    G.sk = Object.assign({}, sb.b2.sk || {});
     recalcMods();
   }
+  /* 我自己那三个技能的冷却（房主从快照里带下来）—— HUD 读它，不读房主那份 */
+  if (sb.ac2) G.act2 = { q: sb.ac2[0], e: sb.ac2[1], f: sb.ac2[2], fl: sb.fl2 || 0 };
   /* 房主（远端）那个小人 */
   const pa = sa ? sa.a : sb.a, pb = sb.a;
   p.x = pa[0] + (pb[0] - pa[0]) * a; p.y = pa[1] + (pb[1] - pa[1]) * a;
   p.invuln = pb[2]; p.dead = !!pb[3]; p.reviveT = pb[4] || 0;
   p.o2 = L("o2", 100);                                   // 队友的氧（HUD 第二条读它）
-  G.o2 = L("o2b", G.o2);                                 // 我自己的氧 = 二号位那瓶（HUD 主条读它）
   /* 我自己那个小人（客人 = 二号位） */
   const ba = sa ? sa.b : sb.b, bb = sb.b;
+  /* 我自己的氧 = 快照里二号位那瓶（b[5]）。旧版这一行读的是 `o2b` —— 房主压根没发过这个字段，
+     L() 于是回退到「本地那个从来没更新过的初值」：主血条显示的是假血（玩家口径
+     「房员的真实血量和显示血量不一致」就是这么来的）。这里按同一套插值取真值。 */
+  G.o2 = ba[5] + (bb[5] - ba[5]) * a;
   const tgtX = ba[0] + (bb[0] - ba[0]) * a, tgtY = ba[1] + (bb[1] - ba[1]) * a;
   if (Math.abs(p2.x - tgtX) > 60) p2.x = tgtX; else p2.x += (tgtX - p2.x) * 0.18;   // 本地预测为主，误差大了才纠
-  p2.y = tgtY; p2.invuln = bb[2]; p2.dead = !!bb[3]; p2.reviveT = bb[4] || 0; p2.o2 = bb[5];
+  p2.y = tgtY; p2.invuln = bb[2]; p2.dead = !!bb[3]; p2.reviveT = bb[4] || 0; p2.o2 = G.o2;   // 同一个值：显示与真实不分家
   /* 实体：按 nid 配对插值 */
   const list = [];
   for (let i = 0; i < sb.e.length; i++) {
@@ -2904,6 +3157,8 @@ function netApplySnap() {
 function netGuestFrame(dt) {
   G.t += dt;
   updateSnow(dt); updateParticles(dt); updateFxRings(dt); updatePopups(dt);
+  /* 光柱（骨矛 / 光矛 / 房主的光束副本）：客人这边不跑 stepPlay，得自己让它退场 */
+  if (G.beams.length) { for (const b of G.beams) b.t -= dt; G.beams = G.beams.filter((b) => b.t > 0); }
   if (G.shakeT > 0) G.shakeT = Math.max(0, G.shakeT - dt);
   if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 3.2);
   if (G.redFlash > 0) G.redFlash = Math.max(0, G.redFlash - dt * 2.2);
@@ -2964,6 +3219,40 @@ function netHostTick(dt) {
   if (performance.now() - NET.lastPing >= 1000) { NET.lastPing = performance.now(); netSend({ k: "p", t: performance.now() | 0 }); }
 }
 
+/* ---------- 联机三期：客人的技能键 ----------
+   客人按 Q/E/F（右键 / HUD 圆钮同理）→ 只发一条「我按了哪个键」；房主在**客人自己那份 build** 里
+   放这一发（冷却、伤害、氧气全是他的牌），再把「这一下该有什么特效」回给客人看。
+   放不出来（路线没选 / 冷却中 / 倒下了）就把房主那边的提示原样发回去 —— 免得客人以为按键坏了。 */
+function netSideSkill(m) {
+  if (!p2.active || G.state !== "play" || !m || !m.a) return false;
+  /* 光矛（质变）才是「按住蓄力、松手打出去」；普通探照按下即放 ——
+     不分开的话，客人按 F 会被当成「按住」，灯永远不开（探针 B 段抓到的）。 */
+  if (m.a === "f" && m.hold !== null && m.hold !== undefined && p2.m && p2.m.lance) {
+    p2.holdF = !!m.hold;
+    return true;
+  }
+  const ok = withActor(p2, () => tryActive(m.a, p2));
+  if (!ok && G.hint) netSend({ k: "hint", s: G.hint });
+  return ok;
+}
+/* 技能特效的远端副本：瞬间结算的东西（圆环 / 爆点 / 光柱）快照里留不住，
+   不发这一条的话「我放了技能」只有自己屏幕上看得到。场（zone）本来就跟着快照走，不用发。 */
+function netFxToGuest(n, x, y, c, r, x2, y2) {
+  if (NET.role !== "host" || !NET.connected) return;
+  netSend({ k: "fx", n: n, x: Math.round(x), y: Math.round(y), c: c || "", r: r ? Math.round(r) : 0,
+            x2: x2 === undefined ? null : Math.round(x2), y2: y2 === undefined ? null : Math.round(y2) });
+}
+function netFxShow(m) {
+  const col = m.c || "180,240,255";
+  if (m.n === "shock") { fxRing(m.x, m.y, 26, m.r || 220, col, 0.5, "ring"); burst(m.x, m.y, 22, col); }
+  else if (m.n === "dash") { fxRing(m.x, m.y, 12, 130, col, 0.32, "ring"); burst(m.x, m.y, 14, col); }
+  else if (m.n === "flare") { fxRing(m.x, m.y, 22, 190, col, 0.45, "ring"); burst(m.x, m.y, 18, col); }
+  else if (m.n === "lance" && m.x2 !== null && m.x2 !== undefined) {
+    G.beams.push({ x1: m.x, y1: m.y, x2: m.x2, y2: m.y2, t: 0.34, lance: true, w: 26, col: col });
+    burst(m.x, m.y, 16, col);
+  } else if (m.n === "bone") { burst(m.x, m.y, 20, col); fxRing(m.x, m.y, 16, 140, col, 0.3, "ring"); }
+  else { burst(m.x, m.y, 16, col); }
+}
 /* ---------- 传输 ---------- */
 function netSend(obj) {
   if (NET.dc && NET.dc.readyState === "open") { try { NET.dc.send(JSON.stringify(obj)); } catch (e) { NET.err = "发送失败"; } }
@@ -3007,18 +3296,23 @@ function netWireDC() {
     /* --- 联机二期：皮肤 / 选牌（都是「谁选的、发给谁」的小消息，不占快照带宽） --- */
     else if (m.k === "skin") { p2.skinI = m.i | 0; }                          // 客人换了皮肤 → 房主画他的时候用它
     else if (m.k === "ch" && NET.role === "guest") {                          // 房主发来「队友那三张」
-      G.choices = m.list || null; G.lvPicked = null; G.rerolls = m.rr | 0;
+      G.choices = m.list || null; G.lvPicked = null; G.rerolls = m.rr | 0;   // rr = 我自己的剩余刷新次数
+    } else if (m.k === "rr" && NET.role === "host") {                         // 队友按了刷新（各刷各的）
+      netSideReroll();
     } else if (m.k === "pk" && NET.role === "host") {                         // 队友选好了第几张
-      if (G.state === "levelup" && G.lvTeam && (G.lvPeer === null || G.lvPeer === undefined)) {
+      if (G.state === "levelup" && G.lvTeam && (G.lvPeer === null || G.lvPeer === undefined)
+          && (m.i | 0) >= 0 && (m.i | 0) < (G.guestChoices ? G.guestChoices.length : 0)) {
         G.lvPeer = m.i | 0;
         if (G.lvMine !== null && G.lvMine !== undefined) finishTeamPick();     // 这一轮两个人都选完了 → 开闸
       }
-    } else if (m.k === "rr" && NET.role === "host") {                         // 队友要刷新他那三张
-      if (G.state === "levelup" && G.lvTeam && (G.lvMine === null || G.lvMine === undefined) && G.rerolls > 0) {
-        G.rerolls -= 1; G.rerollN += 1;
-        G.guestChoices = rollChoices(1);
-      }
-      netSend({ k: "ch", list: G.guestChoices, rr: G.rerolls });              // 同不同意都回一份（把剩余次数也带回去）
+    } else if (m.k === "sk" && NET.role === "host") {                         // 客人在自己键盘上按了 Q/E/F
+      netSideSkill(m);
+    } else if (m.k === "t2" && NET.role === "host") {                         // 客人按了左键（二段）
+      if (p2.active) withActor(p2, () => t2Trigger(p2));
+    } else if (m.k === "fx" && NET.role === "guest") {                        // 房主/客人放技能的特效副本
+      netFxShow(m);
+    } else if (m.k === "hint" && NET.role === "guest") {                      // 房主那边拒了这一下：给他一句人话
+      G.hint = m.s || ""; G.hintT = G.t + 1.8;
     }
   };
 }
@@ -4251,7 +4545,7 @@ function drawHUD() {
   ctx.beginPath(); ctx.moveTo(tx, lby - 1.5); ctx.lineTo(tx, lby + lbh + 1.5); ctx.stroke();
   text("光照", bx, lby - 6, 11.5, lr < baseR - 0.01 ? "rgba(200,165,255,0.95)" : "rgba(140,190,220,0.72)", "left", 600);
   text(Math.round(G.lightR) + (G.lightEat > 0.01 ? " · 被吞 " + Math.round(G.lightEat * 100) + "%" : "")
-       + (G.actFx.flare > 0 ? " · 探照" : ""), bx + bw, lby - 6, 11.5,
+       + (hudFlare() > 0 ? " · 探照" : ""), bx + bw, lby - 6, 11.5,
        G.lightEat > 0.01 ? "rgba(200,165,255,0.9)" : lr <= 0.22 ? "rgba(255,150,150,0.9)" : "rgba(190,230,250,0.85)", "right", 600);
   /* 深渊馈赠：等级 + 距下次强化的距离 */
   const lvSpan = lvNeed(G.level + 1);
@@ -4289,7 +4583,7 @@ function drawActives() {
       text(rt ? "封" : "锁", b.x, b.y + 16, 10.5, "rgba(130,160,180,0.5)", "center", 600);
       continue;
     }
-    const cd = G.act[b.k], total = Math.max(0.001, b.cd()), rdy = cd <= 0;
+    const cd = hudAct()[b.k] || 0, total = Math.max(0.001, b.cd()), rdy = cd <= 0;
     ctx.save();
     ctx.beginPath(); ctx.arc(b.x, b.y, ACT_R, 0, Math.PI * 2);
     ctx.fillStyle = rdy ? "rgba(20,58,84,0.70)" : "rgba(10,24,36,0.70)"; ctx.fill();
@@ -5553,14 +5847,17 @@ function drawLevelUp() {
   }
   text("深渊会等你 —— 卡面出现时下潜暂停", W0 / 2, 470, 12.5, "rgba(140,190,220,0.6)", "center", 500);
   /* 刷新按钮：每局两次（选流派那次不给刷）—— 抽得不满意就重来一批 */
-  const rr = rerollRect(), rOn = G.rerolls > 0 && !isRoute, rHot = rOn && rerollHit(G.input.ptrX, G.input.ptrY);
+  /* 刷新按钮（联机四期）：每人两次、各刷各的 —— 拍过板 / 选流派 / 进阶二选一都不给刷 */
+  const pickedMine = (NET.role === "guest") ? (G.lvPicked !== null && G.lvPicked !== undefined)
+                                            : (G.lvMine !== null && G.lvMine !== undefined);
+  const rr = rerollRect(), rOn = G.rerolls > 0 && !isRoute && !isAdv && !pickedMine, rHot = rOn && rerollHit(G.input.ptrX, G.input.ptrY);
   ctx.save(); rrRect(rr.x, rr.y, rr.w, rr.h, 12);
   ctx.fillStyle = rOn ? (rHot ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.92)") : "rgba(8,18,28,0.70)";
   ctx.fill();
   ctx.strokeStyle = rOn ? (rHot ? "rgba(160,235,255,0.95)" : "rgba(255,215,150,0.55)") : "rgba(110,140,160,0.30)";
   ctx.lineWidth = rHot ? 2.2 : 1.4; ctx.stroke();
   ctx.restore();
-  text(isAdv ? "进阶二选一 · 不给刷新" : (isRoute ? "选流派不给刷新" : "↻ 刷新 ×" + G.rerolls + "（按 R）"), rr.x + rr.w / 2, rr.y + rr.h / 2 + 6, 16, rOn ? "rgba(255,238,205,0.95)" : "rgba(150,175,195,0.6)", "center", 700);
+  text(pickedMine ? "已拍板 · 这一轮不给刷新" : (isAdv ? "进阶二选一 · 不给刷新" : (isRoute ? "选流派不给刷新" : "↻ 刷新 ×" + G.rerolls + "（按 R）")), rr.x + rr.w / 2, rr.y + rr.h / 2 + 6, 16, rOn ? "rgba(255,238,205,0.95)" : "rgba(150,175,195,0.6)", "center", 700);
 }
 
 function drawSelfTest() {
@@ -5678,11 +5975,11 @@ canvas.addEventListener("pointerdown", (ev) => {
   }
   /* 鼠标左键 = 二段触发（玩家口径「二段键改左键」）：把存好的奇点引爆 / 把骨甲射成矛。
      没有二段可放时这一下什么也不做（加速已经搬到空格，左键不再兼职）。 */
-  if (ev.pointerType === "mouse" && ev.button === 0 && G.state === "play" && t2Trigger()) {
+  if (ev.pointerType === "mouse" && ev.button === 0 && G.state === "play" && t2Press()) {
     ev.preventDefault(); return;
   }
   const ab = actBtnHit(q.x, q.y);
-  if (ab) { tryActive(ab); ev.preventDefault(); return; }
+  if (ab) { skillPress(ab); ev.preventDefault(); return; }
   try { if (canvas.setPointerCapture) canvas.setPointerCapture(ev.pointerId); } catch (e) { /* 合成事件/无活动指针时会抛，不能让它挡住后面的输入登记 */ }
   /* 鼠标 = 准星（管打哪），触屏 = 拖拽转向（管在哪）——「打哪」和「在哪」分家 */
   if (ev.pointerType === "touch") { touchIds.add(ev.pointerId); G.input.touches = touchIds.size; G.input.ptrActive = true; G.input.ptrX = q.x; G.input.ptrY = q.y; }
@@ -5751,7 +6048,8 @@ window.addEventListener("keydown", (ev) => {
   else if (k === "KeyQ" || k === "KeyE" || k === "KeyF") {
     /* 主动技能：自己按才放，而且只认已解锁的那条路线；普攻是自动连发的，两回事 */
     if (k === "KeyF") I.holdF = true;
-    tryActive(k === "KeyQ" ? "q" : k === "KeyE" ? "e" : "f");
+    /* 联机三期：客人的 Q/E/F 上行给房主（F 还要带「按住/松手」—— 光矛是松手才打出去） */
+    skillPress(k === "KeyQ" ? "q" : k === "KeyE" ? "e" : "f", k === "KeyF" ? true : null);
     ev.preventDefault();
   }
   else if (k === "KeyP" || k === "Escape") {
@@ -5770,7 +6068,7 @@ window.addEventListener("keyup", (ev) => {
   if (k === "Space" || k === "ArrowUp" || k === "KeyW" || k === "Enter" || k === "NumpadEnter") { I.kb = false; syncPointerBoost(); }
   else if (k === "ArrowLeft" || k === "KeyA") I.left = false;
   else if (k === "ArrowRight" || k === "KeyD") I.right = false;
-  else if (k === "KeyF") I.holdF = false;                  // 光矛：松手这一下才是「打出去」
+  else if (k === "KeyF") { I.holdF = false; if (isSideGuest()) skillPress("f", false); }   // 光矛：松手这一下才是「打出去」
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && G.state === "play") G.state = "pause";
@@ -5910,6 +6208,9 @@ window.__SINK__ = {
   netRoomEnter, netRoomLeave, netStartMatch, netMatchStart, netPanelShowView, netPanelInit2, netWaitLines,
   LOBBY, LOBBY_TTL, LOBBY_TOPIC, NTFY_BASE, lobbyOpen, lobbySetPub, lobbyAnnounce, lobbyPoll, lobbyPrune, lobbyRooms, lobbyJoin, lobbyOnMsg,
   tryActive, shockwave, hurtEnt, ACT_BTN, actBtnHit, layoutHud, BOOST_BTN, PAUSE_BTN, pauseMenuHit, homeBtnHit, actR: () => ACT_R, SA, isTouch: () => TOUCH, t2Trigger,
+  /* 联机三期：客人的技能键那一套（探针直接调这些，跑的是真代码不是打桩） */
+  netSideSkill, netSideReroll, cardPickable, netFxToGuest, netFxShow, netSend, withActor, recalcModsFor, sideBuildReset, skillPress, t2Press, hudAct, finishTeamPick,
+  stepWhirl, sideDashMove, applyCard, aimFor,
   rerollChoices, rollChoices, rerollHit, rerollRect, ARTIFACTS, ARTIFACT_UP, MUTATIONS, MUT_MAP, MUT_SKILLS, MUT_T2, wrapText, entBodyDist, devourTierAt, devourNextNeed,
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
   SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, skinAt, avatarSkin, R,
@@ -5930,6 +6231,17 @@ window.__SINK__ = {
                    charge: +(G.charge || 0).toFixed(2), lampN: G.lampN || 0,
                    t2: G.t2, aspBCd: +(G.aspBCd || 0).toFixed(2),
                    whirlChain: G.whirlChain || 0, singEat: G.singEat || 0, singGrow: G.singGrow || 0,
+                   /* 联机三期：二号位（客人）自己那份 —— 冷却 / build / 技能状态，探针就量这些 */
+                   p2act: { q: +p2.act.q.toFixed(2), e: +p2.act.e.toFixed(2), f: +p2.act.f.toFixed(2) },
+                   p2fx: { dash: +p2.actFx.dash.toFixed(2), flare: +p2.actFx.flare.toFixed(2), shock: +p2.actFx.shock.toFixed(2) },
+                   p2route: p2.route, p2mutate: p2.mutate, p2t2: p2.t2, p2sk: Object.assign({}, p2.sk),
+                   p2o2: +o2Get(p2).toFixed(1), p2max: +o2MaxNow(p2).toFixed(1), p2inv: +p2.invuln.toFixed(2),
+                   p2x: Math.round(p2.x), p2dead: p2.dead, p2active: p2.active,
+                   p2whirlT: +(p2.whirlT || 0).toFixed(2), p2charge: +(p2.charge || 0).toFixed(2),
+                   fxR: G.fxR.length, hostRoute: G.route,
+                   /* 联机四期：刷新次数（我 / 队友各一份）+ 三张牌的 id（探针量「各刷各的」） */
+                   rerolls: G.rerolls, rerolls2: G.rerolls2, lvMine: G.lvMine, lvPeer: G.lvPeer, lvDone: !!G.lvDone,
+                   gchIds: G.guestChoices ? G.guestChoices.map((s) => s.id) : null,
                    vulnN: ents.filter((e) => (e.vulnT || 0) > 0).length })
 };
 
