@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head><!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
-     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
+     下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--> <!--/align-pad-->
+
 
 
 
@@ -505,7 +506,10 @@ function rollChoices() {
   if (routeOnly) {
     let own = SKILLS.filter((s) => s.r === G.route && skLv(s.id) < s.max && G.depth >= s.minD);
     if (own.length < 3) own = SKILLS.filter((s) => s.r === G.route && skLv(s.id) < s.max);
-    if (own.length) pool = own;
+    /* 够三张才纯血。不够就得退回混池 —— 旧代码写的是 own.length 非 0 就独占，
+       而每条路线在 SKILLS 里只有 4 张牌：刷满两张纯血池就只剩 2 张，当期三选一直接开天窗
+       （玩家口径「牌库并没有被抽完，但只会给你两张牌」的一半来源）。 */
+    if (own.length >= 3) pool = own;
   }
   const out = [];
   /* 神器：稀有档单独判一次（不跟普通牌比权重）。
@@ -540,7 +544,15 @@ function rollChoices() {
     if (mutOwned < 3 && !out.some((s) => s.r === G.mutate) && G.level !== 2) {
       let own = MUT_SKILLS.filter((s) => s.r === G.mutate && skLv(s.id) < s.max && G.depth >= s.minD);
       if (!own.length) own = MUT_SKILLS.filter((s) => s.r === G.mutate && skLv(s.id) < s.max);
-      if (own.length && out.length < 3) out.push(own[ri(0, own.length - 1)]);
+      if (own.length && out.length < 3) {
+        const pick = own[ri(0, own.length - 1)];
+        /* 关键：这张牌必须**从池里取走**。旧代码直接 push、池里还留着同一张，
+           下面「凑满 3 张」的循环有概率把它再抽一次（同 id 两张），末尾去重就削掉一张 → 只剩两张。
+           实测 400 个种子里 22 例撞上（种子 28 / 39 / 49 …），玩家看到的就是这个。 */
+        const pi = pool.findIndex((s) => s.id === pick.id);
+        if (pi >= 0) pool.splice(pi, 1);
+        out.push(pick);
+      }
     }
   }
   /* 保底：战斗牌总共不到 2 级时，每次普通三选一必带一张战斗牌 ——
@@ -562,16 +574,29 @@ function rollChoices() {
   }
   /* 神器占的是「三张里的一个卡位」：照样凑满 3 张。
      坑（本轮探针抓到）：原来写 artifact?2:3，结果神器一出现卡面只剩 2 张 —— 神器不是额外奖励位。 */
-  while (out.length < 3 && pool.length) {
+  const drawWeighted = () => {
     let tot = 0;
     for (const s of pool) tot += s.w;
     let x = rg() * tot, k = 0;
     for (; k < pool.length - 1; k++) { x -= pool[k].w; if (x <= 0) break; }
-    out.push(pool.splice(k, 1)[0]);
+    return pool.splice(k, 1)[0];
+  };
+  /* 凑满 3 张：**抽的时候就排重**（重复的直接丢回不补位，继续抽）。
+     旧写法是「先凑满、末尾再去重」，撞上同 id 就会把三张削成两张 —— 这就是玩家报的那个 bug。 */
+  while (out.length < 3 && pool.length) {
+    const card = drawWeighted();
+    if (out.some((s) => s.id === card.id)) continue;      // 同 id：这张作废，池子继续抽下一张
+    out.push(card);
   }
-  /* 同名卡去重：保底混进来的牌可能正好和权重抽到的撞上（三张里出现两张「裂痕」看着像 bug） */
+  /* 保险丝：万一还有漏网的重复（保底那几条路各自 push 过东西），去掉后从池里补满 */
   const seen = new Set();
-  return out.filter((s) => !seen.has(s.id) && seen.add(s.id));
+  const uniq = out.filter((s) => !seen.has(s.id) && seen.add(s.id));
+  while (uniq.length < 3 && pool.length) {
+    const card = drawWeighted();
+    if (uniq.some((s) => s.id === card.id)) continue;
+    uniq.push(card);
+  }
+  return uniq;
 }
 /* 刷新（reroll）：每局 CFG.rerollPerRun 次，重抽三张牌 ——
    抽卡种子带上 rerollN，所以重抽一定换一批，不会原样端回来。
