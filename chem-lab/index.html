@@ -3264,6 +3264,7 @@ function guideTarget() {
 }
 
 /** 玩家刚才那个动作，算不算"这一步该做的" */
+const guidePlanNext = (plan) => { const d = Lab.tut.pdone || {}; for (let i = 0; i < plan.length; i++) { if (!d[i]) return i; } return plan.length; };
 function guideMatch(act, want) {
   if (!want) return false;
   if (act.k !== want.k) return false;
@@ -3296,23 +3297,30 @@ function guideTick(dtReal) {
   const exp = tutExp();
   const step = exp ? Lab.tut.step : -1;
   if (exp && step !== gLastStep) {            // 换步：重置本步子动作指针与计时
-    gLastStep = step; Lab.tut.pi = 0; Lab.tut.idle = 0; gHint = 0; Lab.tut.nudge = null; Lab.tut.nudgeAt = 0;
+    gLastStep = step; Lab.tut.pi = 0; Lab.tut.pdone = {}; Lab.tut.idle = 0; gHint = 0; Lab.tut.nudge = null; Lab.tut.nudgeAt = 0;
   }
   if (gActs.length) {
-    const plan = exp ? guidePlan(exp, Lab.tut.step) : [];
-    gActs.forEach((act) => {
-      Lab.tut.idle = 0; gHint = 0;
-      if (act.k === 'stir') return;                                   // 搅拌无害，不评判
-      const want = plan[Lab.tut.pi];
-      if (guideMatch(act, want)) { Lab.tut.pi++; Lab.tut.nudge = null; return; }
-      if (!Lab.tut.nudge || (Lab.time - Lab.tut.nudgeAt) > 6) {       // 同一类错别刷屏
-        Lab.tut.nudge = '⚠ 刚才那步不是必需的：' + gVerb(act) + ' —— 这一步要做的是「' + (exp && exp.steps[Lab.tut.step] ? exp.steps[Lab.tut.step].t : '') + '」';
-        Lab.tut.nudgeAt = Lab.time;
-        Lab.tut.wrong = (Lab.tut.wrong || 0) + 1;
-        Lab.log.push({ k: 'warn', at: Lab.time, text: '🎓 引导：' + Lab.tut.nudge });
-      }
-    });
-    gActs = [];
+    const cur = exp && exp.steps[Lab.tut.step];
+    // 沙盒 / 引导条收起 / 全览打开 / 这个实验已经做完 → 一律不评判（免得偷偷写日志，也免得读到不存在的步骤）
+    if (!exp || !cur || !guideOn()) { gActs = []; }
+    else {
+      const plan = guidePlan(exp, Lab.tut.step);
+      const d = (Lab.tut.pdone || (Lab.tut.pdone = {}));
+      gActs.forEach((act) => {
+        Lab.tut.idle = 0; gHint = 0;
+        if (act.k === 'stir') return;                                   // 搅拌无害，不评判
+        let hit = -1;                                                   // 同一步里的动作顺序可以不同：命中任意未完成项都算对
+        for (let i = 0; i < plan.length; i++) { if (!d[i] && guideMatch(act, plan[i])) { hit = i; break; } }
+        if (hit >= 0) { d[hit] = true; Lab.tut.pi = guidePlanNext(plan); Lab.tut.nudge = null; return; }
+        if (!Lab.tut.nudge || (Lab.time - Lab.tut.nudgeAt) > 6) {        // 同一类错别刷屏
+          Lab.tut.nudge = '⚠ 刚才那步不是必需的：' + gVerb(act) + ' —— 这一步要做的是「' + cur.t + '」';
+          Lab.tut.nudgeAt = Lab.time;
+          Lab.tut.wrong = (Lab.tut.wrong || 0) + 1;
+          Lab.log.push({ k: 'warn', at: Lab.time, text: '🎓 引导：' + Lab.tut.nudge });
+        }
+      });
+      gActs = [];
+    }
   }
   if (exp && exp.steps[Lab.tut.step]) { Lab.tut.idle = (Lab.tut.idle || 0) + dtReal; }
   const lvl = Lab.tut.idle >= gCfg.demoSec ? 2 : Lab.tut.idle >= gCfg.hintSec ? 1 : 0;
@@ -3325,7 +3333,10 @@ function guideTick(dtReal) {
 let gLastT = null;
 function guidePaintLast() {
   if (!guideOn()) return;                   // 全览面板打开时一律不画（滚动/缩放事件也会走到这里）
-  const t = gLastT; if (!t || !t.el || !t.el.isConnected) return;
+  let t = gLastT;
+  if (!t || !t.el || !t.el.isConnected) t = guideTarget();   // 台面 DOM 被重建过 → 重新解析目标，别让高亮凭空消失
+  if (!t || !t.el) return;
+  gLastT = t;
   if (!t.el.classList.contains('tutglow')) { document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow')); t.el.classList.add('tutglow'); }
   guideArrow(t.el, t.label);
 }
@@ -3406,13 +3417,17 @@ function guideWrapTut() {
   window.tutStart = function (id, restart) {
     const r = _start(id, restart);
     gActs = [];                                 // 摆仪器是教程自动做的，不算"玩家动作"（不然一开局就误报）
-    Lab.tut.pcache = {}; Lab.tut.pi = 0; Lab.tut.idle = 0; Lab.tut.nudge = null; Lab.tut.wrong = 0; Lab.tut.handOff = false;
+    Lab.tut.pcache = {}; Lab.tut.pi = 0; Lab.tut.pdone = {}; Lab.tut.idle = 0; Lab.tut.nudge = null; Lab.tut.wrong = 0; Lab.tut.handOff = false;
     gLastStep = -1; gHint = 0; gLastDone = null; gKey = '';
     _toggle.call(null, false);                 // 手把手：面板让开，别挡着工作台
     guideRender(true);
     return r;
   };
-  window.tutReset = function () { const r = _reset(); gActs = []; Lab.tut.handOff = false; guideRender(true); return r; };
+  window.tutReset = function () {
+    const r = _reset(); gActs = []; Lab.tut.handOff = false;
+    Lab.tut.nudge = null; Lab.tut.wrong = 0; Lab.tut.pdone = {}; Lab.tut.pi = 0;   // 退出教程 → 引导状态一起清干净
+    guideRender(true); return r;
+  };
   window.tutToggle = function (on) { const r = _toggle(on); gSig = ''; guideRender(true); return r; };
   window.tutTick = function (dt) {
     const before = Lab.tut.step;
@@ -3435,6 +3450,8 @@ function guideInit() {
   guideInstall(); guideWrapTut(); guideRender(true);
   // 教程模块导出的是"包装前"的函数引用 —— 这里换成包装后的，外部调用才走引导
   Object.assign(window.CHEM, { tutStart: window.tutStart, tutReset: window.tutReset, tutTick: window.tutTick, tutToggle: window.tutToggle });
+  // 动作函数同理：CHEM.addReagent 等也要经过录制器，否则"程序化操作"会绕过引导判定
+  GUIDE_KINDS.forEach((k) => { if (typeof window[k] === 'function' && window.CHEM[k]) window.CHEM[k] = window[k]; });
 }
 document.addEventListener('DOMContentLoaded', guideInit);
 
