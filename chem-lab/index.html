@@ -320,6 +320,11 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
 .readouts .ro.meas .mi { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readouts .ro.meas .mi i { font-style: normal; opacity: .8; margin-right: 2px; }
 .readouts .ro.meas .mi u { text-decoration: none; color: #54707f; font-size: 9.5px; margin-left: 3px; }
+/* 俯视观察的现象列表要定高 + 单行省略：否则容器一多、行数一变，下面试剂架跟着上下移动 ——
+   自动化点击会判定"元素不稳定"而点不到（R7 走后面几个实验时实测踩到） */
+#obslist { max-height: 92px; overflow-y: auto; }
+#obslist .obsrow { white-space: nowrap; overflow: hidden; }
+#obslist .obsrow span { overflow: hidden; text-overflow: ellipsis; }
 
 </style>
 </head>
