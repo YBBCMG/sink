@@ -827,6 +827,8 @@ const store = (() => {
 const SFX = (() => {
   let ac = null, master = null, noiseBuf = null, droneNodes = null, gestured = false;
   let muted = store.get("sink.muted", "0") === "1";
+  let forced = false;                       /* 试听专用：静音下也放得出声，放完把静音还回去 */
+  const stat = { hurt: 0, death: 0, hurtId: "", deathId: "" };   /* 探针出口：量「这一下到底响了哪一段」 */
   function ensure() {
     if (!gestured) return null;
     if (ac) return ac;
@@ -841,7 +843,7 @@ const SFX = (() => {
     return ac;
   }
   function tone(f0, f1, dur, type, vol) {
-    const c = ensure(); if (!c || muted) return;
+    const c = ensure(); if (!c || (muted && !forced)) return;
     try {
       const o = c.createOscillator(), g = c.createGain();
       o.type = type || "sine";
@@ -854,7 +856,7 @@ const SFX = (() => {
     } catch (e) {}
   }
   function noise(dur, vol, freq) {
-    const c = ensure(); if (!c || muted || !noiseBuf) return;
+    const c = ensure(); if (!c || (muted && !forced) || !noiseBuf) return;
     try {
       const s = c.createBufferSource(); s.buffer = noiseBuf;
       const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = freq || 800;
@@ -863,6 +865,107 @@ const SFX = (() => {
       g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
       s.connect(f); f.connect(g); g.connect(master); s.start(); s.stop(c.currentTime + dur);
     } catch (e) {}
+  }
+  /* ---------------- 受击 / 死亡：两套音，原版那份也留着（玩家口径 2026-09-27）---------------
+     玩家原话：「加一个受击音效和死亡音效。先加一个远古版本我的世界史蒂夫受伤音效。
+     死亡音效用威廉尖叫。记得给这些加一个预览效果，记得留原版效果。」
+     ① 两段新音是**现场合成**的仿制品 —— 仿的是「形状」（音高包络 + 共振峰 + 颤音），
+        不含任何原音轨采样：那既涉版权，也违背本作「0 KB 音效素材」的规矩。
+        远古 Steve 受击 = 一声闷哼（oof）：基频 200→100 掉下去，共振峰 560/1150 定「呃」的口型，
+        高频砍在 3.4k（老素材本来就是 8bit 闷罐）。
+        威廉尖叫 = 先扬后抑的长啸：300→528 冲上去，0.46s 后一路滑到 176，6.5Hz 颤音，尾巴带气声。
+     ② 原版那两段（hit / over 的老代码）一个字节没改，只是搬成了「图纸」函数，留在面板里随时切回来。
+     ③ 图纸函数只认「一个 AudioContext」—— 线上播放和离线渲染喂的是同一张图，
+        所以探针量到的波形就是玩家真会听到的那段（浏览器无人值守时放不出声，只能这么验）。 */
+  const VOICES = {
+    steve:   { dur: 0.34, pitch: [[0, 202], [0.05, 168], [0.34, 99]],
+               fmt: [[560, 6, 1.0], [1150, 9, 0.5], [2450, 10, 0.16]],
+               gain: 0.30, atk: 0.012, rel: 0.17, breath: 0.10, lp: 3400, vib: 0 },
+    wilhelm: { dur: 1.05, pitch: [[0, 296], [0.12, 430], [0.3, 528], [0.46, 470], [0.74, 300], [1.05, 176]],
+               fmt: [[730, 7, 1.0], [1180, 9, 0.72], [2650, 11, 0.34]],
+               gain: 0.26, atk: 0.035, rel: 0.24, breath: 0.12, lp: 5400, vib: [6.5, 0.05] }
+  };
+  function mkNoise(c, sec) {
+    const b = c.createBuffer(1, Math.max(64, Math.floor(c.sampleRate * sec)), c.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+  function buildVoice(c, out, t0, S) {
+    const src = c.createOscillator(); src.type = "sawtooth";
+    src.frequency.setValueAtTime(S.pitch[0][1], t0);
+    for (let i = 1; i < S.pitch.length; i++) src.frequency.exponentialRampToValueAtTime(Math.max(24, S.pitch[i][1]), t0 + S.pitch[i][0]);
+    let lfo = null;
+    if (S.vib) {                      /* 颤音：直接把 LFO 接到振荡器频率上 */
+      const lg = c.createGain(); lfo = c.createOscillator(); lfo.type = "sine"; lfo.frequency.value = S.vib[0];
+      lg.gain.value = S.pitch[2][1] * S.vib[1]; lfo.connect(lg); lg.connect(src.frequency);
+    }
+    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = S.lp; lp.Q.value = 0.7;
+    src.connect(lp);
+    const mix = c.createGain(); mix.gain.value = 1;
+    for (const [f, q, g] of S.fmt) {  /* 共振峰并联：这就是「口型」 */
+      const b = c.createBiquadFilter(); b.type = "bandpass"; b.frequency.value = f; b.Q.value = q;
+      const gg = c.createGain(); gg.gain.value = g; lp.connect(b); b.connect(gg); gg.connect(mix);
+    }
+    if (S.breath > 0) {               /* 气声：光靠锯齿听着像电子音，加点噪声才像嗓子 */
+      const nb = c.createBufferSource(); nb.buffer = mkNoise(c, 0.25); nb.loop = true;
+      const nf = c.createBiquadFilter(); nf.type = "bandpass"; nf.frequency.value = 1650; nf.Q.value = 0.8;
+      const ng = c.createGain(); ng.gain.value = S.breath;
+      nb.connect(nf); nf.connect(ng); ng.connect(mix); nb.start(t0); nb.stop(t0 + S.dur + 0.05);
+    }
+    const env = c.createGain();
+    env.gain.setValueAtTime(0.0008, t0);
+    env.gain.exponentialRampToValueAtTime(S.gain, t0 + S.atk);
+    env.gain.setValueAtTime(S.gain, Math.max(t0 + S.atk, t0 + S.dur - S.rel));
+    env.gain.exponentialRampToValueAtTime(0.0006, t0 + S.dur);
+    mix.connect(env); env.connect(out);
+    src.start(t0); src.stop(t0 + S.dur + 0.03);
+    if (lfo) { lfo.start(t0); lfo.stop(t0 + S.dur + 0.03); }
+  }
+  /* 原版两段（从老 hit() / over() 原样搬过来，只是把 ac / master 换成了传进来的 c / out） */
+  function buildOrigHurt(c, out, t0) {
+    const s = c.createBufferSource(); s.buffer = mkNoise(c, 0.28);
+    const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 900;
+    const g = c.createGain(); g.gain.setValueAtTime(0.32, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26);
+    s.connect(f); f.connect(g); g.connect(out); s.start(t0); s.stop(t0 + 0.26);
+    const o = c.createOscillator(), og = c.createGain(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(190, t0); o.frequency.exponentialRampToValueAtTime(55, t0 + 0.26);
+    og.gain.setValueAtTime(0.0001, t0); og.gain.exponentialRampToValueAtTime(0.16, t0 + 0.012);
+    og.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26);
+    o.connect(og); og.connect(out); o.start(t0); o.stop(t0 + 0.29);
+  }
+  function buildOrigDeath(c, out, t0) {
+    const o = c.createOscillator(), g = c.createGain(); o.type = "sine";
+    o.frequency.setValueAtTime(220, t0); o.frequency.exponentialRampToValueAtTime(48, t0 + 0.95);
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.95);
+    o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.98);
+    const s = c.createBufferSource(); s.buffer = mkNoise(c, 0.72);
+    const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 420;
+    const g2 = c.createGain(); g2.gain.setValueAtTime(0.14, t0); g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
+    s.connect(f); f.connect(g2); g2.connect(out); s.start(t0); s.stop(t0 + 0.7);
+  }
+  /* sn = 触屏用的短名：手机竖屏整块画布只有屏幕宽度的 0.4 倍，
+     「史蒂夫（远古 MC）」这种长名字会直接冲出芯片边框（截图抓到的），短名才不会。 */
+  const HURTS = [
+    { id: "orig",  n: "原版", sn: "原版", d: "本作自带的合成撞击", dur: 0.32, build: buildOrigHurt },
+    { id: "steve", n: "史蒂夫（远古 MC）", sn: "史蒂夫", d: "短促闷哼 oof", dur: 0.40, build: (c, o, t0) => buildVoice(c, o, t0, VOICES.steve) }
+  ];
+  const DEATHS = [
+    { id: "orig",    n: "原版", sn: "原版", d: "本作自带的下沉音", dur: 1.00, build: buildOrigDeath },
+    { id: "wilhelm", n: "威廉尖叫", sn: "威廉尖叫", d: "先扬后抑的长啸", dur: 1.12, build: (c, o, t0) => buildVoice(c, o, t0, VOICES.wilhelm) }
+  ];
+  const pickOf = (list, id) => list.find((s) => s.id === id) || list[1] || list[0];
+  let hurtId = store.get("sink.sfxHurt", "steve");      /* 默认 = 新加的（玩家要的就是这两段）；原版一键切回 */
+  let deathId = store.get("sink.sfxDeath", "wilhelm");
+  const hurtDef = () => pickOf(HURTS, hurtId), deathDef = () => pickOf(DEATHS, deathId);
+  function play(def, kind) {
+    const c = ensure(); if (!c || (muted && !forced)) return false;
+    try {
+      def.build(c, master, c.currentTime + 0.001);
+      stat[kind]++; stat[kind + "Id"] = def.id;
+      return true;
+    } catch (e) { return false; }
   }
   return {
     get muted() { return muted; },
@@ -878,8 +981,55 @@ const SFX = (() => {
     zap() { tone(180, 90, 0.14, "sawtooth", 0.07); noise(0.10, 0.10, 1800); },
     level() { tone(520, 780, 0.16, "triangle", 0.10); setTimeout(() => tone(780, 1180, 0.22, "triangle", 0.09), 110); },
     pick() { tone(880, 1320, 0.14, "sine", 0.10); tone(1320, 1560, 0.1, "triangle", 0.05); },
-    hit() { noise(0.26, 0.32, 900); tone(190, 55, 0.26, "sawtooth", 0.16); },
-    over() { tone(220, 48, 0.95, "sine", 0.18); noise(0.7, 0.14, 420); },
+    /* ------------------------- 受击 / 死亡音效包 ------------------------- */
+    hurtList: () => HURTS.map((s) => ({ id: s.id, n: s.n, sn: s.sn, d: s.d })),
+    deathList: () => DEATHS.map((s) => ({ id: s.id, n: s.n, sn: s.sn, d: s.d })),
+    hurtId: () => hurtDef().id, deathId: () => deathDef().id,
+    hurtName: () => hurtDef().n, deathName: () => deathDef().n,
+    shortName: (kind) => (kind === "death" ? (deathDef().sn || deathDef().n) : (hurtDef().sn || hurtDef().n)),
+    setHurtId(id) { hurtId = id; store.set("sink.sfxHurt", id); return hurtDef().id; },
+    setDeathId(id) { deathId = id; store.set("sink.sfxDeath", id); return deathDef().id; },
+    /* 试听：静音也放（点「试听」就是要听），1.9s 后把静音还原 —— 不许因为试听把玩家的静音设置吃掉 */
+    preview(kind, id) {
+      const list = kind === "death" ? DEATHS : HURTS;
+      const def = id ? pickOf(list, id) : (kind === "death" ? deathDef() : hurtDef());
+      const c = ensure(); if (!c) return false;
+      const wasMuted = muted;
+      forced = true;
+      if (master) { try { master.gain.value = 0.85; } catch (e) {} }
+      const ok = play(def, kind);
+      setTimeout(() => { forced = false; if (wasMuted && master) { try { master.gain.value = 0; } catch (e) {} } }, 1900);
+      return ok;
+    },
+    previewBoth() {                     /* 连放一遍：受击 → 死亡（0.62s 后接上） */
+      const a = this.preview("hurt");
+      setTimeout(() => this.preview("death"), 620);
+      return a;
+    },
+    gainNow: () => (master ? master.gain.value : -1),      /* 探针出口：验「静音时试听也真出声」 */
+    stats: () => Object.assign({}, stat),
+    /* 离线渲染：把同一张图纸喂给 OfflineAudioContext 画一遍，返回 PCM。
+       无人值守的浏览器放不出声，靠它量响度 / 时长 / 频谱 —— 喂进去的就是玩家真会听到的那段代码。
+       which = "hurt" / "death"（当前选择）或点名 "hurt:steve" / "death:orig"。 */
+    async renderOffline(which, sr) {
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      if (!OAC) return null;
+      sr = sr || 44100;
+      const parts = String(which || "hurt").split(":");
+      const kind = parts[0] === "death" ? "death" : "hurt";
+      const list = kind === "death" ? DEATHS : HURTS;
+      const def = parts[1] ? pickOf(list, parts[1]) : (kind === "death" ? deathDef() : hurtDef());
+      const oc = new OAC(1, Math.ceil(sr * (def.dur + 0.06)), sr);
+      const g = oc.createGain(); g.gain.value = 1; g.connect(oc.destination);
+      def.build(oc, g, 0.001);
+      const buf = await oc.startRendering();
+      const d = buf.getChannelData(0), out = new Float32Array(d.length);
+      out.set(d);
+      return out;
+    },
+    /* 受击 / 死亡：放哪一段由玩家在标题页「♪」面板里定（落 store，重进还在） */
+    hit() { return play(hurtDef(), "hurt"); },
+    over() { return play(deathDef(), "death"); },
     droneOn() {
       const c = ensure(); if (!c || droneNodes) return;
       try {
@@ -940,6 +1090,7 @@ let ents = [];
 const G = {
   state: "title",              // title | play | pause | over
   helpOpen: false,             // 标题页「?」规则弹层
+  sfxOpen: false,              // 标题页「♪」音效试听面板（受击 / 死亡，含原版那两段）
   t: 0, runTime: 0,
   depth: 0, bonus: 0, diff: 0,
   o2: CFG.o2Max, lightBonus: 0, lightR: CFG.lightNear, lightEat: 0,
@@ -973,7 +1124,7 @@ const G = {
   seed: 1
 };
 let AUTO_FREEZE = false;
-const SELFTEST = { active: false, pass: true, rows: [], lsOk: false, version: "0.3.1" };   // 0.3.1：拖尾改横向尾流 + 金鲤元宝 + 大肥鱼换真立绘
+const SELFTEST = { active: false, pass: true, rows: [], lsOk: false, version: "0.3.2" };   // 0.3.2：受击 / 死亡音效包 + 标题页试听面板（原版那两段留着）
 
 const QUIPS = {
   S: "你这已经不是下潜，是在跟地心交朋友。",
@@ -1612,6 +1763,9 @@ function lockHint() {
    把「我按了哪个键」发上去，由房主以**客人自己那份 build** 结算（冷却 / 伤害 / 氧气全靠他那份）。
    单机与房主走老路（tryActive），一个字节都没变。 */
 function isSideGuest() { return NET.role === "guest" && NET.connected; }
+/* 「我」这条鱼：单机 / 房主 = p，房员 = 二号位（快照里 b 那一段就是他自己）。
+   受击 / 死亡音按它判「这一下是不是我挨的」—— 队友挨咬不该在你耳朵里哼一声。 */
+function myFish() { return isSideGuest() ? p2 : p; }
 /* HUD 上的冷却 / 探照读谁：读**自己那一份**。客人这边 G.act 是房主那份（快照镜像下来的），
    他自己那份在 G.act2（房主从快照里带下来）—— 不然客人的技能图标一直显示房主的冷却。 */
 function hudAct() { return isSideGuest() ? (G.act2 || G.act) : G.act; }
@@ -1985,7 +2139,10 @@ function hurtPlayerOnBody(q, dmg, col, pierce) {
   G.shakeT = 0.45; G.shakeMag = 13; G.redFlash = 0.9;
   burst(q.x, q.y, 18, col || "255,150,150");
   popup(q.x, q.y - 26, "-" + dmg + " 氧", "255,160,160");
-  SFX.hit();
+  /* 受击音（2026-09-27）：只给「我自己这条鱼」响。房员那条鱼是房主模拟的，
+     他挨的那一下房主补一条 fx 过来（netFxToGuest("hurt")），两边各自出声、互不串台。 */
+  if (q === myFish()) SFX.hit();
+  else if (NET.role === "host" && NET.connected && q === p2) netFxToGuest("hurt", q.x, q.y, "255,160,160", 40);
   return true;
 }
 /* ============================ 6d. 「场」+ 层数/* ============================ 6d. 「场」+ 层数：新质变 / 新神器的公共载体 ============
@@ -2996,6 +3153,10 @@ function killPlayer(q) {
   q.dead = true; q.reviveT = CFG.reviveT; q.vx = 0;
   popup(q.x, q.y - 70, (q === p ? "你倒下了" : "潜伴倒下了") + " · " + CFG.reviveT + "s 后复活", "255,140,140");
   burst(q.x, q.y, 26, "255,150,150");
+  /* 死亡音：自己倒下、而且这局还没完（还有队友）才响 —— 全灭那一下由 gameOver() 收尾，
+     两条路都响的话最后一死会听成两声。房员倒下则由房主补一条 "down" fx 给他。 */
+  if (q === myFish()) { if (aliveParty().length > 0) SFX.over(); }
+  else if (NET.role === "host" && NET.connected && q === p2) netFxToGuest("down", q.x, q.y, "255,150,150", 90);
   if (aliveParty().length === 0) gameOver();          // 全灭才算结束（双人：同时倒下）
 }
 function reviveTick(q, dt) {
@@ -3410,6 +3571,9 @@ function netFxShow(m) {
     G.beams.push({ x1: m.x, y1: m.y, x2: m.x2, y2: m.y2, t: 0.34, lance: true, w: 26, col: col });
     burst(m.x, m.y, 16, col);
   } else if (m.n === "bone") { burst(m.x, m.y, 20, col); fxRing(m.x, m.y, 16, 140, col, 0.3, "ring"); }
+  /* 受击 / 倒下（2026-09-27 音效）：我这条鱼挨打时的声音房主听不见，得他发过来才响 */
+  else if (m.n === "hurt") { SFX.hit(); burst(m.x, m.y, 12, col); }
+  else if (m.n === "down") { SFX.over(); burst(m.x, m.y, 22, col); fxRing(m.x, m.y, 14, 130, col, 0.4, "ring"); }
   else { burst(m.x, m.y, 16, col); }
 }
 /* ---------- 传输 ---------- */
@@ -6238,6 +6402,96 @@ function netBtnHit(lx, ly) {
   const r = netBtnRect();
   return lx >= r.x - 6 && lx <= r.x + r.w + 6 && ly >= r.y - 6 && ly <= r.y + r.h + 6;
 }
+/* ================= 音效面板（受击 / 死亡 · 试听）2026-09-27 ==================
+   玩家口径「记得给这些加一个预览效果，记得留原版效果」：
+   标题页第三颗圆按钮「♪」打开，两行各两枚芯片 —— 换哪一段 + 当场试听，原版那两段就在同排。
+   尺寸跟难度条 / 皮肤条同一套规矩（触屏按屏幕像素算，手指点得着）。 */
+function sfxBtnRect() {
+  const s = clamp(cssPx(22), 26, 52);
+  return { x: W0 / 2 + 168, y: 246 + s * 2.16, w: s, h: s };
+}
+function sfxBtnHit(lx, ly) {
+  const r = sfxBtnRect();
+  return lx >= r.x - 6 && lx <= r.x + r.w + 6 && ly >= r.y - 6 && ly <= r.y + r.h + 6;
+}
+/* 触屏尺寸按「屏幕像素」给（cssPx 换算）—— 手机竖屏整块画布只占屏幕中段一条，
+   逻辑 30px 的芯片到屏幕上只剩 12px，手指点不着。40 屏幕像素是这条面板的下限。 */
+function sfxChipH() { return TOUCH ? clamp(cssPx(40), 40, 140) : 30; }
+function sfxRowY(row) { return 228 + row * (sfxChipH() + 14); }
+function sfxChipRect(row, i) {
+  const n = 2, w = TOUCH ? Math.min(190, (W0 - 60) / n) : 176, gap = TOUCH ? 8 : 10;
+  const x0 = W0 / 2 - (n * w + (n - 1) * gap) / 2 + (TOUCH ? 66 : 46);
+  return { x: x0 + i * (w + gap), y: sfxRowY(row), w: w, h: sfxChipH() };
+}
+function sfxHit(x, y) {
+  for (let row = 0; row < 2; row++) for (let i = 0; i < 2; i++) {
+    const r = sfxChipRect(row, i);
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return { row: row, i: i };
+  }
+  return null;
+}
+function sfxPrevRect() {
+  const h = TOUCH ? clamp(cssPx(36), 36, 120) : 32;
+  const w = TOUCH ? 380 : 300;
+  return { x: W0 / 2 - w / 2, y: sfxRowY(1) + sfxChipH() + 18, w: w, h: h };
+}
+function sfxPrevHit(x, y) { const r = sfxPrevRect(); return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+function sfxPanelRect() {
+  const r = sfxPrevRect();
+  return { x: W0 / 2 - 270, y: 150, w: 540, h: r.y + r.h + 42 - 150 };
+}
+/* 标题页三颗圆按钮（? / 联 / ♪）共用这一支画笔，省得三份样式各走各的 */
+function drawRoundBtn(r, label, hot, on) {
+  ctx.save();
+  rrRect(r.x, r.y, r.w, r.h, r.h / 2);
+  ctx.fillStyle = on ? "rgba(24,96,84,0.96)" : hot ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.85)";
+  ctx.fill();
+  ctx.strokeStyle = on ? "rgba(150,255,220,0.9)" : "rgba(140,215,255,0.75)"; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.restore();
+  text(label, r.x + r.w / 2, r.y + r.h * 0.76, r.h * 0.55, "#cfeeff", "center", 700);
+}
+function drawSfxBtn() {
+  const hx = TOUCH ? G.input.ptrX : G.input.ax, hy = TOUCH ? G.input.ptrY : G.input.ay;
+  drawRoundBtn(sfxBtnRect(), "♪", sfxBtnHit(hx, hy) || !!sfxHit(hx, hy), G.sfxOpen);
+}
+function drawSfxPanel() {
+  const pn = sfxPanelRect();
+  ctx.save(); ctx.globalAlpha = 0.97; panel(pn.x, pn.y, pn.w, pn.h); ctx.restore();
+  text("音 效 · 试 听", W0 / 2, 186, 20, "#dff3ff", "center", 700);
+  text(TOUCH ? "点一下换一段，顺手放给你听" : "点一下就换，顺手放给你听（静音也放，听完把静音还你）",
+    W0 / 2, 208, 12, "rgba(150,200,230,0.85)", "center", 500);
+  const rows = [["受击", SFX.hurtList(), SFX.hurtId()], ["死亡", SFX.deathList(), SFX.deathId()]];
+  const hx = TOUCH ? G.input.ptrX : G.input.ax, hy = TOUCH ? G.input.ptrY : G.input.ay;
+  const hit = sfxHit(hx, hy);
+  for (let row = 0; row < 2; row++) {
+    const label = rows[row][0], list = rows[row][1], cur = rows[row][2];
+    const r0 = sfxChipRect(row, 0);
+    text(label, pn.x + 26, r0.y + r0.h * 0.7, TOUCH ? clamp(cssPx(15), 15, 34) : 15, "rgba(255,225,170,0.9)", "left", 700);
+    for (let i = 0; i < list.length; i++) {
+      const r = sfxChipRect(row, i), on = list[i].id === cur, hot = !!hit && hit.row === row && hit.i === i;
+      ctx.save(); rrRect(r.x, r.y, r.w, r.h, r.h / 2);
+      ctx.fillStyle = on ? "rgba(28,72,108,0.95)" : hot ? "rgba(16,46,70,0.92)" : "rgba(8,24,40,0.85)";
+      ctx.fill();
+      ctx.strokeStyle = on ? "rgba(170,240,255,0.95)" : "rgba(120,190,230,0.32)";
+      ctx.lineWidth = on ? 2 : 1.2; ctx.stroke(); ctx.restore();
+      text((on ? "♪ " : "") + (TOUCH ? (list[i].sn || list[i].n) : list[i].n), r.x + r.w / 2, r.y + r.h * 0.7,
+        TOUCH ? clamp(cssPx(12), 12, 24) : 13.5,
+        on ? "#eafaff" : "rgba(205,232,250,0.88)", "center", on ? 700 : 500);
+      /* 原版那两段：同一排里标个字，一眼看出「留着的旧效果」不是新加的 */
+      if (list[i].id === "orig") text("旧", r.x + r.w - (TOUCH ? 24 : 12), r.y + r.h * 0.4, TOUCH ? 16 : 10, "rgba(255,205,140,0.75)", "center", 700);
+    }
+  }
+  const pr = sfxPrevRect(), ph = sfxPrevHit(hx, hy);
+  ctx.save(); rrRect(pr.x, pr.y, pr.w, pr.h, pr.h / 2);
+  ctx.fillStyle = ph ? "rgba(30,74,110,0.96)" : "rgba(10,30,48,0.85)"; ctx.fill();
+  ctx.strokeStyle = "rgba(140,215,255,0.6)"; ctx.lineWidth = 1.4; ctx.stroke(); ctx.restore();
+  text(TOUCH ? "▶ 连放一遍" : "▶ 连放一遍：受击 → 死亡", W0 / 2, pr.y + pr.h * 0.7,
+    TOUCH ? clamp(cssPx(12), 12, 24) : 13.5, "#cfeeff", "center", 700);
+  /* 页脚：手机上不写「M 键」（手机没这个键），也把句子砍短 —— 26 个字的提示在 0.4 倍画布上会冲出面板 */
+  text(TOUCH ? "当前「" + SFX.shortName("hurt") + "」+「" + SFX.shortName("death") + "」"
+             : "当前「" + SFX.hurtName() + "」+「" + SFX.deathName() + "」· M 键静音 · 点别处关闭",
+    W0 / 2, pr.y + pr.h + 20, TOUCH ? clamp(cssPx(10), 10, 22) : 11.5, "rgba(140,190,220,0.72)", "center", 500);
+}
 /* ============ 难度模式 · 取名 · 成就（2026-09-26 玩家口径）====================
    四个模式只乘「怪物血量 + 怪物打你的伤害」，和联机 coopMul（双人 ×2）**叠乘**：
    双人 + 深渊 = ×2 × ×2 = ×4。普通 = 一切不变（默认）。
@@ -6310,7 +6564,7 @@ function nmBind() {
 function syncNameBox() {
   nmBind();
   const el = nmBox(); if (!el) return;
-  const show = G.state === "title" && !G.helpOpen && !(NET.on || NET.waiting);
+  const show = G.state === "title" && !G.helpOpen && !G.sfxOpen && !(NET.on || NET.waiting);
   if (el.dataset.show !== String(show)) {
     el.dataset.show = String(show);
     el.style.display = show ? "block" : "none";
@@ -6372,6 +6626,9 @@ function drawTitle() {
     text(NET.on ? "联" : "联", r.x + r.w / 2, r.y + r.h * 0.76, r.h * 0.5, "#cfeeff", "center", 700);
     if (NET.connected) text("已连接", r.x + r.w + 8, r.y + r.h * 0.72, 12, "rgba(150,255,200,0.9)", "left", 600);
   }
+  /* 「♪」音效试听（跟 ? / 联 排同一列）。面板开着时不画：那张面板是 0.97 不透明度，
+     底下的按钮会透出一点边（截图抓到的淡淡一圈），干脆让面板盖干净。 */
+  if (!G.sfxOpen) drawSfxBtn();
   if (G.helpOpen) {
     /* 规则弹层：把原来糊在标题上的一屏字全搬进来 */
     ctx.save();
@@ -6403,6 +6660,9 @@ function drawTitle() {
     text("点击任意处关闭", W0 / 2, 508, 12, "rgba(140,190,220,0.6)", "center", 500);
     return;
   }
+  /* 音效面板：画在最后（盖住标题卡，也盖住 ? / 联 / ♪ 那一列 —— 跟规则弹层一个规矩）。
+     上一版这里把 ♪ 按钮重画在面板之上，结果那颗绿圆正好压在「死亡」第二枚芯片上（截图抓到） */
+  if (G.sfxOpen) { drawSfxPanel(); return; }
   const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
   ctx.globalAlpha = pulse;
   if (hasAch("abyss")) text("★ 深渊征服者", W0 / 2, 312, 13, "rgba(255,150,180,0.95)", "center", 700);
@@ -6801,8 +7061,24 @@ canvas.addEventListener("pointerdown", (ev) => {
   syncPointerBoost();
   if (G.state === "over" && homeBtnHit(q.x, q.y)) { G.state = "title"; return; }
   if (G.state === "clear") { G.state = "title"; return; }        /* 通关页：点哪都回标题 */
-  if (G.state === "title") {                       // 标题页先认规则弹层 → 联机 → 皮肤条 → 「开始下潜」
+  if (G.state === "title") {                       // 标题页先认规则弹层 → 音效面板 → 联机 → 皮肤条 → 「开始下潜」
     if (G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }   // 弹层开着：点哪都是关
+    /* 音效面板：点芯片 = 换一段 + 当场试听；点「连放一遍」= 受击再死亡；点别处 = 关 */
+    if (G.sfxOpen) {
+      const sh = sfxHit(q.x, q.y);
+      if (sh) {
+        const list = sh.row === 0 ? SFX.hurtList() : SFX.deathList();
+        const id = list[sh.i] ? list[sh.i].id : null;
+        if (id) {
+          if (sh.row === 0) SFX.setHurtId(id); else SFX.setDeathId(id);
+          SFX.preview(sh.row === 0 ? "hurt" : "death");
+        }
+        ev.preventDefault(); return;
+      }
+      if (sfxPrevHit(q.x, q.y)) { SFX.previewBoth(); ev.preventDefault(); return; }
+      G.sfxOpen = false; ev.preventDefault(); return;
+    }
+    if (sfxBtnHit(q.x, q.y)) { G.sfxOpen = true; ev.preventDefault(); return; }
     if (helpBtnHit(q.x, q.y)) { G.helpOpen = true; ev.preventDefault(); return; }
     if (netBtnHit(q.x, q.y)) { netPanelToggle(); ev.preventDefault(); return; }   // 联机（实时同屏合作）
     const di = diffHit(q.x, q.y);
@@ -6857,7 +7133,7 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if (k === "Space" || k === "ArrowUp" || k === "KeyW" || k === "Enter" || k === "NumpadEnter") {
-    if (G.state === "title" && G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }
+    if (G.state === "title" && (G.helpOpen || G.sfxOpen)) { G.helpOpen = false; G.sfxOpen = false; ev.preventDefault(); return; }
     if (G.state === "title" || G.state === "over") { if (!NET.waiting) startRun(); ev.preventDefault(); return; }
     I.kb = true; syncPointerBoost(); ev.preventDefault();
   } else if (k === "ArrowLeft" || k === "KeyA") { I.left = true; I.ptrActive = false; ev.preventDefault(); }
@@ -6870,7 +7146,7 @@ window.addEventListener("keydown", (ev) => {
     ev.preventDefault();
   }
   else if (k === "KeyP" || k === "Escape") {
-    if (k === "Escape" && G.state === "title" && G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }
+    if (k === "Escape" && G.state === "title" && (G.helpOpen || G.sfxOpen)) { G.helpOpen = false; G.sfxOpen = false; ev.preventDefault(); return; }
     if ((k === "n" || k === "N" || k === "m" || k === "M") && (G.state === "title" || G.state === "pause")) { netPanelToggle(); ev.preventDefault(); return; }
     if ((k === "g" || k === "G") && NET.waiting && NET.role === "host") { netStartMatch(); ev.preventDefault(); return; }   // 准备室里房主按 G 开局
     if (k === "Escape" && G.state !== "play") { G.state = "title"; return; }
@@ -7056,6 +7332,8 @@ window.__SINK__ = {
   setDepth: (d) => { G.depth = d; },
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
   SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, skinAt, avatarSkin, R,
+  /* 2026-09-27 音效：受击 / 死亡音效包的切换与试听（探针直接调真函数，不是打桩） */
+  SFX, myFish, sfxBtnRect, sfxBtnHit, sfxChipRect, sfxHit, sfxPrevRect, sfxPrevHit, sfxPanelRect, drawSfxPanel,
   trailN: () => G.trail.length, trailStyle: () => trailStyle(), stepTrail, drawTrail,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
