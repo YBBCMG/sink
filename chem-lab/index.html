@@ -9,6 +9,11 @@
 :root {
   --bg: #080d12; --panel: #0f1922; --panel2: #14222d; --line: #20343f;
   --txt: #d9e9f4; --dim: #7d9cb0; --acc: #4fd1c5; --warm: #ffb454; --bad: #ff7a5c; --ok: #8ce07a;
+  /* 台面模型尺寸（一处改，全台缩放；JS 的 ITEM_W/粒子缩放读同一批变量） */
+  --bw: 158px;    /* 容器卡片宽 */
+  --bh: 64px;     /* 器皿画布高（模型主体） */
+  --tw: 96px;     /* 器材卡片宽 */
+  --th: 42px;     /* 器材画布高（酒精灯等） */
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -81,10 +86,15 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 
 .appcard, .toolcard { position: absolute; bottom: 0; background: var(--panel2); border: 1px solid var(--line);
   border-radius: 10px; padding: 6px; cursor: pointer; }
-.appcard { width: 168px; z-index: 2; }
-.toolcard { width: 104px; padding: 5px; z-index: 1; background: linear-gradient(180deg, #231b12, #1a140d); border-color: #4a3a22; }
+.appcard { width: var(--bw); z-index: 2; }
+.toolcard { width: var(--tw); padding: 5px; z-index: 1; background: linear-gradient(180deg, #231b12, #1a140d); border-color: #4a3a22; }
 .appcard.sel { border-color: var(--acc); box-shadow: 0 0 0 1px #4fd1c555, 0 6px 20px #0008; }
 .appcard.onrig { border-color: #ffab4a; box-shadow: 0 0 0 1px #ffab4a44, 0 8px 22px #000a; }
+/* 架在热源上的容器：器皿画布挪到卡片最下沿 —— 器皿底就贴在「画布内那簇火焰」上
+   （火焰由 drawFlame 画在容器自己的画布里），卡片再叠在器材卡片正上方，
+   看着就是「器皿坐正在火上」，而不是隔着一堆按钮悬在半空。 */
+.appcard.onrig { display: flex; flex-direction: column; }
+.appcard.onrig > .vessel { order: 9; margin-top: 3px; }
 .appcard.rigtight { box-shadow: 0 0 0 1px #ffab4a33, 0 -6px 18px #ffab4a22; }   /* 窗口太矮、抬升被压缩时的视觉提示 */
 .toolcard.lit { border-color: #ff8a3d; box-shadow: 0 0 16px #ff7a2a55; }
 .toolcard.over { outline: 2px dashed #ffb35c; outline-offset: 3px; }
@@ -95,19 +105,20 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 .toolhead { font-size: 11px; }
 .apphead .uid, .apphead .cap, .toolhead .uid { color: var(--dim); font-size: 10px; }
 .apphead .uid, .toolhead .uid { margin-left: auto; }
-.vessel { width: 100%; height: 86px; border-radius: 8px; display: block; background: #0a1116; }
-.toolcv { width: 100%; height: 58px; display: block; background: transparent; }
+.vessel { width: 64%; margin: 0 auto; height: var(--bh); border-radius: 8px; display: block; background: transparent; }
+.toolcv { width: 100%; height: var(--th); display: block; background: transparent; }
 .toolmeta { color: var(--dim); font-size: 9.5px; text-align: center; margin-top: 2px; line-height: 1.2; }
 .toolcard .ops { justify-content: center; }
 .toolcard .ops button { padding: 2px 4px; font-size: 10px; }
-.readouts { margin: 4px 0; font-size: 10.5px; }
+.readouts { margin: 4px 0; font-size: 10px; }
 .ro { display: flex; gap: 6px; align-items: center; }
 .ro b.hot { color: var(--warm); }
 .contents { color: var(--dim); font-size: 10px; word-break: break-all; }
 .contents.gas { color: #9fd8ff; }
 .warn { color: var(--bad); font-size: 10.5px; }
-.ops { display: flex; flex-wrap: wrap; gap: 3px; }
+.ops { display: flex; flex-wrap: wrap; gap: 2px; }
 .ops button { padding: 2px 5px; font-size: 10.5px; }
+.appcard .ops button { padding: 2px 4px; font-size: 10px; }   /* 卡片变窄后按钮收紧，少折一行 */
 .ops2, .ops3 { margin-top: 3px; }
 .heatrow { display: flex; flex-direction: column; gap: 1px; margin-top: 3px; }
 .heatrow .lbl { color: var(--dim); font-size: 10.5px; }
@@ -316,7 +327,7 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
 #addTools .tglbl { font-size: 10px; margin: 0 1px 0 4px; flex: 0 0 auto; }
 #addTools::-webkit-scrollbar { height: 5px; }
 #addApparatus button { padding: 3px 8px; font-size: 11px; }
-.readouts .ro.meas { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 8px; font-size: 10.5px; line-height: 1.45; }
+.readouts .ro.meas { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 6px; font-size: 10px; line-height: 1.45; }
 .readouts .ro.meas .mi { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readouts .ro.meas .mi i { font-style: normal; opacity: .8; margin-right: 2px; }
 .readouts .ro.meas .mi u { text-decoration: none; color: #54707f; font-size: 9.5px; margin-left: 3px; }
@@ -1971,8 +1982,13 @@ const ITEMS = [
 ];
 const TOOL_DEFS = HEATERS.concat(METERS, ITEMS);
 
-const ITEM_W = { app: 178, heat: 104 };
-const TOOL_TOP = 112;                                  // 器材卡片高度：容器架上去后，底边抬高这么多
+/* 台面尺寸：从 CSS 变量读（style.css 的 --bw/--tw/--th）—— 改样式即可整体缩放模型 */
+const cssPx = (name, dflt) => {
+  try { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || dflt; }
+  catch (e) { return dflt; }
+};
+const ITEM_W = { app: cssPx('--bw', 168) + 10, heat: cssPx('--tw', 96) };
+const TOOL_TOP = cssPx('--th', 58) + 58;               // 兜底值：真抬升量由 layoutRig() 实测器材卡片高度
 const BENCH_MIN_W = 520;
 const benchW = () => {
   const el = (typeof document !== 'undefined') && document.getElementById('bench');
@@ -2478,7 +2494,10 @@ function labStep(dt) {
  * 全部 Canvas 2D 手绘，无贴图无外部资源。粒子数与物理步长解耦（固定 dt 上限）。
  * ==========================================================================*/
 
-const VIEW = { bubbleCap: 90, pptCap: 80, steamCap: 40 };
+const VIEW = { bubbleCap: 90, pptCap: 80, steamCap: 40, baseH: 64 };
+/* 画布基准高（= CSS --bh）。粒子/字号按实际画布高与基准的比值缩放，
+   这样把模型改小以后，气泡不会变得又大又笨。 */
+const vk = (app) => (app && app._k) || 1;
 
 /* ---------------------------- 溶液颜色（真实观感） ------------------------- */
 const TINT_STRENGTH = {
@@ -2559,20 +2578,21 @@ function spawnParticles(app, dt) {
   if (app.heater && app.heater.on && waterMol(app) > 1e-9 && app.temp > 320) rate += (app.temp - 320) * 0.08;
   // 累积器：每帧生成量常常不足 1 个，直接四舍五入会永远生不出粒子
   const acc = (k, amt) => { app[k] = (app[k] || 0) + amt; const n = Math.floor(app[k]); app[k] -= n; return n; };
+  const k = vk(app);
   const nB = Math.min(8, acc('_bAcc', rate * dt * 2));
   for (let i = 0; i < nB && app.bubbles.length < VIEW.bubbleCap; i++) {
     const bx = g.x0 + (g.x1 - g.x0) * (0.12 + Math.random() * 0.76);
     const y = app._liquidTop + (g.bot - app._liquidTop) * (0.3 + Math.random() * 0.7);
-    app.bubbles.push({ x: bx, y, r: 1.2 + Math.random() * 2.6, v: 12 + Math.random() * 26, ph: Math.random() * 6.28 });
+    app.bubbles.push({ x: bx, y, r: (1.2 + Math.random() * 2.6) * k, v: (12 + Math.random() * 26) * k, ph: Math.random() * 6.28 });
   }
   const nP = Math.min(6, acc('_pAcc', app.pptRate * dt * 2));
   for (let i = 0; i < nP && app.ppts.length < VIEW.pptCap; i++) {
     const px = g.x0 + (g.x1 - g.x0) * (0.08 + Math.random() * 0.84);
-    app.ppts.push({ x: px, y: app._liquidTop + Math.random() * (g.bot - app._liquidTop) * 0.5, r: 0.8 + Math.random() * 1.6, v: 4 + Math.random() * 9, c: app._pptRgb || [80, 80, 80] });
+    app.ppts.push({ x: px, y: app._liquidTop + Math.random() * (g.bot - app._liquidTop) * 0.5, r: (0.8 + Math.random() * 1.6) * k, v: (4 + Math.random() * 9) * k, c: app._pptRgb || [80, 80, 80] });
   }
   const nS = Math.min(4, acc('_sAcc', boil ? dt * 18 : 0));
   for (let i = 0; i < nS && app.steam.length < VIEW.steamCap; i++) {
-    app.steam.push({ x: g.cx + (Math.random() - 0.5) * g.w * 0.7, y: app._liquidTop - 2, r: 4 + Math.random() * 7, life: 1, v: 14 + Math.random() * 16 });
+    app.steam.push({ x: g.cx + (Math.random() - 0.5) * g.w * 0.7, y: app._liquidTop - 2, r: (4 + Math.random() * 7) * k, life: 1, v: (14 + Math.random() * 16) * k });
   }
 }
 
@@ -2668,9 +2688,9 @@ function drawBroken(ctx, g, app, w, h) {
     ctx.restore();
   });
   ctx.fillStyle = 'rgba(255,120,120,0.92)';
-  ctx.font = 'bold 11px system-ui, sans-serif';
+  ctx.font = 'bold ' + Math.round(11 * vk(app)) + 'px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('❌ 已炸裂', g.cx, g.top + 14);
+  ctx.fillText('❌ 已炸裂', g.cx, g.top + 14 * vk(app));
   ctx.restore();
 }
 
@@ -2682,6 +2702,7 @@ function renderApparatus(canvas, app, dt) {
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  app._k = Math.max(0.55, Math.min(1.25, h / VIEW.baseH));     // 粒子/字号缩放系数
   drawBench(ctx, w, h);
   const g = vesselGeom(app.def.shape, w, h);
   app._geo = g;
