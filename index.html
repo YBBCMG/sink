@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
+<head>
+<!--align-pad 交付对齐用：让本文件前 65536 字节自成合法 UTF-8。
      delivery_check 的 encoding-utf8 只取头 64KB 做严格解码，切线必须落在字符边界上。
      下面这段空格由 tools/align-head.mjs 自动维护——改完本文件跑一次即可，别手改。--><!--/align-pad-->
 
@@ -301,11 +302,11 @@ function routeNow() { return G.route ? ROUTE_MAP[G.route] : null; }
    每条后面那句 sub 就是「你之后的打架方式」。 */
 const MUTATIONS = [
   /* —— 战士（E 突进）：同一颗技能键，三种完全不同的打架方式 —— */
-  { id: "whirl", r: "warrior", n: "鲸吞漩涡", col: [135,235,255], d: "E 不再冲出去：原地张口 1.2s，把 300px 内的怪和气泡吸到身上（吸到的怪吃满一次撞击伤害）· 冷却 −25%", sub: "把敌人拽过来打" },
+  { id: "whirl", r: "warrior", n: "鲸吞漩涡", col: [135,235,255], d: "E 不再冲出去：原地张口 1.2s，把 270px 内的怪和气泡吸到身上（吸到的怪吃满一次撞击伤害）· 冷却 −20%", sub: "把敌人拽过来打" },
   { id: "bone",  r: "warrior", n: "鲸落骨甲", col: [225,240,255], d: "撞死怪 / 碎障各叠 1 层骨甲（上限 12：每层撞击 +4% · 减伤 +2%）· 受伤消耗 1 层顶掉 55% 伤害", sub: "攒层数换命" },
-  { id: "chg",   r: "warrior", n: "怒涛冲锋", col: [150,255,220], d: "E 改成朝准星冲刺：速度 ×2.2 · 路上撞到的怪吃 120 伤害（不用点猛撞）· 冷却 −15%", sub: "鼠标指哪冲哪" },
+  { id: "chg",   r: "warrior", n: "怒涛冲锋", col: [150,255,220], d: "E 改成朝准星冲刺：速度 ×2.6 · 身后拖一圈 64px 浪花，圈内的怪吃 145 伤害（不用点猛撞）· 冷却 −15%", sub: "鼠标指哪冲哪" },
   /* —— 法师（Q 冲击波）：控场 / 连锁 / 血压，三条路三种资源观 —— */
-  { id: "sing", r: "mage", n: "虚空奇点", col: [190,170,255], d: "冲击波改为奇点：把 340px 内的怪拉向中心并钉住 1.5s（钉住的怪受伤 +30%）· 总伤害只剩 60%，摊到每段（钉得越久每段越薄）", sub: "控住再点杀" },
+  { id: "sing", r: "mage", n: "虚空奇点", col: [190,170,255], d: "冲击波改为奇点：把 340px 内的怪拉向中心并钉住 1.5s（钉住的怪受伤 +30%）· 总伤害只剩 56%，摊到每段（钉得越久每段越薄）", sub: "控住再点杀" },
   { id: "fis",  r: "mage", n: "熔核连锁", col: [255,180,140], d: "被冲击波打死的怪原地引爆（半径 140 · 75% 伤害）· 爆炸能引爆别的怪 —— 怪越密越炸", sub: "找引爆点" },
   { id: "asp",  r: "mage", n: "窒息燃烧", col: [255,140,170], d: "冲击波吃氧换伤害：越缺氧打得越狠（每缺 10% → +18%，上限 +170%）· 氧 ≥50% 时改扣 10% 上限氧、不吸血；<50% 才按伤害 10% 回氧", sub: "把氧压在危险区" },
   /* —— 照明使者（F 探照）：光不再只跟着你 —— */
@@ -428,8 +429,9 @@ function recalcMods() {
   const mu = G.mutate || "", M = G.m;
   /* 战士 · 鲸吞漩涡：E 变成「原地张口吸东西」 */
   if (mu === "whirl") {
-    M.dashCd = Math.max(1.0, M.dashCd * 0.75);
-    M.whirl = { t: 1.2, r: 300 + 70 * skLv("w_r"), pull: 420 * (1 + 0.35 * skLv("w_r")),
+    /* 2026-09-26 平调：清场 3.9s 全表最快 → 半径 300→270、冷却 ×0.75→×0.80（小削一刀） */
+    M.dashCd = Math.max(1.0, M.dashCd * 0.80);
+    M.whirl = { t: 1.2, r: 270 + 65 * skLv("w_r"), pull: 420 * (1 + 0.35 * skLv("w_r")),
                 d: CFG.dashDmg + M.ramDmg + 70 * skLv("w_d"), o2: 0.008 * skLv("w_o2") };
   }
   /* 战士 · 鲸落骨甲：层数在 G.bone，这里只给上限与系数（效果随层数现算） */
@@ -443,14 +445,18 @@ function recalcMods() {
     M.dashCd = Math.max(1.2, M.dashCd * 0.85 * Math.pow(0.9, skLv("p_cd")));
     /* 基底 = 突进那一套（CFG.dashDmg + 猛撞 w_ram）+ 冲锋自己的 40/p_dmg。
        零技能时仍是 80+0+40 = 120，跟老数值对齐；先点猛撞再拿冲锋不再作废。 */
-    M.chg = { speed: CFG.baseSpeed * 2.2 + 130 * skLv("p_spd"), t: 0.34,
-              dmg: CFG.dashDmg + M.ramDmg + 40 + 50 * skLv("p_dmg") };
+    /* 2026-09-26 玩家口径「冲锋距离莫名变短 + 范围太小」：
+       位移 97→135px（速度 ×2.2→×2.6、时长 0.34→0.40s）· 伤害 120→145；
+       r = 冲锋判定半径，**跟画出来的那圈浪花同一个数**（老版判定只有 playerR+6 = 19px，
+       尾焰却画了 150px —— 所见非所中，这才是「打不到人」的真身）。 */
+    M.chg = { speed: CFG.baseSpeed * 2.6 + 150 * skLv("p_spd"), t: 0.40, r: 64,
+              dmg: CFG.dashDmg + M.ramDmg + 65 + 60 * skLv("p_dmg") };
   }
   /* 法师 · 虚空奇点：拉 + 钉（直伤打折，靠钉住的增伤和普攻补回来） */
   if (mu === "sing") {
     /* 半径 = 冲击波基底半径（含过载/扩散）+ 100（控场税）+ s_r；
        伤害总额 = 冲击波那一发的伤害 × k（见 shockwave：摊到每一段上，不随时间变多） */
-    M.sing = { r: M.shockR + 100 + 80 * skLv("s_r"), life: 1.5 + 0.6 * skLv("s_pin"), k: 0.60, amp: 0.30 + 0.10 * skLv("s_pin") };
+    M.sing = { r: M.shockR + 100 + 80 * skLv("s_r"), life: 1.5 + 0.6 * skLv("s_pin"), k: 0.56, amp: 0.30 + 0.10 * skLv("s_pin") };
     M.shockCd = Math.max(1.2, M.shockCd * Math.pow(0.88, skLv("s_cd")));
   }
   /* 法师 · 熔核连锁：冲击波打死的怪会引爆，被引爆死的还会继续引 */
@@ -480,7 +486,7 @@ function recalcMods() {
     /* 进阶·爆灯：上限压到 4 盏（多的拿去炸）；进阶·长明双环：抬到 12 盏（外环 8 + 内环 4） */
     const lMax = G.t2 === "lantA" ? 4 : (G.t2 === "lantB" ? 12 : 6 + 2 * skLv("l_n"));
     M.lant = { max: lMax, gap: Math.max(70, 110 - 10 * skLv("l_n")), r: 118, lineR: 46,
-               orbit: 96, spin: 0.85, dmg: 22 + 18 * skLv("l_d"), line: 40 + 30 * skLv("l_line") };
+               orbit: 96, spin: 0.85, dmg: 19 + 16 * skLv("l_d"), line: 34 + 26 * skLv("l_line") };
   }
   /* 照明 · 审判之光：光照半径内叠印，满 4 层当场处决，印记跳到最近的怪 */
   if (mu === "judge") {
@@ -2185,6 +2191,8 @@ function stepPlay(dt) {
   if (fx.dash > 0) {
     const before2 = fx.dash;
     fx.dash = Math.max(0, fx.dash - dt);
+    /* 冲刺「结束的那一帧」也要算在冲：不然那一帧会回头叠一次 A/D 速度（实测 ±9px 残差就是它） */
+    if (before2 > 0 && fx.dash === 0) G.dashExitStamp = G.dashStamp || 0;
     /* 进阶·立浪（玩家口径：原「回身冲」朝反方向冲、背后根本没怪，等于白冲）：
        冲到终点立一道横浪 —— 垂直于冲锋方向铺 3 段 60px 的持续伤害场，封住刚冲过去的那条线 */
     if (before2 > 0 && fx.dash === 0 && G.m.chg && G.t2 === "chgA" && G.dashVX !== null) {
@@ -2416,9 +2424,14 @@ function stepPlay(dt) {
   if (want > 0) want *= clamp((CFG.xMax - p.x) / CFG.kbSoftEdge, 0, 1);
   else if (want < 0) want *= clamp((p.x - CFG.xMin) / CFG.kbSoftEdge, 0, 1);
   p.vx += (want - p.vx) * Math.min(1, dt * (kdir ? CFG.kbAccel : G.m.accel));
-  p.x += p.vx * dt;
+  /* 2026-09-26 玩家口径「冲锋距离不知道为什么会变短」—— 真凶就是这一行：冲刺期间照旧叠加 A/D
+     的横向速度，反着按一下就把 97px 的位移扣成 53px（注释写着「A/D 让位」，代码从没让位）。
+     现在真让位：冲锋期间横向位移只认方向向量。 */
+  const chgDashing = !!(G.m.chg && G.dashVX !== null
+                        && (fx.dash > 0 || G.dashExitStamp === (G.dashStamp || 0)));
+  if (!chgDashing) p.x += p.vx * dt;
   /* 质变·怒涛冲锋：冲刺期间直接按方向向量位移（A/D 让位），冲完把深度缓回原位 */
-  if (G.m.chg && fx.dash > 0 && G.dashVX !== null) {
+  if (chgDashing) {
     const V = G.m.chg.speed;
     p.x += G.dashVX * V * dt;
     p.y += G.dashVY * V * dt;
@@ -2764,7 +2777,8 @@ function stepPlay(dt) {
       ramOnHit(e, diedO);
       continue;
     } else if (fx.dash > 0 && (G.m.ramDmg > 0 || G.m.chg) && mobKind(e.kind)
-               && Math.hypot(e.x - p.x, e.y - p.y) < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
+               && Math.hypot(e.x - p.x, e.y - p.y) < (G.m.chg ? G.m.chg.r : rr2 + 6) + e.r
+               && e.dashS !== G.dashStamp) {
       /* 基础突进只撞碎障碍物，点了猛撞才能把怪一起撞了 —— 怒涛冲锋自带「撞怪」这一档 */
       e.dashS = G.dashStamp;
       const diedM = hurtEnt(i, e, (G.m.chg ? G.m.chg.dmg : G.m.ramDmg) + stackRamBonus(), "150,255,220");
@@ -3041,7 +3055,8 @@ function sideDashMove(dt) {
       const diedO = hurtEnt(i, e, CFG.dashDmg + G.m.ramDmg + stackRamBonus(), "150,255,220");
       if (diedO && G.m.vamp > 0) healVamp(e.x, e.y);
       ramOnHit(e, diedO);
-    } else if ((G.m.ramDmg > 0 || G.m.chg) && mobKind(e.kind) && d < rr2 + e.r + 6 && e.dashS !== G.dashStamp) {
+    } else if ((G.m.ramDmg > 0 || G.m.chg) && mobKind(e.kind)
+               && d < (G.m.chg ? G.m.chg.r : rr2 + 6) + e.r && e.dashS !== G.dashStamp) {
       e.dashS = G.dashStamp;
       const diedM = hurtEnt(i, e, (G.m.chg ? G.m.chg.dmg : G.m.ramDmg) + stackRamBonus(), "150,255,220");
       if (diedM && G.m.vamp > 0) healVamp(e.x, e.y);
@@ -3910,6 +3925,7 @@ function drawPlayer2() {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     ctx.globalAlpha = 0.55 * a2;
+    sprayRing(x, y, (p2.m && p2.m.chg && p2.m.chg.r) ? p2.m.chg.r : 64, a2);
     const gt = ctx.createLinearGradient(x - ux2 * 150, y - uy2 * 150, x, y);
     gt.addColorStop(0, "rgba(120,255,215,0)");
     gt.addColorStop(1, "rgba(190,255,240,0.9)");
@@ -5424,6 +5440,37 @@ function drawStacks() {
   }
 }
 /* 主动技能特效：都画在黑暗层之上（深水里不放光就等于没放） */
+/* 怒涛冲锋的「浪花圈」：判定半径和这圈水花用同一个数 G.m.chg.r —— 所见即所中（2026-09-26 玩家口径） */
+function sprayRing(x, y, r, a) {
+  if (!(r > 0) || !(a > 0)) return;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.55 * a;
+  ctx.strokeStyle = "rgba(170,255,240,1)";
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  for (let i = 0; i <= 30; i++) {
+    const th = i / 30 * Math.PI * 2;
+    const w = 1 + 0.09 * Math.sin(th * 5 + G.t * 9) + 0.05 * Math.sin(th * 11 - G.t * 13);
+    const px2 = x + Math.cos(th) * r * w, py2 = y + Math.sin(th) * r * w;
+    if (i) ctx.lineTo(px2, py2); else ctx.moveTo(px2, py2);
+  }
+  ctx.closePath(); ctx.stroke();
+  ctx.globalAlpha = 0.30 * a;
+  ctx.strokeStyle = "rgba(130,225,255,1)";
+  ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.arc(x, y, r * 0.7, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 0.45 * a;
+  ctx.fillStyle = "rgba(210,255,250,1)";
+  for (let i = 0; i < 12; i++) {
+    const th = i / 12 * Math.PI * 2 + G.t * 2.2;
+    const rr1 = r * (0.82 + 0.16 * Math.sin(th * 3 + G.t * 7));
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(th) * rr1, y + Math.sin(th) * rr1, 1.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
 function drawActiveFx() {
   const fx = G.actFx;
   if (fx.shock > 0) {
@@ -5457,6 +5504,7 @@ function drawActiveFx() {
     const chgOn = !!(G.mutate === "chg" && G.m.chg && G.dashVX != null && G.dashVY != null);
     const a = clamp(fx.dash / Math.max(0.001, chgOn ? G.m.chg.t : G.m.dashT), 0, 1);
     if (chgOn) {
+      sprayRing(p.x, p.y, G.m.chg.r, a);
       const ux = G.dashVX, uy = G.dashVY, nx = -uy, ny = ux, L0 = 150;
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
