@@ -245,6 +245,13 @@ const SKILLS = [
   { id: "l_dot",    n: "灼光", t: "主动", r: "lamp",    d: "探照期间 每秒灼伤 30",        max: 5, minD: 340, w: 1.7 },
   { id: "l_heal",   n: "回春", t: "主动", r: "lamp",    d: "探照期间 每秒回氧 +1.0%",     max: 5, minD: 420, w: 1.7 },
   { id: "l_spd",    n: "流光", t: "主动", r: "lamp",    d: "探照期间 移速 +12%",         max: 5, minD: 500, w: 1.7 },
+  /* 2026-09-26 玩家口径「把照明使者的减伤加回去（不然深渊模式根本打不了）」：
+     光盾回池，跟流光**并存** —— 一条管挨打、一条管跑位（深渊怪伤害 ×2，这条就是命）。 */
+  { id: "l_shield", n: "光盾", t: "主动", r: "lamp",    d: "探照期间 受伤 -35%",         max: 5, minD: 460, w: 1.7 },
+  /* 2026-09-26 玩家口径「给别的职业加一些比较强的效果」：法师缺保命 · 战士缺清场，
+     各补一张本职业专属的强牌（都在 440m 能见，深渊局前段就能吃到）。 */
+  { id: "m_ward",   n: "虚空护罩", t: "主动", r: "mage",    d: "冲击波命中后 4s 内 受伤 -12%",      max: 5, minD: 440, w: 1.7 },
+  { id: "w_wave",   n: "尾鳍怒涛", t: "主动", r: "warrior", d: "突进终点甩出 190px 尾浪 · 伤害 55", max: 5, minD: 440, w: 1.7 },
 ];
 
 /* ---------- 神器牌：职业质变件（2026-09-25 玩家要求重做）----------
@@ -417,9 +424,15 @@ function recalcMods() {
     ramDmg: 50 * skLv("w_ram"), vamp: 0.025 * skLv("w_vamp"),
     flareDot: 30 * skLv("l_dot"),
     flareHeal: 1.0 * skLv("l_heal"),
-    /* 2026-09-26 玩家口径「照明使者防御太强」：老光盾（探照期间 −35%/级，最高 −75%）拆掉，
-       换成机动 —— 灯亮着跑得快，但挨打不再打折。 */
+    /* 2026-09-26 一天里两次翻案：上午按「照明使者防御太强」把光盾拆成流光，
+       晚上玩家口径「把减伤加回去，不然深渊模式根本打不了」—— 现在**两条并存**：
+       光盾（探照期间 −35%/级，上限 −75%，白夜之后要站进那片光里）+ 流光（移速 +12%/级，上限 +60%）。 */
+    flareShield: Math.min(0.75, 0.35 * skLv("l_shield")),
     flareSpd: Math.min(0.60, 0.12 * skLv("l_spd")),
+    /* 主动·虚空护罩（法师）：冲击波只要命中过东西，就给「挨打打折」的 4 秒窗口 */
+    wardCut: 0.12 * skLv("m_ward"), wardT: 4,
+    /* 主动·尾鳍怒涛（战士）：突进停下的那一帧甩一圈尾浪 —— 战士的第一件 AOE */
+    waveDmg: 55 * skLv("w_wave"), waveR: 190,
     dashCd: Math.max(1.8, CFG.dashCd - 1.0 * skLv("afterburn")),
     dashT: CFG.dashT + 0.25 * skLv("afterburn"),
     flareT: CFG.flareT + 2 * skLv("lumen"),
@@ -1054,6 +1067,7 @@ function startRun(seed) {
   recalcMods(); G.o2 = o2MaxNow();
   G.act.q = G.act.e = G.act.f = 0;
   G.actFx.dash = G.actFx.flare = G.actFx.shock = 0;
+  p.wardT = 0; p2.wardT = 0;                                  // 虚空护罩的 4s 窗口不许跨局
   G.actFx.sx = G.actFx.sy = 0;
   G.kills = 0; G.o2Kill = 0; G.dashStamp = 0; G.anoxCut = false;
   p.dead = false; p.reviveT = 0;
@@ -1748,7 +1762,12 @@ function tryActiveBody(k, me) {
   const rt = routeNow();
   if (!rt || rt.k !== k) { lockHint(); return false; }
   if (G.act[k] > 0) return false;                        // 冷却中：按不动
-  if (k === "q") { G.act.q = G.m.shockCd; shockwave(me); }
+  if (k === "q") {
+    G.act.q = G.m.shockCd;
+    const hitN = shockwave(me);
+    /* 虚空护罩：命中（怪 / 障碍 / Boss 都算）才给罩，空放不给 —— 奖励「往怪堆里炸」 */
+    if (hitN > 0 && G.m.wardCut > 0) { me.wardT = G.m.wardT; popup(me.x, me.y - 104, "虚空护罩 " + G.m.wardT + "s", "255,170,240"); }
+  }
   else if (k === "e") {
     /* 进阶·骸骨长矛：有层数就射出去，没层数照常突进（不会把 E 锁死） */
     if (G.mutate === "bone" && G.t2 === "boneB" && G.bone > 0 && boneSpears(me)) { G.act.e = 3.0; return true; }
@@ -1920,9 +1939,19 @@ function hurtPlayerOnBody(q, dmg, col, pierce) {
   if (q.invuln > 0 && !pierce) return false;
   /* 破免者的咬：无视无敌帧 —— 突进无敌、受伤无敌帧在它面前都不算 */
   if (pierce && q.invuln > 0) popup(q.x, q.y - 62, "无视无敌", "255,120,200");
-  /* 2026-09-26 玩家口径「照明使者的防御能力太强，加上审判之光又强又打不死」：
-     光盾那 75% 的探照减伤整条拆掉，改走机动（流光 = 探照期间移速，见移动那两段）。
-     这里保留一行空位并记一笔，防止以后有人照着老注释把减伤再加回来。 */
+  /* 照明路线·光盾（2026-09-26 玩家口径「把照明使者的减伤加回去」）：探照生效期间伤害打折。
+     白夜之后光在别处 —— 得站进那片白昼区里才算（判据跟回春 / 灼光同一条）。 */
+  if (G.actFx.flare > 0 && G.m.flareShield > 0 && flareInside(q, q)) {
+    const cut = Math.round(dmg * G.m.flareShield);
+    dmg = Math.max(1, dmg - cut);
+    popup(q.x, q.y - 46, "光盾 -" + cut, "210,240,255");
+  }
+  /* 主动·虚空护罩（法师）：冲击波命中后 4s 内挨打打折 —— 越敢往怪堆里炸越硬 */
+  if (G.m.wardCut > 0 && (q.wardT || 0) > 0) {
+    const cut = Math.round(dmg * G.m.wardCut);
+    dmg = Math.max(1, dmg - cut);
+    popup(q.x, q.y - 46, "护罩 -" + cut, "255,170,240");
+  }
   /* 质变·鲸落骨甲：花 1 层骨甲顶掉一大截伤害（层数是拿来花的，不是拿来供的） */
   if (G.mutate === "bone" && G.m.bone && G.bone > 0) {
     const cut = Math.round(dmg * G.m.bone.save);
@@ -2206,6 +2235,14 @@ function stepPlay(dt) {
       burst(cx, cy, 24, "150,255,220"); G.shakeT = Math.max(G.shakeT, 0.18); G.shakeMag = Math.max(G.shakeMag, 5);
       popup(p.x, p.y - 96, "立浪 · 封路 3.5s", "150,255,220"); SFX.zap();
     }
+    /* 主动·尾鳍怒涛（战士）：突进停下的那一帧甩出一圈尾浪 —— 战士终于有了 AOE 清场 */
+    if (before2 > 0 && fx.dash === 0 && G.m.waveDmg > 0) {
+      const hit = aoeHit(p.x, p.y, G.m.waveR, G.m.waveDmg, "150,255,220");
+      fxRing(p.x, p.y, 26, G.m.waveR, "150,255,220", 0.34, "ring");
+      burst(p.x, p.y, 18, "150,255,220");
+      G.shakeT = Math.max(G.shakeT, 0.16); G.shakeMag = Math.max(G.shakeMag, 5);
+      if (hit > 0) popup(p.x, p.y - 104, "尾鳍怒涛 · " + hit + " 命中", "150,255,220");
+    }
   }
   if (fx.flare > 0) fx.flare = Math.max(0, fx.flare - dt);
   if (fx.shock > 0) fx.shock = Math.max(0, fx.shock - dt);
@@ -2449,6 +2486,7 @@ function stepPlay(dt) {
   if (p.x < CFG.xMin) { p.x = CFG.xMin; p.vx = 0; }
   if (p.x > CFG.xMax) { p.x = CFG.xMax; p.vx = 0; }
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt);
+  if (p.wardT > 0) p.wardT = Math.max(0, p.wardT - dt);
   p.hurtT = Math.max(0, p.hurtT - dt);
 
   /* --- 准星（鼠标准心管打哪）与普攻连发 --- */
@@ -3008,7 +3046,17 @@ function coopHostStep(dt) {
 function coopHostStepBody(dt) {
   /* 客人自己那份技能的计时：冷却 + 生效窗口（房主那份由 stepPlay 管，两边互不干扰） */
   for (const k in G.act) if (G.act[k] > 0) G.act[k] = Math.max(0, G.act[k] - dt * cdRate());
-  if (G.actFx.dash > 0) G.actFx.dash = Math.max(0, G.actFx.dash - dt);
+  if (G.actFx.dash > 0) {
+    const bdash = G.actFx.dash;
+    G.actFx.dash = Math.max(0, G.actFx.dash - dt);
+    /* 主动·尾鳍怒涛：房员那条鱼也得甩尾（同一条判据，但按他自己那份 build 结算） */
+    if (bdash > 0 && G.actFx.dash === 0 && G.m.waveDmg > 0) {
+      const hit = aoeHit(p2.x, p2.y, G.m.waveR, G.m.waveDmg, "150,255,220");
+      fxRing(p2.x, p2.y, 26, G.m.waveR, "150,255,220", 0.34, "ring");
+      burst(p2.x, p2.y, 18, "150,255,220");
+      if (hit > 0) popup(p2.x, p2.y - 104, "尾鳍怒涛 · " + hit + " 命中", "150,255,220");
+    }
+  }
   if (G.actFx.flare > 0) G.actFx.flare = Math.max(0, G.actFx.flare - dt);
   if (G.actFx.shock > 0) G.actFx.shock = Math.max(0, G.actFx.shock - dt);
   if (G.aspBCd > 0) G.aspBCd = Math.max(0, G.aspBCd - dt);
@@ -3032,6 +3080,7 @@ function coopHostStepBody(dt) {
   }
   if (p2.invuln > 0) p2.invuln = Math.max(0, p2.invuln - dt);
   p2.hurtT = Math.max(0, p2.hurtT - dt);
+  if (p2.wardT > 0) p2.wardT = Math.max(0, p2.wardT - dt);
 }
 /* ---------- 客人自己那套技能的逐帧结算（只在 withActor(p2) 上下文里调用）---------- */
 /* 突进期间提速：跟 p 那边同一个系数 */
