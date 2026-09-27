@@ -837,6 +837,7 @@ const SFX = (() => {
   /*SFX-B64-END*/
   };
   let ac = null, master = null, noiseBuf = null, droneNodes = null, gestured = false;
+  let analyser = null, levelBuf = null;    /* 实时电平：面板里那条绿条靠它 —— 「到底出没出声」看一眼就知道 */
   let muted = store.get("sink.muted", "0") === "1";
   let forced = false;                       /* 试听专用：静音下也放得出声，放完把静音还回去 */
   const stat = { hurt: 0, death: 0, hurtId: "", deathId: "", hurtSrc: "", deathSrc: "" };   /* 探针出口：量「这一下到底响了哪一段」 */
@@ -846,7 +847,15 @@ const SFX = (() => {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     try { ac = new AC(); } catch (e) { return null; }
-    master = ac.createGain(); master.gain.value = muted ? 0 : 0.85; master.connect(ac.destination);
+    master = ac.createGain(); master.gain.value = muted ? 0 : 0.85;
+    /* 电平表串在链路上（master → analyser → destination），不是「分一路挂着」——
+       2026-09-27 上一轮探针的原话教训：Web Audio 是目的端拉取模型，
+       **悬空的 AnalyserNode 根本不参与渲染，永远读到 128 一片静**（当时量到全 0 的假红就栽在这）。
+       串进去它才被拉取；AnalyserNode 是透明的，听感不变（也不许两路都接 destination —— 那会叠加 6dB）。 */
+    try {
+      analyser = ac.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.55;
+      master.connect(analyser); analyser.connect(ac.destination);
+    } catch (e) { analyser = null; master.connect(ac.destination); }
     const len = Math.max(1, Math.floor(ac.sampleRate * 0.5));
     noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -1036,7 +1045,11 @@ const SFX = (() => {
   let deathId = store.get("sink.sfxDeath", "orig");
   const hurtDef = () => pickOf(HURTS, hurtId), deathDef = () => pickOf(DEATHS, deathId);
   function play(def, kind) {
-    const c = ensure(); if (!c || (muted && !forced)) return false;
+    const c = ensure(); if (!c) return false;
+    /* 自愈：浏览器（尤其手机切后台回来）会把 ctx 挂成 suspended，之后就一直哑着。
+       到点发现哑了就先拉一把；被拒也不抛 —— 等下一次真手势再拉。 */
+    if (c.state === "suspended") { try { c.resume().catch(() => {}); } catch (e) {} }
+    if (muted && !forced) return false;
     try {
       const how = def.build(c, master, c.currentTime + 0.001) || "synth";
       stat[kind]++; stat[kind + "Id"] = def.id;
@@ -1090,6 +1103,22 @@ const SFX = (() => {
       return a;
     },
     gainNow: () => (master ? master.gain.value : -1),      /* 探针出口：验「静音时试听也真出声」 */
+    /* --------------- 音频自检出口（2026-09-27 玩家口径④：「还是没有音效」）---------------
+       「没声音」其实是三件完全不同的事：① 音量被 M 关了 ② ctx 被浏览器挂起（没手势进不来）
+       ③ 声音出来了、但系统 / 标签页那边是静音的。人坐在屏幕前看不见代码，就把它画出来：
+       ctxState = running / suspended / none（还没建）/ locked（等你先点一下）/ nosupport；
+       level = 实时电平（挂 master 之后）。点「▶ 连放一遍」绿条要跟着跳 ——
+       跳了却听不见，问题就在浏览器 / 系统那一层，不在游戏里，能省掉一整轮瞎猜。 */
+    ctxState: () => (ac ? ac.state
+      : (window.AudioContext || window.webkitAudioContext) ? (gestured ? "none" : "locked") : "nosupport"),
+    level() {
+      if (!analyser) return 0;
+      if (!levelBuf || levelBuf.length !== analyser.fftSize) levelBuf = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(levelBuf);
+      let s = 0;
+      for (let i = 0; i < levelBuf.length; i++) { const v = (levelBuf[i] - 128) / 128; s += v * v; }
+      return Math.sqrt(s / levelBuf.length);
+    },
     stats: () => Object.assign({}, stat),
     /* --------------------- 实录音源出口（探针专用） --------------------- */
     b64: (id) => SFX_B64[id] || "",                        /* 原样吐出内嵌那张 data URI：拿它算 sha256 跟原件对拍 */
@@ -5040,9 +5069,14 @@ function drawHUD() {
      都会撞。氧气条底下这一条（左下角）两头都空着，而且氧气条本来就是玩家一直盯的地方。
      第一版挂在右上角，跟「最佳 0 m」叠成一团（截图当场抓到的）。 */
   if (SFX.muted) {
+    const mr = muteChipRect();
     ctx.save();
+    rrRect(mr.x, mr.y, mr.w, mr.h, mr.h / 2);
+    ctx.fillStyle = "rgba(58,32,10,0.88)"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,180,110,0.85)"; ctx.lineWidth = 1.4; ctx.stroke();
     ctx.shadowColor = "rgba(255,170,90,0.45)" ; ctx.shadowBlur = 10;
-    text(TOUCH ? "静音中（没声音）" : "静音中 · 按 M 开启音效", 24, H0 - 14, 12, "rgba(255,190,120,0.95)", "left", 700);
+    text(TOUCH ? "静音中 · 点这里开声音" : "静音中 · 点这里开启音效（或按 M）",
+      mr.x + mr.w / 2, mr.y + mr.h * 0.72, TOUCH ? 12.5 : 12, "rgba(255,205,150,0.98)", "center", 700);
     ctx.restore();
   }
   drawActives();
@@ -6540,9 +6574,17 @@ function sfxPrevRect() {
   return { x: W0 / 2 - w / 2, y: sfxRowY(1) + sfxChipH() + 18, w: w, h: h };
 }
 function sfxPrevHit(x, y) { const r = sfxPrevRect(); return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+/* 游戏内那颗静音牌子（只在静音时画）——做成**可点的**：
+   玩家在游戏里发现没声音时，最不想干的事就是去翻键位表找 M。点一下就开。 */
+function muteChipRect() {
+  const w = TOUCH ? 186 : 254, h = TOUCH ? 28 : 24;
+  return { x: 14, y: H0 - 18 - h, w, h };
+}
+function muteChipHit(x, y) { const r = muteChipRect(); return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
 function sfxPanelRect() {
   const r = sfxPrevRect();
-  return { x: W0 / 2 - 270, y: 150, w: 540, h: r.y + r.h + 42 - 150 };
+  /* 比试听按钮再往下留 84px：装「音频自检」那一行状态 + 那条电平绿条（2026-09-27 加） */
+  return { x: W0 / 2 - 270, y: 150, w: 540, h: r.y + r.h + 84 - 150 };
 }
 /* 标题页三颗圆按钮（? / 联 / ♪）共用这一支画笔，省得三份样式各走各的 */
 function drawRoundBtn(r, label, hot, on) {
@@ -6601,6 +6643,32 @@ function drawSfxPanel() {
        + (SFX.muted ? (TOUCH ? "　·　静音中" : "　·　静音中（试听照放，游戏内无声）") : ""),
     W0 / 2, pr.y + pr.h + 20, TOUCH ? clamp(cssPx(10), 10, 22) : 11.5,
     SFX.muted ? "rgba(255,190,140,0.85)" : "rgba(140,190,220,0.72)", "center", 500);
+  /* ------------------------ 音频自检条（2026-09-27 玩家口径④）------------------------
+     玩家原话④「还是没有音效」。查下来最坑的是：**没法从游戏里判断是哪一层没声** ——
+     所以这里把 ctx 状态、静音、实时电平三件事直接画出来：
+       · ctx 没起来 / 被挂起  → 那行字会写在面上（附「点一下屏幕」的动作指引）
+       · 静音开着             → 行是橙的，写明「试听照放、游戏内无声」
+       · 一切都好但没声音     → 绿条照跳，玩家一眼就知道该去查浏览器 / 系统音量
+     绿条 ×3.2 放大：本作音效峰值都不大，不放大这条基本看不出来在动。 */
+  const st = SFX.ctxState();
+  const ok = st === "running" && !SFX.muted;
+  const stTxt = st === "running" ? (SFX.muted ? "音频：运行中 · 但音量被静音了（游戏内无声，试听照放）"
+                                              : "音频：运行中 · 音量 85%")
+    : st === "suspended" ? "音频：被浏览器挂起了 —— 点一下屏幕或按任意键"
+    : st === "none" ? "音频：还没建起来 —— 点一下屏幕或按任意键"
+    : st === "locked" ? "音频：等你先点一下屏幕（浏览器规矩：没手势不给开声音）"
+    : "音频：本机不支持 WebAudio";
+  text(stTxt, W0 / 2, pr.y + pr.h + 42, TOUCH ? clamp(cssPx(10), 10, 22) : 11.5,
+    ok ? "rgba(150,255,200,0.9)" : "rgba(255,190,140,0.92)", "center", 600);
+  const bw = Math.min(TOUCH ? pn.w - 120 : 340, pn.w - 80), bh = 10;
+  const bx = W0 / 2 - bw / 2, by = pr.y + pr.h + 54, lv = Math.min(1, SFX.level() * 3.2);
+  ctx.save();
+  rrRect(bx, by, bw, bh, bh / 2); ctx.fillStyle = "rgba(255,255,255,0.09)"; ctx.fill();
+  if (lv > 0.01) { rrRect(bx, by, Math.max(bh, bw * lv), bh, bh / 2); ctx.fillStyle = "rgba(150,255,200,0.85)"; ctx.fill(); }
+  rrRect(bx, by, bw, bh, bh / 2); ctx.strokeStyle = "rgba(140,200,230,0.35)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+  text(TOUCH ? "点「▶ 连放一遍」—— 绿条要跟着跳" : "点「▶ 连放一遍」—— 这条绿条要跟着跳；跳了还听不见，就是浏览器 / 系统那边静音了",
+    W0 / 2, by + 22, TOUCH ? clamp(cssPx(9), 9, 20) : 10.5, "rgba(140,190,220,0.7)", "center", 500);
 }
 /* ============ 难度模式 · 取名 · 成就（2026-09-26 玩家口径）====================
    四个模式只乘「怪物血量 + 怪物打你的伤害」，和联机 coopMul（双人 ×2）**叠乘**：
@@ -7169,6 +7237,12 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (ev.pointerType === "touch") { touchIds.add(ev.pointerId); G.input.touches = touchIds.size; G.input.ptrActive = true; G.input.ptrX = q.x; G.input.ptrY = q.y; }
   else { G.input.mouseDown = true; G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y; }
   syncPointerBoost();
+  /* 静音牌子：点它 = 直接开声音（顺手把这一下吃掉 —— 别拿它当开炮） */
+  if (SFX.muted && (G.state === "play" || G.state === "pause") && muteChipHit(q.x, q.y)) {
+    SFX.setMuted(false);
+    G.input.mouseDown = false;          /* 这一下点的是牌子，不是开炮（pointerdown 上面已经把 mouseDown 置真了，撤回来） */
+    ev.preventDefault(); return;
+  }
   if (G.state === "over" && homeBtnHit(q.x, q.y)) { G.state = "title"; return; }
   if (G.state === "clear") { G.state = "title"; return; }        /* 通关页：点哪都回标题 */
   if (G.state === "title") {                       // 标题页先认规则弹层 → 音效面板 → 联机 → 皮肤条 → 「开始下潜」
@@ -7444,6 +7518,7 @@ window.__SINK__ = {
   SKINS, setSkin, skinChipRect, skinHit, skinId: () => skin().id, skinI: () => SKIN_I, skinAt, avatarSkin, R,
   /* 2026-09-27 音效：受击 / 死亡音效包的切换与试听（探针直接调真函数，不是打桩） */
   SFX, myFish, sfxBtnRect, sfxBtnHit, sfxChipRect, sfxHit, sfxPrevRect, sfxPrevHit, sfxPanelRect, drawSfxPanel,
+  muteChipRect, muteChipHit,
   trailN: () => G.trail.length, trailStyle: () => trailStyle(), stepTrail, drawTrail,
   cfg: CFG,
   owned: () => SKILLS.filter((s) => skLv(s.id) > 0).map((s) => s.id + ":" + skLv(s.id)),
