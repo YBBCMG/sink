@@ -244,7 +244,7 @@ const SKILLS = [
   { id: "w_vamp",   n: "噬血", t: "主动", r: "warrior", d: "突进撞碎 / 撞死 回氧 +2.5%",  max: 5, minD: 480, w: 1.7 },
   { id: "l_dot",    n: "灼光", t: "主动", r: "lamp",    d: "探照期间 每秒灼伤 30",        max: 5, minD: 340, w: 1.7 },
   { id: "l_heal",   n: "回春", t: "主动", r: "lamp",    d: "探照期间 每秒回氧 +1.0%",     max: 5, minD: 420, w: 1.7 },
-  { id: "l_shield", n: "光盾", t: "主动", r: "lamp",    d: "探照期间 受伤 -35%",          max: 5, minD: 500, w: 1.7 }
+  { id: "l_spd",    n: "流光", t: "主动", r: "lamp",    d: "探照期间 移速 +12%",         max: 5, minD: 500, w: 1.7 },
 ];
 
 /* ---------- 神器牌：职业质变件（2026-09-25 玩家要求重做）----------
@@ -417,7 +417,9 @@ function recalcMods() {
     ramDmg: 50 * skLv("w_ram"), vamp: 0.025 * skLv("w_vamp"),
     flareDot: 30 * skLv("l_dot"),
     flareHeal: 1.0 * skLv("l_heal"),
-    flareShield: Math.min(0.75, 0.35 * skLv("l_shield")),
+    /* 2026-09-26 玩家口径「照明使者防御太强」：老光盾（探照期间 −35%/级，最高 −75%）拆掉，
+       换成机动 —— 灯亮着跑得快，但挨打不再打折。 */
+    flareSpd: Math.min(0.60, 0.12 * skLv("l_spd")),
     dashCd: Math.max(1.8, CFG.dashCd - 1.0 * skLv("afterburn")),
     dashT: CFG.dashT + 0.25 * skLv("afterburn"),
     flareT: CFG.flareT + 2 * skLv("lumen"),
@@ -1904,7 +1906,7 @@ function anoxNearFor(q) {
   return false;
 }
 function hurtPlayer(dmg, col, pierce) { return hurtPlayerOn(p, dmg, col, pierce); }
-/* 联机：伤害结算按「挨打的是谁」参数化 —— 减伤层（光盾/骨甲/血怒/破晓）是共享 build，双方都吃；
+/* 联机：伤害结算按「挨打的是谁」参数化 —— 减伤层（骨甲/血怒/破晓）是共享 build，双方都吃；
    但氧气、无敌帧、飘字位置各算各的 */
 function hurtPlayerOn(q, dmg, col, pierce) {
   return withActor(q, () => hurtPlayerOnBody(q, dmg, col, pierce));
@@ -1916,12 +1918,9 @@ function hurtPlayerOnBody(q, dmg, col, pierce) {
   if (q.invuln > 0 && !pierce) return false;
   /* 破免者的咬：无视无敌帧 —— 突进无敌、受伤无敌帧在它面前都不算 */
   if (pierce && q.invuln > 0) popup(q.x, q.y - 62, "无视无敌", "255,120,200");
-  /* 照明路线·光盾：探照生效期间伤害打折（白夜之后要站在那片白昼区里才算） */
-  if (G.actFx.flare > 0 && G.m.flareShield > 0 && flareInside(q, q)) {
-    const cut = Math.round(dmg * G.m.flareShield);
-    dmg = Math.max(1, dmg - cut);
-    popup(q.x, q.y - 46, "光盾 -" + cut, "210,240,255");
-  }
+  /* 2026-09-26 玩家口径「照明使者的防御能力太强，加上审判之光又强又打不死」：
+     光盾那 75% 的探照减伤整条拆掉，改走机动（流光 = 探照期间移速，见移动那两段）。
+     这里保留一行空位并记一笔，防止以后有人照着老注释把减伤再加回来。 */
   /* 质变·鲸落骨甲：花 1 层骨甲顶掉一大截伤害（层数是拿来花的，不是拿来供的） */
   if (G.mutate === "bone" && G.m.bone && G.bone > 0) {
     const cut = Math.round(dmg * G.m.bone.save);
@@ -2423,6 +2422,8 @@ function stepPlay(dt) {
   /* 软边界：贴边 120px 内线性收力（硬钳到 0 会让船像撞墙一样急停） */
   if (want > 0) want *= clamp((CFG.xMax - p.x) / CFG.kbSoftEdge, 0, 1);
   else if (want < 0) want *= clamp((p.x - CFG.xMin) / CFG.kbSoftEdge, 0, 1);
+  /* 主动·流光（老「光盾」的替代品）：探照亮着的时候跑得更快 —— 保命靠走位，不靠减伤 */
+  if (fx.flare > 0 && G.m.flareSpd > 0) want *= 1 + G.m.flareSpd;
   p.vx += (want - p.vx) * Math.min(1, dt * (kdir ? CFG.kbAccel : G.m.accel));
   /* 2026-09-26 玩家口径「冲锋距离不知道为什么会变短」—— 真凶就是这一行：冲刺期间照旧叠加 A/D
      的横向速度，反着按一下就把 97px 的位移扣成 53px（注释写着「A/D 让位」，代码从没让位）。
@@ -2981,6 +2982,7 @@ function moveSide(pl, inp, dt, boost) {
   }
   if (want > 0) want *= clamp((CFG.xMax - pl.x) / CFG.kbSoftEdge, 0, 1);
   else if (want < 0) want *= clamp((pl.x - CFG.xMin) / CFG.kbSoftEdge, 0, 1);
+  if (pl.actFx && pl.actFx.flare > 0 && G.m && G.m.flareSpd > 0) want *= 1 + G.m.flareSpd;   // 流光：跟本体同一条规矩
   if (boost) want *= boost;                    // 联机三期：客人的突进也提速（跟 p 的 dashMul 一个意思）
   pl.vx += (want - pl.vx) * Math.min(1, dt * (kdir ? CFG.kbAccel : (G.m ? G.m.accel : 8)));
   pl.x += pl.vx * dt;
