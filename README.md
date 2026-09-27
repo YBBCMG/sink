@@ -776,4 +776,4 @@ test/probe-coop5.mjs          联机白屏复现 + 验收（两个真页面真 W
 
 **重进还在**：名字 `sink.name`、成就 `sink.ach`、难度 `sink.diff` 全走 `store`（= localStorage，`file://` 下自动降级内存）—— 探针第 17/18/19 条就是「reload 后还在」的真判据。
 
-**探针**：`node test/probe-modes.mjs`（26 条）；红基线 `PAGE=index.html.bak-modes node test/probe-modes.mjs`（改动前连 API 都没有）。
+**探针**：`node test/probe-modes.mjs`（26 条）；红基线 `PAGE=test/_index.bak-modes.html node test/probe-modes.mjs`（改动前连 API 都没有）。
