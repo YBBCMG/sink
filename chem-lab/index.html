@@ -1,0 +1,2141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>元素实验室 · 真实化学沙盒</title>
+<style>
+/* 元素实验室 —— 样式（深色实验室风） */
+:root {
+  --bg: #080d12; --panel: #0f1922; --panel2: #14222d; --line: #20343f;
+  --txt: #d9e9f4; --dim: #7d9cb0; --acc: #4fd1c5; --warm: #ffb454; --bad: #ff7a5c; --ok: #8ce07a;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; color: var(--txt); font: 13px/1.5 "Segoe UI", system-ui, "Microsoft YaHei", sans-serif;
+  background: radial-gradient(1200px 700px at 20% -10%, #12222e 0%, var(--bg) 60%);
+  overflow: hidden;
+}
+h4, h5 { margin: 0 0 6px; font-size: 13px; }
+button { font: inherit; color: var(--txt); background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; cursor: pointer; transition: .12s; }
+button:hover { border-color: var(--acc); background: #1b2c38; }
+button.primary { background: linear-gradient(180deg, #1d4a4a, #16383a); border-color: #2f7b76; color: #d8fffa; }
+button.on { border-color: var(--warm); box-shadow: 0 0 0 1px #ffb45433 inset; color: #ffdca8; }
+input, select { font: inherit; color: var(--txt); background: #0b141b; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+
+header {
+  height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 14px;
+  border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #122330, #0d1a22);
+}
+header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
+header h1 small { color: var(--dim); font-weight: 400; font-size: 11px; margin-left: 6px; }
+header .stat { color: var(--dim); font-size: 12px; }
+header .stat b { color: var(--acc); }
+header .spacer { flex: 1; }
+
+main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap: 10px; padding: 10px; height: calc(100vh - 52px); }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; min-height: 0; }
+.pane > .scroll { overflow: auto; min-height: 0; }
+
+/* 周期表 */
+#ptable { display: grid; grid-template-columns: repeat(18, 1fr); gap: 2px; margin-bottom: 8px; }
+.el { aspect-ratio: 1; padding: 0; border-width: 1px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.el b { font-size: 11px; }
+.el i { font-size: 7.5px; color: var(--dim); font-style: normal; }
+.el:hover { transform: translateY(-1px); border-color: #fff; }
+#elemInfo { border-top: 1px solid var(--line); padding-top: 8px; }
+#elemInfo h4 .sym { color: var(--acc); font-size: 15px; }
+.kv { display: flex; justify-content: space-between; font-size: 12px; padding: 1px 0; }
+.kv span { color: var(--dim); }
+.hazard { color: var(--bad); font-size: 12px; margin: 4px 0; }
+#elemInfo button { width: 100%; margin-top: 6px; }
+
+/* 试剂架 */
+#shelfSearch { width: 100%; margin-bottom: 8px; }
+.shelfsec { margin-bottom: 8px; }
+.shelfsec h5 { color: var(--dim); text-transform: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { padding: 3px 7px; display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
+.chip b { font-size: 11px; }
+.chip span { font-size: 10px; color: var(--dim); }
+.hint { color: var(--dim); font-size: 11px; }
+
+/* 工作台 */
+#addApparatus { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+#addApparatus button i { color: var(--dim); font-size: 10px; font-style: normal; margin-left: 4px; }
+#bench { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; overflow: auto; }
+.empty { color: var(--dim); padding: 40px; width: 100%; text-align: center; }
+.appcard { width: 216px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; }
+.appcard.sel { border-color: var(--acc); box-shadow: 0 0 0 1px #4fd1c555, 0 6px 20px #0008; }
+.apphead { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 4px; }
+.apphead .uid, .apphead .cap { color: var(--dim); font-size: 10px; }
+.apphead .uid { margin-left: auto; }
+.vessel { width: 100%; height: 148px; border-radius: 8px; display: block; background: #0a1116; }
+.readouts { margin: 6px 0; font-size: 11px; }
+.ro { display: flex; gap: 6px; align-items: center; }
+.ro b.hot { color: var(--warm); }
+.contents { color: var(--dim); font-size: 10.5px; word-break: break-all; }
+.contents.gas { color: #9fd8ff; }
+.warn { color: var(--bad); font-size: 11px; }
+.ops { display: flex; flex-wrap: wrap; gap: 4px; }
+.ops button { padding: 3px 6px; font-size: 11px; }
+.heatrow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; align-items: center; }
+.heatrow .lbl { color: var(--dim); font-size: 11px; }
+.hbtn { padding: 2px 6px; font-size: 11px; }
+.hbtn i { color: var(--dim); font-style: normal; font-size: 10px; }
+
+/* 日志 */
+#log { flex: 1; overflow: auto; font-size: 12px; }
+.logrow { display: flex; gap: 6px; padding: 4px 0; border-bottom: 1px dashed #1a2b36; }
+.logrow .ic { width: 16px; }
+.logrow.rxn .tx { color: #bff5ea; }
+.logrow.warn .tx { color: var(--warm); }
+.logrow.task .tx { color: var(--ok); }
+.logrow small { color: var(--dim); }
+#tasks { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.task { font-size: 12px; padding: 2px 0; color: #cfe6f2; }
+.task.done { color: var(--dim); text-decoration: line-through; }
+
+/* 弹窗与提示 */
+#modal { position: fixed; inset: 0; background: #000a; display: none; align-items: center; justify-content: center; z-index: 50; }
+#modal.show { display: flex; }
+#modal .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; width: 320px; box-shadow: 0 20px 60px #000c; }
+#modal label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 12px; }
+#modal input, #modal select { width: 130px; }
+#modal .row { display: flex; gap: 8px; margin-top: 12px; }
+#modal .row button { flex: 1; }
+#toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px); background: #16323c; border: 1px solid var(--acc); color: #d8fffa; padding: 8px 16px; border-radius: 20px; opacity: 0; transition: .2s; pointer-events: none; z-index: 60; }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+.pane h3 { margin: 0 0 6px; font-size: 13px; color: var(--dim); font-weight: 500; }
+
+</style>
+</head>
+<body>
+<header>
+  <h1>🧪 元素实验室<small>真实物理 · 真实化学</small></h1>
+  <span class="stat">容器 <b id="apparatusCount">0 / 6</b></span>
+  <span class="stat">已发现反应 <b id="rxCount">0</b> / <b id="rxTotal">0</b></span>
+  <span class="spacer"></span>
+  <button id="guideToggle">🎓 引导 开/关</button>
+  <button id="resetAll">↺ 重置</button>
+</header>
+<main>
+  <aside class="pane" id="left">
+    <h3>元素周期表（118 种，点格子取用）</h3>
+    <div class="scroll">
+      <div id="ptable"></div>
+      <div id="elemInfo"><span class="hint">点一个元素看真实数据（原子量 / 熔点 / 沸点 / 密度 / 电负性 / 危险性）</span></div>
+    </div>
+  </aside>
+  <section class="pane" id="center">
+    <h3>工作台</h3>
+    <div id="addApparatus"></div>
+    <div id="bench"></div>
+  </section>
+  <aside class="pane" id="right">
+    <h3>试剂架</h3>
+    <input id="shelfSearch" placeholder="搜索试剂 / 化学式…">
+    <div class="scroll" id="shelf" style="max-height:38%"></div>
+    <h3 style="margin-top:8px">现象日志</h3>
+    <div id="log"></div>
+    <div id="tasks"></div>
+  </aside>
+</main>
+<div id="modal"></div>
+<div id="toast"></div>
+<script>
+
+/* ================= 01-elements.js ================= */
+/* ============================================================================
+ * 01-elements.js —— 元素周期表数据（118 种，真实物理化学数据）
+ * ----------------------------------------------------------------------------
+ * 字段（| 分隔）：Z|符号|中文名|原子量u|298K态|密度|熔点K|沸点K|类别|电负性|常见氧化态|外观|危险特性
+ *   密度：固/液 = g/cm³，气 = g/L（0°C, 101.325kPa）
+ *   空字段 = 未知 / 无该性质（超重元素多为预测值或不详）
+ *   类别代码：AM 碱金属 AE 碱土金属 TM 过渡金属 PTM 后过渡金属 ML 类金属
+ *             NM 非金属 HG 卤素 NG 稀有气体 LN 镧系 AN 锕系 SH 超重元素
+ * 数据来源：IUPAC 原子量(2021)、CRC Handbook 密度/熔沸点、Pauling 电负性
+ * ==========================================================================*/
+const ELEMENTS_RAW = `
+1|H|氢|1.008|g|0.08988|13.99|20.27|NM|2.20|-1,+1|无色气体|易燃易爆
+2|He|氦|4.0026|g|0.1786|0.95|4.22|NG||0|无色气体|惰性
+3|Li|锂|6.94|s|0.534|453.65|1603|AM|0.98|+1|银白色软金属|遇水反应
+4|Be|铍|9.0122|s|1.85|1560|2742|AE|1.57|+2|灰白色金属|剧毒
+5|B|硼|10.81|s|2.34|2349|4200|ML|2.04|+3|黑色固体|
+6|C|碳|12.011|s|2.267|3823|4098|NM|2.55|-4,+2,+4|黑色固体(石墨)|
+7|N|氮|14.007|g|1.2506|63.15|77.36|NM|3.04|-3,+3,+5|无色气体|惰性
+8|O|氧|15.999|g|1.429|54.36|90.20|NM|3.44|-2|无色气体|助燃
+9|F|氟|18.998|g|1.696|53.48|85.03|HG|3.98|-1|淡黄绿色气体|剧毒腐蚀
+10|Ne|氖|20.180|g|0.9002|24.56|27.07|NG||0|无色气体|惰性
+11|Na|钠|22.990|s|0.968|370.94|1156|AM|0.93|+1|银白色软金属|遇水燃烧
+12|Mg|镁|24.305|s|1.738|923|1363|AE|1.31|+2|银白色金属|易燃
+13|Al|铝|26.982|s|2.70|933.47|2792|PTM|1.61|+3|银白色金属|
+14|Si|硅|28.085|s|2.329|1687|3538|ML|1.90|+4|灰黑色晶体|
+15|P|磷|30.974|s|1.823|317.3|553.7|NM|2.19|-3,+3,+5|白色/红色固体|白磷自燃
+16|S|硫|32.06|s|2.07|388.36|717.8|NM|2.58|-2,+4,+6|黄色固体|
+17|Cl|氯|35.45|g|3.2|171.6|239.11|HG|3.16|-1,+1,+5,+7|黄绿色气体|剧毒
+18|Ar|氩|39.95|g|1.784|83.81|87.30|NG||0|无色气体|惰性
+19|K|钾|39.098|s|0.862|336.53|1032|AM|0.82|+1|银白色软金属|遇水燃烧
+20|Ca|钙|40.078|s|1.55|1115|1757|AE|1.00|+2|银白色金属|遇水反应
+21|Sc|钪|44.956|s|2.985|1814|3109|TM|1.36|+3|银白色金属|
+22|Ti|钛|47.867|s|4.506|1941|3560|TM|1.54|+4|银白色金属|
+23|V|钒|50.942|s|6.11|2183|3680|TM|1.63|+2,+3,+4,+5|银灰色金属|
+24|Cr|铬|51.996|s|7.15|2180|2944|TM|1.66|+2,+3,+6|银白色金属|
+25|Mn|锰|54.938|s|7.21|1519|2334|TM|1.55|+2,+4,+7|灰白色金属|
+26|Fe|铁|55.845|s|7.874|1811|3134|TM|1.83|+2,+3|银灰色金属|
+27|Co|钴|58.933|s|8.90|1768|3200|TM|1.88|+2,+3|银灰色金属|
+28|Ni|镍|58.693|s|8.908|1728|3186|TM|1.91|+2|银白色金属|
+29|Cu|铜|63.546|s|8.96|1357.77|2835|TM|1.90|+1,+2|紫红色金属|
+30|Zn|锌|65.38|s|7.14|692.68|1180|TM|1.65|+2|蓝白色金属|
+31|Ga|镓|69.723|s|5.91|302.91|2673|PTM|1.81|+3|银白色金属|手心可熔
+32|Ge|锗|72.630|s|5.323|1211.4|3106|ML|2.01|+4|灰白色晶体|
+33|As|砷|74.922|s|5.727|1090|887|ML|2.18|+3,+5|灰色固体|剧毒
+34|Se|硒|78.971|s|4.81|494|958|NM|2.55|-2,+4,+6|灰色固体|有毒
+35|Br|溴|79.904|l|3.1028|265.8|332.0|HG|2.96|-1,+1,+5|红棕色液体|腐蚀挥发
+36|Kr|氪|83.798|g|3.749|115.79|119.93|NG|3.00|0,+2|无色气体|惰性
+37|Rb|铷|85.468|s|1.532|312.46|961|AM|0.82|+1|银白色软金属|遇水爆炸
+38|Sr|锶|87.62|s|2.64|1050|1655|AE|0.95|+2|银白色金属|遇水反应
+39|Y|钇|88.906|s|4.472|1799|3609|TM|1.22|+3|银白色金属|
+40|Zr|锆|91.224|s|6.52|2128|4682|TM|1.33|+4|银白色金属|
+41|Nb|铌|92.906|s|8.57|2750|5017|TM|1.60|+5|银灰色金属|
+42|Mo|钼|95.95|s|10.28|2896|4912|TM|2.16|+4,+6|银白色金属|
+43|Tc|锝|98|s|11.5|2430|4538|TM|1.90|+7|银灰色金属|放射性
+44|Ru|钌|101.07|s|12.45|2607|4423|TM|2.20|+3,+4|银白色金属|
+45|Rh|铑|102.91|s|12.41|2237|3968|TM|2.28|+3|银白色金属|
+46|Pd|钯|106.42|s|12.023|1828.05|3236|TM|2.20|+2,+4|银白色金属|
+47|Ag|银|107.87|s|10.49|1234.93|2435|TM|1.93|+1|银白色金属|
+48|Cd|镉|112.41|s|8.65|594.22|1040|TM|1.69|+2|银白色金属|剧毒
+49|In|铟|114.82|s|7.31|429.75|2345|PTM|1.78|+3|银白色金属|
+50|Sn|锡|118.71|s|7.265|505.08|2875|PTM|1.96|+2,+4|银白色金属|
+51|Sb|锑|121.76|s|6.697|903.78|1860|ML|2.05|+3,+5|银白色固体|有毒
+52|Te|碲|127.60|s|6.24|722.66|1261|ML|2.10|-2,+4|银白色固体|有毒
+53|I|碘|126.90|s|4.933|386.85|457.4|HG|2.66|-1,+5|紫黑色固体|升华有毒
+54|Xe|氙|131.29|g|5.894|161.4|165.03|NG|2.60|0,+2,+4|无色气体|惰性
+55|Cs|铯|132.91|s|1.93|301.59|944|AM|0.79|+1|金黄色软金属|遇水爆炸
+56|Ba|钡|137.33|s|3.51|1000|2170|AE|0.89|+2|银白色金属|剧毒
+57|La|镧|138.91|s|6.162|1193|3737|LN|1.10|+3|银白色金属|
+58|Ce|铈|140.12|s|6.770|1068|3716|LN|1.12|+3,+4|银白色金属|
+59|Pr|镨|140.91|s|6.77|1208|3403|LN|1.13|+3|银白色金属|
+60|Nd|钕|144.24|s|7.01|1297|3347|LN|1.14|+3|银白色金属|
+61|Pm|钷|145|s|7.26|1315|3273|LN|1.13|+3|银白色金属|放射性
+62|Sm|钐|150.36|s|7.52|1345|2067|LN|1.17|+3|银白色金属|
+63|Eu|铕|151.96|s|5.264|1099|1802|LN|1.20|+2,+3|银白色金属|
+64|Gd|钆|157.25|s|7.90|1585|3546|LN|1.20|+3|银白色金属|
+65|Tb|铽|158.93|s|8.23|1629|3503|LN|1.20|+3|银白色金属|
+66|Dy|镝|162.50|s|8.540|1680|2840|LN|1.22|+3|银白色金属|
+67|Ho|钬|164.93|s|8.79|1734|2993|LN|1.23|+3|银白色金属|
+68|Er|铒|167.26|s|9.066|1802|3141|LN|1.24|+3|银白色金属|
+69|Tm|铥|168.93|s|9.32|1818|2223|LN|1.25|+3|银白色金属|
+70|Yb|镱|173.05|s|6.90|1097|1469|LN|1.10|+2,+3|银白色金属|
+71|Lu|镥|174.97|s|9.841|1925|3675|LN|1.27|+3|银白色金属|
+72|Hf|铪|178.49|s|13.31|2506|4876|TM|1.30|+4|银灰色金属|
+73|Ta|钽|180.95|s|16.69|3290|5731|TM|1.50|+5|灰蓝色金属|
+74|W|钨|183.84|s|19.25|3695|5828|TM|2.36|+6|灰白色金属|熔点最高
+75|Re|铼|186.21|s|21.02|3459|5869|TM|1.90|+4,+7|银白色金属|沸点最高
+76|Os|锇|190.23|s|22.59|3306|5285|TM|2.20|+4,+8|灰蓝色金属|剧毒挥发
+77|Ir|铱|192.22|s|22.56|2719|4701|TM|2.20|+3,+4|银白色金属|
+78|Pt|铂|195.08|s|21.45|2041.4|4098|TM|2.28|+2,+4|银白色金属|
+79|Au|金|196.97|s|19.30|1337.33|3129|TM|2.54|+1,+3|金黄色金属|
+80|Hg|汞|200.59|l|13.534|234.32|629.88|TM|2.00|+1,+2|银白色液体|剧毒挥发
+81|Tl|铊|204.38|s|11.85|577|1746|PTM|1.62|+1,+3|银白色金属|剧毒
+82|Pb|铅|207.2|s|11.34|600.61|2022|PTM|2.33|+2,+4|蓝灰色金属|有毒
+83|Bi|铋|208.98|s|9.78|544.7|1837|PTM|2.02|+3|银白色金属|
+84|Po|钋|209|s|9.196|527|1235|PTM|2.00|+2,+4|银白色金属|放射性剧毒
+85|At|砹|210|s|6.35|575|610|HG|2.20|-1,+1|黑色固体|放射性
+86|Rn|氡|222|g|9.73|202|211.5|NG|2.20|0|无色气体|放射性
+87|Fr|钫|223|s|1.87|300|950|AM|0.70|+1|银白色金属|放射性极不稳定
+88|Ra|镭|226|s|5.5|973|2010|AE|0.90|+2|银白色金属|放射性剧毒
+89|Ac|锕|227|s|10.07|1323|3471|AN|1.10|+3|银白色金属|放射性
+90|Th|钍|232.04|s|11.72|2115|5061|AN|1.30|+4|银白色金属|放射性
+91|Pa|镤|231.04|s|15.37|1841|4300|AN|1.50|+5|银灰色金属|放射性
+92|U|铀|238.03|s|19.1|1405.3|4404|AN|1.38|+4,+6|银白色金属|放射性
+93|Np|镎|237|s|20.45|917|4273|AN|1.36|+5|银白色金属|放射性
+94|Pu|钚|244|s|19.85|912.5|3505|AN|1.28|+4|银白色金属|放射性剧毒
+95|Am|镅|243|s|12|1449|2880|AN|1.30|+3|银白色金属|放射性
+96|Cm|锔|247|s|13.51|1613|3383|AN|1.30|+3|银白色金属|放射性
+97|Bk|锫|247|s|14.78|1259|2900|AN|1.30|+3|银白色金属|放射性
+98|Cf|锎|251|s|15.1|1173|1743|AN|1.30|+3|银白色金属|放射性
+99|Es|锿|252|s|8.84|1133|1269|AN|1.30|+3|银白色金属|放射性
+100|Fm|镄|257|s|9.7|1800||AN|1.30|+3|银白色金属|放射性
+101|Md|钔|258|s|10.3|1100||AN|1.30|+2,+3|银白色金属|放射性
+102|No|锘|259|s|9.9|1100||AN|1.30|+2,+3|银白色金属|放射性
+103|Lr|铹|266|s|15.6|1900||AN|1.30|+3|银白色金属|放射性
+104|Rf|鑪|267|s|23.2|2400|5800|SH||+4|银白色金属|放射性
+105|Db|𨧀|268|s|29.3|||SH||+5|银白色金属|放射性
+106|Sg|𨭎|269|s|35.0|||SH||+6|银白色金属|放射性
+107|Bh|𨨏|270|s|37.1|||SH||+7|银白色金属|放射性
+108|Hs|𨭆|269|s|40.7|||SH||+8|银白色金属|放射性
+109|Mt|鿏|278|s|37.4|||SH||+3|银白色金属|放射性
+110|Ds|𫟼|281|s|34.8|||SH||+4|银白色金属|放射性
+111|Rg|錀|282|s|28.7|||SH||+3|银白色金属|放射性
+112|Cn|鎶|285|s|23.7|||SH||+2|银白色金属|放射性
+113|Nh|鉨|286|s|16|||SH||+1|银白色金属|放射性
+114|Fl|鈇|289|s|14|||SH||+2|银白色金属|放射性
+115|Mc|镆|290|s|13.5|||SH||+1|银白色金属|放射性
+116|Lv|鉝|293|s|12.9|||SH||+2|银白色金属|放射性
+117|Ts|鿬|294|s|7.2|||SH||+1|银白色金属|放射性
+118|Og|鿫|294|s|7.0|||SH||+2|银白色金属|放射性
+`;
+
+const ELEM_CATS = {
+  AM: { name: '碱金属', color: '#ff8f5e' }, AE: { name: '碱土金属', color: '#ffc46b' },
+  TM: { name: '过渡金属', color: '#8fd0ff' }, PTM: { name: '后过渡金属', color: '#9fb8d8' },
+  ML: { name: '类金属', color: '#7fe0c0' }, NM: { name: '非金属', color: '#8ef08e' },
+  HG: { name: '卤素', color: '#ffe066' }, NG: { name: '稀有气体', color: '#c9a7ff' },
+  LN: { name: '镧系', color: '#f5a3d0' }, AN: { name: '锕系', color: '#f58f8f' },
+  SH: { name: '超重元素', color: '#8a8f9a' },
+};
+
+/** 解析紧凑数据 → 元素对象数组；同时由原子量派生真实物理量 */
+const ELEMENTS = (() => {
+  const list = ELEMENTS_RAW.trim().split('\n').map((line) => {
+    const f = line.split('|');
+    const num = (v) => (v === '' || v === undefined ? null : Number(v));
+    const ox = f[10] ? f[10].split(',').map((s) => Number(s)) : [0];
+    return {
+      z: Number(f[0]), sym: f[1], cn: f[2], mass: Number(f[3]),
+      st: f[4], density: num(f[5]), mp: num(f[6]), bp: num(f[7]),
+      cat: f[8], catName: (ELEM_CATS[f[8]] || {}).name || '', color: (ELEM_CATS[f[8]] || {}).color || '#999',
+      en: num(f[9]), ox, oxCommon: ox.filter((x) => x > 0)[0] || ox[0] || 0,
+      look: f[11] || '', hazard: f[12] ? f[12].split(',') : [],
+      group: 0, period: 0,
+    };
+  });
+  // 周期表坐标（第 18 族 / 镧锕系单独行 8、9）
+  const PERIODS = [
+    [1, [[1, 1], [18, 2]]],
+    [2, [[1, 3], [2, 4], [13, 5], [14, 6], [15, 7], [16, 8], [17, 9], [18, 10]]],
+    [3, [[1, 11], [2, 12], [13, 13], [14, 14], [15, 15], [16, 16], [17, 17], [18, 18]]],
+    [4, [[1, 19], [2, 20], [3, 21], [4, 22], [5, 23], [6, 24], [7, 25], [8, 26], [9, 27], [10, 28], [11, 29], [12, 30], [13, 31], [14, 32], [15, 33], [16, 34], [17, 35], [18, 36]]],
+    [5, [[1, 37], [2, 38], [3, 39], [4, 40], [5, 41], [6, 42], [7, 43], [8, 44], [9, 45], [10, 46], [11, 47], [12, 48], [13, 49], [14, 50], [15, 51], [16, 52], [17, 53], [18, 54]]],
+    [6, [[1, 55], [2, 56], [3, 57], [4, 72], [5, 73], [6, 74], [7, 75], [8, 76], [9, 77], [10, 78], [11, 79], [12, 80], [13, 81], [14, 82], [15, 83], [16, 84], [17, 85], [18, 86]]],
+    [7, [[1, 87], [2, 88], [3, 89], [4, 104], [5, 105], [6, 106], [7, 107], [8, 108], [9, 109], [10, 110], [11, 111], [12, 112], [13, 113], [14, 114], [15, 115], [16, 116], [17, 117], [18, 118]]],
+  ];
+  const byZ = new Map(list.map((e) => [e.z, e]));
+  PERIODS.forEach(([p, cells]) => cells.forEach(([g, z]) => {
+    const e = byZ.get(z); if (e) { e.group = g; e.period = p; }
+  }));
+  for (let z = 57; z <= 71; z++) { const e = byZ.get(z); e.group = 3; e.period = 8; e.lanthanide = true; }
+  for (let z = 89; z <= 103; z++) { const e = byZ.get(z); e.group = 3; e.period = 9; e.actinide = true; }
+  return list;
+})();
+
+const ELEM_BY_SYM = new Map(ELEMENTS.map((e) => [e.sym, e]));
+const ELEM_BY_Z = new Map(ELEMENTS.map((e) => [e.z, e]));
+
+/** 金属活动性顺序（K Ca Na Mg Al Zn Fe Sn Pb H Cu Hg Ag Pt Au）——
+ *  rank 越小越活泼；下表是中学化学权威顺序的完整版（含更多金属）。 */
+const ACTIVITY_RANK = {
+  Cs: 1, Rb: 2, K: 3, Ba: 4, Sr: 5, Ca: 6, Na: 7, La: 8, Ce: 9, Mg: 10, Be: 11, Al: 12,
+  Mn: 13, Zn: 14, Cr: 15, Fe: 16, Cd: 17, Co: 18, Ni: 19, Sn: 20, Pb: 21, Sb: 22, Bi: 23,
+  H: 24, Cu: 25, Ag: 26, Hg: 27, Pd: 28, Pt: 29, Au: 30,
+};
+// 缺省：未列入的金属按电负性近似定位（电负性越低越活泼），保证生成器对所有金属都有序
+ELEMENTS.forEach((e) => {
+  if (e.st === 's' && !(e.sym in ACTIVITY_RANK) && e.cat !== 'NG' && e.cat !== 'HG') {
+    if (e.en != null) ACTIVITY_RANK[e.sym] = Math.round(40 - e.en * 12);
+  }
+});
+
+
+/* ================= 02-chem.js ================= */
+/* ============================================================================
+ * 02-chem.js —— 化学内核：化学式解析、摩尔质量、物质库
+ * ----------------------------------------------------------------------------
+ * 物质库格式（| 分隔）：
+ *   化学式|名称|298K态|类别|颜色|溶解度|ΔfH°|备注
+ *     态：s 固 / l 液 / g 气 / aq 水溶液中的溶质
+ *     类别：solvent acid base salt oxide element organic indicator ore
+ *     溶解度：数值 g/100g 水(20°C) ／ - 不溶 ／ ~ 微溶 ／ ∞ 互溶 ／ 空 未知
+ *     ΔfH°：kJ/mol，前面加 ~ 表示估算值（无真实数据）；空 = 未知
+ *   化学式支持：括号、结晶水（·）、电荷（^2- / ^+）
+ * ==========================================================================*/
+
+/** 解析化学式 → { atoms: Map<符号,个数>, charge: number } */
+function parseFormula(f) {
+  let body = String(f).trim(), charge = 0;
+  const cm = /^(.*?)\^(\d*)([+-])$/.exec(body);
+  if (cm) { body = cm[1]; charge = (cm[2] ? Number(cm[2]) : 1) * (cm[3] === '+' ? 1 : -1); }
+  const atoms = new Map();
+  const countGroup = (str, mult) => {
+    let i = 0;
+    while (i < str.length) {
+      const ch = str[i];
+      if (ch === '(') {
+        let depth = 1, j = i + 1;
+        while (j < str.length && depth > 0) { if (str[j] === '(') depth++; else if (str[j] === ')') depth--; j++; }
+        let k = j, num = '';
+        while (k < str.length && /\d/.test(str[k])) num += str[k++];
+        countGroup(str.slice(i + 1, j - 1), mult * (num ? Number(num) : 1));
+        i = k;
+      } else if (/[A-Z]/.test(ch)) {
+        let sym = ch, j = i + 1;
+        while (j < str.length && /[a-z]/.test(str[j])) sym += str[j++];
+        let num = '';
+        while (j < str.length && /\d/.test(str[j])) num += str[j++];
+        if (!ELEM_BY_SYM.has(sym)) throw new Error('未知元素符号: ' + sym + ' (在 ' + f + ')');
+        atoms.set(sym, (atoms.get(sym) || 0) + mult * (num ? Number(num) : 1));
+        i = j;
+      } else i++;
+    }
+  };
+  // 结晶水：CuSO4·5H2O → CuSO4 + 5×(H2O)
+  body.split(/[·⋅.]/).forEach((part, idx) => {
+    let p = part, mult = 1;
+    const hm = /^(\d+)(.+)$/.exec(p);
+    if (hm && idx > 0) { mult = Number(hm[1]); p = hm[2]; }
+    countGroup(p, mult);
+  });
+  return { atoms, charge };
+}
+
+/** 摩尔质量 g/mol（由元素真实原子量累加，不查表 → 不可能写错） */
+const _mmCache = new Map();
+function molarMass(f) {
+  if (_mmCache.has(f)) return _mmCache.get(f);
+  let m = 0;
+  try { parseFormula(f).atoms.forEach((n, sym) => { m += n * ELEM_BY_SYM.get(sym).mass; }); }
+  catch (e) { m = NaN; }
+  m = Math.round(m * 1000) / 1000;
+  _mmCache.set(f, m);
+  return m;
+}
+
+/* ------------------------------- 物质库 --------------------------------- */
+const SUB_RAW = `
+H2O|水|l|solvent|#bfe3ff|∞|-285.83|万能溶剂
+H2O2|过氧化氢|l|oxide|#e6f6ff|∞|-187.78|30%溶液用作氧化剂
+HCl|盐酸|aq|acid|#eaf7ff|∞|-167.16|强酸，完全电离
+H2SO4|硫酸|l|acid|#f2f8ff|∞|-813.99|浓硫酸溶于水剧烈放热
+HNO3|硝酸|l|acid|#f6f6ff|∞|-174.10|强氧化性酸
+H3PO4|磷酸|l|acid|#f7f7f2|∞|-1279.00|中强酸
+H2CO3|碳酸|aq|acid|#f0fbff|∞|-699.65|不稳定，易分解为 CO2 和 H2O
+CH3COOH|乙酸|l|acid|#fbfbf5|∞|-484.50|弱酸，食醋主成分
+H2S|氢硫酸|aq|acid|#eef7ea|0.4|-39.70|弱酸，臭鸡蛋味，有毒
+HF|氢氟酸|aq|acid|#f2faff|∞|-320.10|腐蚀玻璃
+NaOH|氢氧化钠|s|base|#f7fbff|∞|-425.61|强碱，溶于水放热
+KOH|氢氧化钾|s|base|#f7fbff|∞|-424.76|强碱
+Ca(OH)2|氢氧化钙|s|base|#fbfdff|~|-986.09|微溶，石灰水
+Ba(OH)2|氢氧化钡|s|base|#fbfdff|3.9|-944.70|可溶强碱
+NH3·H2O|一水合氨|aq|base|#eef9ff|∞|-366.10|弱碱，氨水
+Mg(OH)2|氢氧化镁|s|base|#ffffff|-|-924.54|白色沉淀
+Al(OH)3|氢氧化铝|s|base|#ffffff|-|-1281.00|白色絮状沉淀，两性
+Fe(OH)3|氢氧化铁|s|base|#a8410f|-|-823.00|红褐色絮状沉淀
+Fe(OH)2|氢氧化亚铁|s|base|#cfe0c8|-|-569.00|白色沉淀，迅速变灰绿
+Cu(OH)2|氢氧化铜|s|base|#4aa8e0|-|-449.80|蓝色絮状沉淀
+Zn(OH)2|氢氧化锌|s|base|#f4f4f4|-|-641.90|白色沉淀，两性
+NaCl|氯化钠|s|salt|#ffffff|36.0|-411.15|食盐
+KCl|氯化钾|s|salt|#ffffff|34.0|-436.50|
+KNO3|硝酸钾|s|salt|#ffffff|31.6|-494.63|溶解度随温度显著增大
+NaNO3|硝酸钠|s|salt|#ffffff|87.0|-467.00|
+Na2CO3|碳酸钠|s|salt|#ffffff|21.5|-1130.68|纯碱
+NaHCO3|碳酸氢钠|s|salt|#ffffff|9.6|-950.81|小苏打，受热分解
+K2CO3|碳酸钾|s|salt|#ffffff|111.0|-1151.00|
+CaCO3|碳酸钙|s|salt|#ffffff|-|-1206.92|大理石/石灰石主成分
+BaCO3|碳酸钡|s|salt|#ffffff|-|-1216.30|白色沉淀
+CuSO4|硫酸铜|s|salt|#e8f4ff|20.3|-771.36|白色粉末，遇水变蓝
+CuSO4·5H2O|胆矾|s|salt|#1f6fd0|32.0|-2279.70|蓝色晶体
+FeSO4|硫酸亚铁|s|salt|#cfe6d8|25.6|-928.40|浅绿色
+FeCl3|氯化铁|s|salt|#b06a2a|74.4|-399.40|棕黄色
+AgNO3|硝酸银|s|salt|#ffffff|215.0|-124.39|见光分解
+BaCl2|氯化钡|s|salt|#ffffff|35.8|-855.00|可溶，检验硫酸根
+CaCl2|氯化钙|s|salt|#ffffff|74.5|-795.80|常见干燥剂，溶解放热
+MgCl2|氯化镁|s|salt|#ffffff|54.3|-641.32|
+ZnSO4|硫酸锌|s|salt|#ffffff|54.0|-1063.20|
+KMnO4|高锰酸钾|s|salt|#6b2d8f|6.4|-837.20|紫黑色，强氧化剂
+KI|碘化钾|s|salt|#ffffff|144.0|-327.90|
+KBr|溴化钾|s|salt|#ffffff|65.0|-392.20|
+Na2S|硫化钠|s|salt|#f0f0e0|18.6|-373.20|水解显碱性
+Pb(NO3)2|硝酸铅|s|salt|#ffffff|56.5|-451.50|有毒
+AgCl|氯化银|s|salt|#f2f2f2|-|-127.07|白色沉淀，不溶于酸
+AgBr|溴化银|s|salt|#f5eed8|-|-100.37|淡黄色沉淀
+AgI|碘化银|s|salt|#f0e08a|-|-61.84|黄色沉淀
+BaSO4|硫酸钡|s|salt|#ffffff|-|-1473.20|白色沉淀，不溶于酸
+CaSO4|硫酸钙|s|salt|#ffffff|~|-1434.50|微溶
+PbI2|碘化铅|s|salt|#e8c400|~|-175.50|黄色沉淀
+PbSO4|硫酸铅|s|salt|#ffffff|-|-919.90|白色沉淀
+CuS|硫化铜|s|salt|#141414|-|-53.10|黑色沉淀
+FeS|硫化亚铁|s|salt|#2b2b2b|-|-100.40|黑色沉淀，遇酸放 H2S
+ZnS|硫化锌|s|salt|#f5f5f5|-|-206.00|白色沉淀
+CaO|氧化钙|s|oxide|#fafafa|-|-635.09|生石灰，遇水剧烈放热
+MgO|氧化镁|s|oxide|#fdfdfd|-|-601.70|白色固体
+Al2O3|氧化铝|s|oxide|#fdfdfd|-|-1675.70|两性氧化物
+Fe2O3|氧化铁|s|oxide|#9e2b0e|-|-824.20|红棕色，赤铁矿
+Fe3O4|四氧化三铁|s|oxide|#2a2a2a|-|-1118.40|磁性氧化铁
+FeO|氧化亚铁|s|oxide|#1c1c1c|-|-272.00|
+CuO|氧化铜|s|oxide|#171717|-|-157.30|黑色
+Cu2O|氧化亚铜|s|oxide|#a8321e|-|-168.60|砖红色
+ZnO|氧化锌|s|oxide|#fdfdfd|-|-350.46|白色
+PbO|氧化铅|s|oxide|#d8c46a|-|-217.32|黄色
+SO2|二氧化硫|g|oxide|#f2f5d8|11.0|-296.81|刺激性气味，有毒
+SO3|三氧化硫|g|oxide|#f5f5f5|∞|-395.70|遇水生成硫酸
+P4O10|五氧化二磷|s|oxide|#ffffff|-|-2984.00|强吸水剂
+SiO2|二氧化硅|s|oxide|#eeeeee|-|-910.94|沙子/石英
+Na2O|氧化钠|s|oxide|#fafafa|-|-414.22|
+MnO2|二氧化锰|s|oxide|#101010|-|-520.03|催化剂，氧化剂
+Cr2O3|三氧化铬|s|oxide|#2f6b3a|-|-1139.70|绿色
+TiO2|二氧化钛|s|oxide|#fdfdfd|-|-944.00|白色颜料
+HgO|氧化汞|s|oxide|#d84a2a|-|-90.83|红色，受热分解
+Ag2O|氧化银|s|oxide|#3a2a20|-|-31.05|受热分解
+H2|氢气|g|element|#dff2ff|0.0002|0|遇火爆炸
+O2|氧气|g|element|#dff2ff|0.0043|0|助燃
+N2|氮气|g|element|#dff2ff|0.0019|0|稳定
+Cl2|氯气|g|element|#c8e34a|0.73|0|黄绿色，剧毒
+Br2|溴|l|element|#8b2a0a|3.5|0|深红棕色液体，易挥发
+I2|碘|s|element|#3b2a5a|0.03|0|紫黑色，升华
+S|硫|s|element|#e8d21a|-|0|黄色固体
+C|碳|s|element|#161616|-|0|石墨/炭
+P|磷|s|element|#f5e8c0|-|0|白磷易自燃
+NH3|氨气|g|base|#eaf4ff|53.0|-45.90|刺激性气味，极易溶于水
+CH4|甲烷|g|organic|#eef4ff|0.002|-74.60|天然气，易燃
+C2H5OH|乙醇|l|organic|#f6f6ff|∞|-277.69|酒精
+CH3OH|甲醇|l|organic|#f6f6ff|∞|-238.40|有毒，燃料
+C6H6|苯|l|organic|#f0f0ea|0.18|+49.00|有毒，芳香烃
+C2H4|乙烯|g|organic|#eef4ff|0.02|+52.47|植物催熟剂
+C2H2|乙炔|g|organic|#eef4ff|0.1|+227.40|焰温极高
+C6H12O6|葡萄糖|s|organic|#ffffff|91.0|-1273.30|
+C12H22O11|蔗糖|s|organic|#ffffff|200.0|-2222.00|
+CO|一氧化碳|g|oxide|#f0f0f0|0.0026|-110.53|剧毒，煤气
+CO2|二氧化碳|g|oxide|#f0f0f0|0.15|-393.51|温室气体
+NO|一氧化氮|g|oxide|#eef0f0|0.006|+90.25|遇氧变红棕
+NO2|二氧化氮|g|oxide|#b04a1a|∞|+33.18|红棕色，有毒
+石蕊|石蕊溶液|aq|indicator|#8a5fbf|∞||酸碱指示剂：酸红碱蓝
+酚酞|酚酞溶液|aq|indicator|#f0e6f6|∞||遇碱变红，酸中无色
+Na2SO4|硫酸钠|s|salt|#ffffff|19.5|-1387.10|
+K2SO4|硫酸钾|s|salt|#ffffff|11.1|-1437.80|
+(NH4)2SO4|硫酸铵|s|salt|#ffffff|75.4|-1180.90|氮肥
+Al2(SO4)3|硫酸铝|s|salt|#ffffff|36.4|-3445.00|
+Fe2(SO4)3|硫酸铁|s|salt|#d8c8a0|~|-2584.00|
+ZnCl2|氯化锌|s|salt|#ffffff|432.0|-415.05|
+CuCl2|氯化铜|s|salt|#3a7a4a|70.6|-205.85|浓溶液绿色
+FeCl2|氯化亚铁|s|salt|#b8c8a8|68.5|-341.80|浅绿色
+AlCl3|氯化铝|s|salt|#ffffff|45.8|-704.20|水解放热
+Cu(NO3)2|硝酸铜|s|salt|#2a5fa8|125.0|-302.90|蓝色晶体
+Ca(NO3)2|硝酸钙|s|salt|#ffffff|129.0|-937.30|
+Mg(NO3)2|硝酸镁|s|salt|#ffffff|69.0|-790.70|
+Ba(NO3)2|硝酸钡|s|salt|#ffffff|9.2|-992.10|有毒
+Zn(NO3)2|硝酸锌|s|salt|#ffffff|118.0|-714.60|
+K2MnO4|锰酸钾|s|salt|#1f6b3a|~|-1172.00|墨绿色
+Na2SO3|亚硫酸钠|s|salt|#ffffff|27.0|-1090.60|
+CH3COONa|乙酸钠|s|salt|#ffffff|46.5|-726.40|
+KClO3|氯酸钾|s|salt|#ffffff|7.3|-397.70|强氧化剂，受热放氧
+Na3PO4|磷酸钠|s|salt|#ffffff|12.1|-1917.00|
+Ca3(PO4)2|磷酸钙|s|salt|#ffffff|-|-4120.80|白色沉淀
+NH4Cl|氯化铵|s|salt|#ffffff|29.4|-314.43|受热易分解
+NH4NO3|硝酸铵|s|salt|#ffffff|192.0|-365.56|溶于水显著吸热
+V2O5|五氧化二钒|s|oxide|#c8641e|~|-1550.60|接触法制硫酸的催化剂
+`;
+
+const SUBSTANCES = SUB_RAW.trim().split('\n').map((line) => {
+  const f = line.split('|');
+  const sol = f[5];
+  const dh = f[6];
+  const parsed = parseFormula(f[0]);
+  return {
+    formula: f[0], name: f[1], st: f[2], cat: f[3], color: f[4],
+    solubility: sol === '-' ? -1 : sol === '~' ? -2 : sol === '∞' ? Infinity : sol === '' ? null : Number(sol),
+    dHf: dh === '' ? null : dh.startsWith('~') ? { v: Number(dh.slice(1)), est: true } : { v: Number(dh), est: false },
+    note: f[7] || '',
+    M: molarMass(f[0]), atoms: parsed.atoms, charge: parsed.charge,
+    balanced: f[2] !== 'indicator', // 指示剂不参与计量
+  };
+});
+
+/* 单质自动补全：118 种元素都能直接取用（金属单质用元素符号式，如 Fe、Cu、Na） */
+(() => {
+  const covered = new Set();
+  SUBSTANCES.forEach((s) => { const syms = [...s.atoms.keys()]; if (syms.length === 1) covered.add(syms[0]); });
+  ELEMENTS.forEach((e) => {
+    if (covered.has(e.sym)) return;
+    const st = e.st;
+    const color = st === 'g' ? '#dff2ff'
+      : (e.hazard.includes('放射性') ? '#8fe08f'
+        : e.cat === 'AM' || e.cat === 'AE' ? '#e8c86a'
+          : e.cat === 'HG' ? '#c8e34a' : '#c8ccd4');
+    SUBSTANCES.push({
+      formula: e.sym, name: e.cn, st, cat: 'element', color,
+      solubility: st === 'g' ? 0.001 : -1,
+      dHf: { v: 0, est: false },  // 标准状态单质生成焓定义为 0
+      note: (e.look || '') + (e.hazard.length ? '｜' + e.hazard.join('、') : ''),
+      M: e.mass, atoms: new Map([[e.sym, 1]]), charge: 0, balanced: true, isElem: true,
+    });
+  });
+})();
+
+const SUB = new Map(SUBSTANCES.map((s) => [s.formula, s]));
+/* 指示剂这类非化学计量物质：给一个名义摩尔质量，否则按 mL 取用会算出 Infinity */
+SUBSTANCES.forEach((s) => { if (!(s.M > 0)) { s.M = 300; s.nominal = true; } });
+
+/** 元素符号 → 实际可取的试剂化学式（H 要取 H₂、Cl 要取 Cl₂，金属就是它自己） */
+const ELEM_REAGENT = new Map();
+ELEMENTS.forEach((e) => {
+  if (SUB.has(e.sym)) { ELEM_REAGENT.set(e.sym, e.sym); return; }
+  const cand = SUBSTANCES.find((s) => s.atoms.size === 1 && s.atoms.get(e.sym) != null
+    && [...s.atoms.keys()][0] === e.sym);
+  if (cand) ELEM_REAGENT.set(e.sym, cand.formula);
+});
+/** 溶液态（水合）标准生成焓 ΔfH°(aq)，kJ/mol @298K。
+ *  溶液里真正生成的是水合离子，用纯态生成焓会把中和热算成 −104 kJ/mol（真值 −57.3）；
+ *  est:true 表示该值取自手册近似值/同类外推，不是精确测量值。 */
+const DHF_AQ = {
+  H2O: { v: -285.83 }, H2: { v: 0 }, O2: { v: 0 }, N2: { v: 0 }, Cl2: { v: -23.4, est: 1 },
+  CO2: { v: -413.8 }, SO2: { v: -322.0, est: 1 }, H2S: { v: -39.7, est: 1 }, NH3: { v: -80.29 }, 'NH3·H2O': { v: -80.29 },
+  HCl: { v: -167.16 }, H2SO4: { v: -909.27 }, HNO3: { v: -207.36 }, HF: { v: -335.0, est: 1 },
+  H3PO4: { v: -1288.0, est: 1 }, CH3COOH: { v: -485.76 }, H2CO3: { v: -699.6, est: 1 },
+  H2O2: { v: -191.2, est: 1 }, KMnO4: { v: -837.0, est: 1 },
+  NaOH: { v: -469.15 }, KOH: { v: -482.4, est: 1 }, 'Ca(OH)2': { v: -1002.8, est: 1 }, 'Ba(OH)2': { v: -997.0, est: 1 },
+  NaCl: { v: -407.27 }, KCl: { v: -419.53 }, KBr: { v: -388.0, est: 1 }, KI: { v: -306.4, est: 1 },
+  NaBr: { v: -361.1, est: 1 }, NaI: { v: -295.3, est: 1 }, NaF: { v: -573.6, est: 1 },
+  NaNO3: { v: -447.0, est: 1 }, KNO3: { v: -494.6, est: 1 }, AgNO3: { v: -101.7, est: 1 },
+  Na2CO3: { v: -1075.6, est: 1 }, NaHCO3: { v: -932.0, est: 1 }, K2CO3: { v: -1151.0, est: 1 },
+  Na2SO4: { v: -1389.5 }, K2SO4: { v: -1414.0, est: 1 }, 'NH4Cl': { v: -299.66 }, 'NH4NO3': { v: -339.9, est: 1 },
+  'Na2S': { v: -427.0, est: 1 }, 'Na2SO3': { v: -1063.0, est: 1 },
+  CuSO4: { v: -844.5 }, FeSO4: { v: -999.3 }, ZnSO4: { v: -1063.2, est: 1 }, MgSO4: { v: -1376.1 },
+  CaCl2: { v: -877.13 }, MgCl2: { v: -800.8, est: 1 }, CuCl2: { v: -500.0, est: 1 },
+  ZnCl2: { v: -488.19 }, FeCl2: { v: -481.2, est: 1 }, FeCl3: { v: -555.7, est: 1 },
+  BaCl2: { v: -871.0, est: 1 }, AlCl3: { v: -1030.0, est: 1 },
+  'Al2(SO4)3': { v: -3791.0, est: 1 }, 'Fe2(SO4)3': { v: -2583.0, est: 1 }, 'Cu(NO3)2': { v: -575.0, est: 1 },
+  'CH3COONa': { v: -726.1, est: 1 },
+};
+const subOf = (f) => SUB.get(f) || null;const subName = (f) => (SUB.get(f) ? SUB.get(f).name : f);
+
+/** 是否难溶（生成沉淀） */
+function isInsoluble(s) { return s.solubility === -1; }
+function isSlightlySoluble(s) { return s.solubility === -2; }
+function isSoluble(s) { return s.solubility === Infinity || (typeof s.solubility === 'number' && s.solubility > 1); }
+
+/* --------------------------- 派生物理性质（真实/估算） --------------------- */
+/** 比热容 J/(g·K)：水用实测值；金属用杜隆-珀蒂定律 c≈3R/M；其余用原子数估算 */
+const CP_REAL = { H2O: 4.18, H2O2: 2.63, C2H5OH: 2.44, CH3OH: 2.53, C6H6: 1.74, S: 0.71, C: 0.71, P: 0.77, I2: 0.21 };
+const _cpCache = new Map();
+function subCp(s) {
+  if (_cpCache.has(s.formula)) return _cpCache.get(s.formula);
+  let cp;
+  if (s.st === 'aq') cp = 4.0;                                  // 稀溶液≈水
+  else if (CP_REAL[s.formula] != null) cp = CP_REAL[s.formula];
+  else if (s.cat === 'element' && s.st === 's') cp = 24.94 / s.M; // 杜隆-珀蒂
+  else {
+    const nAtoms = [...s.atoms.values()].reduce((a, b) => a + b, 0);
+    cp = Math.min(2.5, Math.max(0.2, (25.0 * nAtoms) / s.M));      // 每原子 25 J/(mol·K)（柯普定律近似）
+  }
+  cp = Math.round(cp * 1000) / 1000;
+  _cpCache.set(s.formula, cp);
+  return cp;
+}
+
+/** 常见液体的真实密度 g/cm³ 与质量分数（浓盐酸 37%、浓硫酸 98%、浓硝酸 68%…） */
+const LIQ_REAL = {
+  H2O: [1.000, 1.00], H2O2: [1.110, 0.30], HCl: [1.180, 0.37], H2SO4: [1.840, 0.98],
+  HNO3: [1.510, 0.68], H3PO4: [1.690, 0.85], CH3COOH: [1.050, 1.00], 'NH3·H2O': [0.910, 0.28],
+  C2H5OH: [0.789, 1.00], CH3OH: [0.792, 1.00], C6H6: [0.876, 1.00], Br2: [3.102, 1.00], Hg: [13.53, 1.00],
+};
+
+/** 密度 g/cm³（固/液）；气和水溶液另算 */
+function subDensity(s) {
+  if (LIQ_REAL[s.formula]) return LIQ_REAL[s.formula][0];
+  if (s.st === 'aq') return 1.0;
+  if (s.st === 'g') return null;
+  if (s.st === 'element') { const e = ELEM_BY_SYM.get(s.formula.replace(/\d+/g, '')); if (e && e.density) return e.density; }
+  const lead = s.atoms.keys().next().value;
+  const e = ELEM_BY_SYM.get(lead);
+  return e && e.density ? e.density : 2.0;
+}
+/** 液体的质量分数（配 mL 用量时用，浓硫酸不是纯 H2SO4 分子） */
+const massFrac = (formula) => (LIQ_REAL[formula] ? LIQ_REAL[formula][1] : 1);
+
+/* --------------------------- 溶解热的真实数据 ----------------------------- */
+/** 溶解焓 kJ/mol（正值 = 吸热降温）。来源：CRC 手册积分溶解热 */
+const DISSOLUTION_DH = {
+  NaOH: -44.5, KOH: -57.3, CaCl2: -82.8, LiCl: -37.0, NH4NO3: +25.7, KNO3: +34.9,
+  NH4Cl: +14.8, NaCl: +3.9, KCl: +17.2, CuSO4: -73.3, Na2CO3: -26.7, CaO: -81.0,
+  H2SO4: -88.0, MgCl2: -62.0, NaNO3: -20.5, CH3COOH: -1.5,
+};
+/** 汽化潜热 kJ/mol（真实值） */
+const HVAP = { H2O: 40.65, C2H5OH: 38.56, CH3OH: 35.21, C6H6: 30.72, Br2: 29.96, Hg: 59.11, NH3: 23.35, I2: 41.57 };
+/** 熔化潜热 kJ/mol */
+const HFUS = { H2O: 6.01, C2H5OH: 4.99, C6H6: 9.87, Fe: 13.8, Al: 10.7, Cu: 13.1, Na: 2.6 };
+
+
+/* ================= 03-reactions.js ================= */
+/* ============================================================================
+ * 03-reactions.js —— 反应引擎：自动配平 + 真实反应库 + 匹配与推进
+ * ----------------------------------------------------------------------------
+ * 设计要点：
+ *   1) 反应只写「左边有什么、右边有什么」，系数由线性代数配平器求出
+ *      （分数精确运算 + 零空间），配不出来的模板直接不进库并记 warning。
+ *   2) 每一条入库反应都会跑一次元素守恒 + 电荷守恒校验，校验不过 = 抛错。
+ *   3) ΔH 由生成焓 ΔfH° 自动算（ΔH = ΣνΔfH°(产物) − ΣνΔfH°(反应物)）；
+ *      缺数据的标「估算」，有真实数据的标「实测」，不冒充。
+ * ==========================================================================*/
+
+/* ------------------------------ 精确分数工具 ------------------------------ */
+const _gcd = (a, b) => { a = Math.abs(a); b = Math.abs(b); while (b) { const t = a % b; a = b; b = t; } return a || 1; };
+const _lcm2 = (a, b) => Math.abs(a * b) / _gcd(a, b);
+function fr(n, d = 1) { if (d < 0) { n = -n; d = -d; } if (n === 0) return [0, 1]; const g = _gcd(n, d); return [n / g, d / g]; }
+const fAdd = (a, b) => fr(a[0] * b[1] + b[0] * a[1], a[1] * b[1]);
+const fSub = (a, b) => fr(a[0] * b[1] - b[0] * a[1], a[1] * b[1]);
+const fMul = (a, b) => fr(a[0] * b[0], a[1] * b[1]);
+const fDiv = (a, b) => fr(a[0] * b[1], a[1] * b[0]);
+
+/* ------------------------------- 配平器 --------------------------------- */
+/** 求 lhs/rhs 的最简整数系数；无唯一正解则返回 null */
+function balanceReaction(lhs, rhs) {
+  const n = lhs.length + rhs.length;
+  if (!lhs.length || !rhs.length) return null;
+  if (lhs.some((f) => rhs.includes(f))) return null;          // 两边同种物质 → 拒绝
+  const all = lhs.concat(rhs);
+  let parsed;
+  try { parsed = all.map(parseFormula); } catch (e) { return null; }
+  const signs = all.map((_, i) => (i < lhs.length ? 1 : -1));
+  const elems = new Set();
+  parsed.forEach((p) => p.atoms.forEach((_, k) => elems.add(k)));
+  const rows = [...elems].map((el) => parsed.map((p, i) => (p.atoms.get(el) || 0) * signs[i]));
+  if (parsed.some((p) => p.charge !== 0)) rows.push(parsed.map((p, i) => p.charge * signs[i]));
+  const m = rows.length;
+  const A = rows.map((r) => r.map((v) => fr(v)));
+
+  // 高斯-约当消元（RREF）
+  const pivot = [];
+  let r = 0;
+  for (let c = 0; c < n && r < m; c++) {
+    let p = -1;
+    for (let i = r; i < m; i++) if (A[i][c][0] !== 0) { p = i; break; }
+    if (p < 0) continue;
+    const t = A[r]; A[r] = A[p]; A[p] = t;
+    const pv = A[r][c];
+    for (let j = c; j < n; j++) A[r][j] = fDiv(A[r][j], pv);
+    for (let i = 0; i < m; i++) {
+      if (i === r || A[i][c][0] === 0) continue;
+      const k = A[i][c];
+      for (let j = c; j < n; j++) A[i][j] = fSub(A[i][j], fMul(k, A[r][j]));
+    }
+    pivot.push(c); r++;
+  }
+  const free = [];
+  for (let c = 0; c < n; c++) if (!pivot.includes(c)) free.push(c);
+  if (free.length !== 1) return null;                          // 需唯一解
+  const fc = free[0];
+  const x = new Array(n).fill(null).map(() => [0, 1]);
+  x[fc] = [1, 1];
+  pivot.forEach((pc, idx) => { x[pc] = fr(-A[idx][fc][0], A[idx][fc][1]); });
+
+  // 清分母 → 最简整数
+  let L = 1;
+  x.forEach((v) => { L = _lcm2(L, v[1]); });
+  let ints = x.map((v) => Math.round(v[0] * L / v[1]));
+  let g = 0;
+  ints.forEach((v) => { g = _gcd(g, v); });
+  if (g > 1) ints = ints.map((v) => v / g);
+  if (ints.some((v) => !Number.isFinite(v)) || ints.some((v) => v <= 0)) return null;
+  return ints;
+}
+
+/** 守恒校验：左右原子数 + 电荷（配平的最终判据） */
+function verifyBalance(lhs, rhs, coef) {
+  const all = lhs.concat(rhs);
+  const parsed = all.map(parseFormula);
+  const bad = [];
+  const elems = new Set();
+  parsed.forEach((p) => p.atoms.forEach((_, k) => elems.add(k)));
+  elems.forEach((el) => {
+    let s = 0;
+    parsed.forEach((p, i) => { s += p.atoms.get(el) * coef[i] * (i < lhs.length ? 1 : -1); });
+    if (Math.abs(s) > 1e-9) bad.push(el + (s > 0 ? ' 多' : ' 少') + Math.abs(s));
+  });
+  let q = 0;
+  parsed.forEach((p, i) => { q += p.charge * coef[i] * (i < lhs.length ? 1 : -1); });
+  if (Math.abs(q) > 1e-9) bad.push('电荷不平衡 ' + q);
+  return bad;
+}
+
+/* ------------------------------ 反应库 ----------------------------------- */
+const RXNS = [];
+const RX_WARN = [];
+
+/** 条件 DSL：i 点燃 / T:1173 需温度K / cat:X 催化剂 / h 光照 / dis 放电 / conc|dil 浓稀 / sol 需溶液 */
+function parseCond(txt) {
+  const c = { temp: 0, ignite: false, cat: null, light: false, discharge: false, conc: null, sol: false };
+  (txt || '').split('|').filter(Boolean).forEach((t) => {
+    if (t === 'i') c.ignite = true;
+    else if (t === 'sol') c.sol = true;
+    else if (t === 'conc') c.conc = 'conc';
+    else if (t === 'dil') c.conc = 'dil';
+    else if (t === 'h') c.light = true;
+    else if (t === 'dis') c.discharge = true;
+    else if (t.startsWith('T:')) c.temp = Number(t.slice(2));
+    else if (t.startsWith('cat:')) c.cat = t.slice(4);
+  });
+  return c;
+}
+
+const RX_DEFS = [
+  // 类别, 左式, 右式, 条件, 速率, 现象, 说明
+  ['化合', 'H2,O2', 'H2O', 'i', 10, '爆鸣、淡蓝色火焰', '氢气在氧气中燃烧生成水'],
+  ['化合', 'Na,Cl2', 'NaCl', 'i', 9, '黄色火焰、白烟', '钠在氯气中剧烈燃烧'],
+  ['化合', 'H2,Cl2', 'HCl', 'i', 8, '苍白色火焰、白雾', '氢气在氯气中燃烧'],
+  ['化合', 'Fe,S', 'FeS', 'T:523', 3, '混合物红热、生成黑色固体', '铁与硫加热直接化合'],
+  ['化合', 'Cu,O2', 'CuO', 'T:573', 2, '紫红色变黑', '铜在空气中加热'],
+  ['化合', 'Mg,O2', 'MgO', 'i', 10, '耀眼白光、白色固体', '镁条在空气中燃烧'],
+  ['化合', 'Al,O2', 'Al2O3', 'i', 7, '耀眼白光、放热', '铝在氧气中燃烧'],
+  ['化合', 'Fe,O2', 'Fe3O4', 'i', 6, '火星四射、黑色熔融物', '铁丝在氧气中燃烧'],
+  ['化合', 'C,O2', 'CO2', 'i', 8, '红光、放热', '碳在氧气中充分燃烧'],
+  ['化合', 'S,O2', 'SO2', 'i', 7, '蓝紫色火焰、刺激性气味', '硫在氧气中燃烧'],
+  ['化合', 'P,O2', 'P4O10', 'i', 8, '耀眼白光、大量白烟', '红磷燃烧产生白烟'],
+  ['化合', 'N2,O2', 'NO', 'dis|T:2000', 1, '无色气体生成', '放电条件下氮氧直接化合（雷雨固氮）'],
+  ['化合', 'NO,O2', 'NO2', '', 8, '无色变红棕色', '一氧化氮遇氧被氧化'],
+  ['化合', 'CaO,H2O', 'Ca(OH)2', '', 8, '剧烈放热、沸腾冒汽', '生石灰遇水（放热可达 100°C 以上）'],
+  ['化合', 'SO3,H2O', 'H2SO4', '', 9, '放热、酸雾', '三氧化硫溶于水生成硫酸'],
+  ['化合', 'CO2,H2O', 'H2CO3', '', 3, '无明显现象', '二氧化碳溶于水生成碳酸（弱酸）'],
+  ['化合', 'NH3,HCl', 'NH4Cl', '', 9, '大量白烟', '氨气与氯化氢相遇产生白烟'],
+  ['化合', 'N2,H2', 'NH3', 'cat:Fe|T:723', 2, '气体体积减小', '工业合成氨（高温高压催化剂）'],
+  ['氧化还原', 'SO2,O2', 'SO3', 'cat:V2O5|T:723', 3, '催化氧化', '接触法制硫酸的关键一步'],
+
+  ['置换', 'Na,H2O', 'NaOH,H2', '', 10, '浮熔游响、小球乱窜', '钠与水剧烈反应（放热熔成小球）'],
+  ['置换', 'K,H2O', 'KOH,H2', '', 10, '剧烈燃烧、紫色火焰', '钾与水反应比钠更剧烈'],
+  ['置换', 'Ca,H2O', 'Ca(OH)2,H2', '', 6, '持续气泡、放热', '钙与水反应（生成的氢氧化钙微溶）'],
+  ['置换', 'Mg,H2O', 'Mg(OH)2,H2', 'T:373', 3, '缓慢气泡', '镁与热水反应（冷水几乎不反应）'],
+  ['置换', 'Fe,H2O', 'Fe3O4,H2', 'T:873', 2, '红热、产生可燃气体', '铁与水蒸气高温反应'],
+  ['置换', 'Zn,HCl', 'ZnCl2,H2', 'sol', 7, '剧烈气泡', '锌与稀盐酸制氢气'],
+  ['置换', 'Fe,HCl', 'FeCl2,H2', 'sol', 5, '气泡、溶液变浅绿', '铁与稀盐酸（生成亚铁）'],
+  ['置换', 'Mg,HCl', 'MgCl2,H2', 'sol', 9, '剧烈气泡、放热', '镁与稀盐酸'],
+  ['置换', 'Al,HCl', 'AlCl3,H2', 'sol', 6, '气泡', '铝与盐酸（先除氧化膜）'],
+  ['置换', 'Zn,H2SO4', 'ZnSO4,H2', 'sol', 7, '剧烈气泡', '锌与稀硫酸'],
+  ['置换', 'Fe,H2SO4', 'FeSO4,H2', 'sol', 5, '气泡、溶液变浅绿', '铁与稀硫酸'],
+  ['氧化还原', 'Cu,HNO3', 'Cu(NO3)2,NO,H2O', 'sol|dil', 6, '无色气体遇空气变红棕', '铜与稀硝酸（放 NO）'],
+  ['氧化还原', 'Cu,HNO3', 'Cu(NO3)2,NO2,H2O', 'sol|conc', 7, '红棕色气体', '铜与浓硝酸（放 NO2）'],
+  ['置换', 'Fe,CuSO4', 'FeSO4,Cu', 'sol', 6, '蓝色变浅绿、析出红色固体', '铁置换硫酸铜中的铜'],
+  ['置换', 'Zn,CuSO4', 'ZnSO4,Cu', 'sol', 6, '蓝色褪去、析出红色铜', '锌置换铜'],
+  ['置换', 'Cu,AgNO3', 'Cu(NO3)2,Ag', 'sol', 4, '析出银白色树枝状晶体', '铜置换银'],
+  ['置换', 'Fe,CuCl2', 'FeCl2,Cu', 'sol', 5, '溶液变浅绿、析出红色铜', '铁置换氯化铜中的铜'],
+  ['置换', 'Zn,FeSO4', 'ZnSO4,Fe', 'sol', 5, '浅绿色褪去、析出黑色铁', '锌置换铁'],
+  ['置换', 'Cl2,KI', 'KCl,I2', 'sol', 8, '溶液变棕黄', '氯置换碘（氧化性 Cl2>I2）'],
+  ['置换', 'Cl2,KBr', 'KCl,Br2', 'sol', 8, '溶液变橙色', '氯置换溴'],
+  ['置换', 'Br2,KI', 'KBr,I2', 'sol', 7, '溶液变棕黄', '溴置换碘'],
+
+  ['中和', 'HCl,NaOH', 'NaCl,H2O', 'sol', 9, '放热、pH 上升', '强酸与强碱中和'],
+  ['中和', 'HCl,KOH', 'KCl,H2O', 'sol', 9, '放热', '强酸与强碱中和'],
+  ['中和', 'H2SO4,NaOH', 'Na2SO4,H2O', 'sol', 9, '放热', '硫酸与氢氧化钠中和'],
+  ['中和', 'HNO3,NaOH', 'NaNO3,H2O', 'sol', 9, '放热', '硝酸与氢氧化钠中和'],
+  ['中和', 'H2SO4,Ca(OH)2', 'CaSO4,H2O', 'sol', 7, '放热、出现微溶物', '硫酸与石灰水'],
+  ['中和', 'CH3COOH,NaOH', 'CH3COONa,H2O', 'sol', 5, '温和放热', '弱酸与强碱中和'],
+  ['中和', 'HCl,NH3·H2O', 'NH4Cl,H2O', 'sol', 7, '放热', '盐酸与氨水'],
+  ['中和', 'H2SO4,NH3·H2O', '(NH4)2SO4,H2O', 'sol', 6, '放热', '硫酸与氨水'],
+
+  ['复分解', 'CaCO3,HCl', 'CaCl2,H2O,CO2', 'sol', 7, '剧烈气泡、固体溶解', '大理石与稀盐酸（实验室制 CO2）'],
+  ['复分解', 'Na2CO3,HCl', 'NaCl,H2O,CO2', 'sol', 8, '大量气泡', '纯碱与盐酸'],
+  ['复分解', 'NaHCO3,HCl', 'NaCl,H2O,CO2', 'sol', 9, '剧烈气泡', '小苏打与盐酸'],
+  ['复分解', 'AgNO3,NaCl', 'AgCl,NaNO3', 'sol', 9, '白色沉淀，不溶于稀硝酸', '检验氯离子'],
+  ['复分解', 'AgNO3,HCl', 'AgCl,HNO3', 'sol', 9, '白色沉淀', '硝酸银与盐酸'],
+  ['复分解', 'AgNO3,KI', 'AgI,KNO3', 'sol', 9, '黄色沉淀', '碘化银沉淀'],
+  ['复分解', 'BaCl2,Na2SO4', 'BaSO4,NaCl', 'sol', 9, '白色沉淀，不溶于酸', '检验硫酸根离子'],
+  ['复分解', 'BaCl2,H2SO4', 'BaSO4,HCl', 'sol', 9, '白色沉淀', '氯化钡与硫酸'],
+  ['复分解', 'CuSO4,NaOH', 'Cu(OH)2,Na2SO4', 'sol', 8, '蓝色絮状沉淀', '氢氧根检验铜离子'],
+  ['复分解', 'FeCl3,NaOH', 'Fe(OH)3,NaCl', 'sol', 8, '红褐色絮状沉淀', '氢氧根检验铁离子'],
+  ['复分解', 'Pb(NO3)2,KI', 'PbI2,KNO3', 'sol', 8, '金黄色沉淀', '碘化铅沉淀（黄金雨）'],
+  ['复分解', 'CuSO4,Na2S', 'CuS,Na2SO4', 'sol', 9, '黑色沉淀', '硫离子检验铜离子'],
+  ['复分解', 'Ca(OH)2,Na2CO3', 'CaCO3,NaOH', 'sol', 7, '白色沉淀', '石灰水与纯碱'],
+  ['复分解', 'Na2S,HCl', 'NaCl,H2S', 'sol', 8, '臭鸡蛋味气体', '硫化物遇酸放出硫化氢'],
+  ['复分解', 'CaCO3,H2SO4', 'CaSO4,H2O,CO2', 'sol', 3, '气泡很快停止', '生成微溶硫酸钙覆盖表面'],
+  ['复分解', 'CO2,NaOH', 'Na2CO3,H2O', 'sol', 5, '气体被吸收', '二氧化碳被氢氧化钠吸收'],
+  ['复分解', 'CO2,Ca(OH)2', 'CaCO3,H2O', 'sol', 7, '石灰水变浑浊', '检验二氧化碳'],
+  ['复分解', 'SO2,NaOH', 'Na2SO3,H2O', 'sol', 6, '气体被吸收', '二氧化硫被碱液吸收'],
+  ['复分解', 'CuO,HCl', 'CuCl2,H2O', 'sol', 5, '黑色固体溶解、溶液变蓝绿', '氧化铜溶于盐酸'],
+  ['复分解', 'CuO,H2SO4', 'CuSO4,H2O', 'sol', 5, '黑色溶解、溶液变蓝', '氧化铜溶于硫酸'],
+  ['复分解', 'Fe2O3,HCl', 'FeCl3,H2O', 'sol', 4, '红棕色溶解、溶液变黄', '铁锈溶于盐酸'],
+  ['复分解', 'ZnO,H2SO4', 'ZnSO4,H2O', 'sol', 5, '白色固体溶解', '氧化锌溶于硫酸'],
+  ['复分解', 'MgO,HCl', 'MgCl2,H2O', 'sol', 5, '白色固体溶解、放热', '氧化镁溶于盐酸'],
+  ['复分解', 'Al2O3,HCl', 'AlCl3,H2O', 'sol', 3, '缓慢溶解', '两性氧化物溶于酸'],
+
+  ['分解', 'CaCO3', 'CaO,CO2', 'T:1173', 3, '高温分解、放出气体', '石灰石高温分解（工业制生石灰）'],
+  ['分解', 'NaHCO3', 'Na2CO3,H2O,CO2', 'T:400', 4, '受热放出气体', '小苏打受热分解'],
+  ['分解', 'Cu(OH)2', 'CuO,H2O', 'T:353', 5, '蓝色变黑', '氢氧化铜受热分解'],
+  ['分解', 'Fe(OH)3', 'Fe2O3,H2O', 'T:373', 4, '红褐色变红棕', '氢氧化铁受热分解'],
+  ['分解', 'KMnO4', 'K2MnO4,MnO2,O2', 'T:513', 5, '放出氧气、紫黑变墨绿', '高锰酸钾受热制氧'],
+  ['分解', 'KClO3', 'KCl,O2', 'T:673|cat:MnO2', 7, '迅速放出氧气', '氯酸钾受热制氧（二氧化锰催化）'],
+  ['分解', 'H2O2', 'H2O,O2', 'cat:MnO2', 8, '剧烈气泡、放热', '过氧化氢在二氧化锰催化下分解'],
+  ['分解', 'H2O2', 'H2O,O2', '', 1, '缓慢冒出小气泡', '过氧化氢自然分解（很慢）'],
+  ['分解', 'H2CO3', 'H2O,CO2', '', 4, '冒气泡', '碳酸不稳定，很快分解'],
+  ['分解', 'HgO', 'Hg,O2', 'T:773', 3, '红色变银白色', '氧化汞受热分解'],
+  ['分解', 'Ag2O', 'Ag,O2', 'T:473', 4, '棕黑色变银白', '氧化银受热分解'],
+  ['分解', 'NH4Cl', 'NH3,HCl', 'T:611', 3, '固体消失、上方出现白烟', '氯化铵受热分解（冷却又化合）'],
+
+  ['氧化还原', 'Fe2O3,CO', 'Fe,CO2', 'T:973', 4, '红棕变黑、产生尾气', '高炉炼铁的主要反应'],
+  ['置换', 'Al,Fe2O3', 'Al2O3,Fe', 'i', 9, '耀眼白光、铁水流出', '铝热反应（放热极剧烈）'],
+  ['氧化还原', 'CuO,H2', 'Cu,H2O', 'T:573', 5, '黑色变红、管口有水珠', '氢气还原氧化铜'],
+  ['氧化还原', 'CuO,C', 'Cu,CO', 'T:1073', 3, '黑色变红', '碳还原氧化铜'],
+  ['氧化还原', 'C,CO2', 'CO', 'T:1000', 3, '气体体积增大', '高温下碳与二氧化碳生成一氧化碳'],
+  ['燃烧', 'CO,O2', 'CO2', 'i', 9, '蓝色火焰', '一氧化碳燃烧'],
+  ['燃烧', 'CH4,O2', 'CO2,H2O', 'i', 9, '淡蓝色火焰、放热', '甲烷（天然气）燃烧'],
+  ['燃烧', 'C2H5OH,O2', 'CO2,H2O', 'i', 8, '淡蓝色火焰', '乙醇燃烧'],
+  ['燃烧', 'C2H2,O2', 'CO2,H2O', 'i', 9, '明亮火焰、温度极高', '乙炔（氧炔焰）燃烧'],
+  ['燃烧', 'C6H6,O2', 'CO2,H2O', 'i', 7, '浓黑烟', '苯燃烧不充分冒黑烟'],
+  ['燃烧', 'C6H12O6,O2', 'CO2,H2O', '', 2, '缓慢氧化、放热', '葡萄糖氧化（呼吸作用）'],
+];
+
+/** 建库：配平 → 校验 → 入库；任何一条不配平都不进库 */
+function buildReactions() {
+  RX_DEFS.forEach(([kind, lhsS, rhsS, condS, rate, phen, note]) => {
+    const lhs = lhsS.split(',').map((s) => s.trim());
+    const rhs = rhsS.split(',').map((s) => s.trim());
+    const unknown = lhs.concat(rhs).filter((f) => !SUB.has(f));
+    if (unknown.length) { RX_WARN.push({ lhs: lhsS, rhs: rhsS, why: '物质库缺少: ' + unknown.join(',') }); return; }
+    const coef = balanceReaction(lhs, rhs);
+    if (!coef) { RX_WARN.push({ lhs: lhsS, rhs: rhsS, why: '配平失败（无唯一整数解）' }); return; }
+    const bad = verifyBalance(lhs, rhs, coef);
+    if (bad.length) { RX_WARN.push({ lhs: lhsS, rhs: rhsS, why: '守恒校验失败: ' + bad.join('/') }); return; }
+    const cond = parseCond(condS);
+    // ΔH：全部有生成焓才算「实测」，缺数据则按类别估算
+    let dh = 0, dhAq = 0, missing = false, est = false, estAq = false;
+    const sum = (arr, off, sgn) => arr.forEach((f, i) => {
+      const s = subOf(f);
+      if (!s || !s.dHf) { missing = true; return; }
+      if (s.dHf.est) est = true;
+      dh += sgn * coef[off + i] * s.dHf.v;
+      // 逐物质判断：在溶液里以水合离子存在的用 ΔfH°(aq)；
+      // 金属固体、以及会冒泡逸出的气体（CO₂/H₂…）仍用它自己纯态的值。
+      const aq = s.st === 'g' ? null : DHF_AQ[f];
+      if (aq ? aq.est : s.dHf.est) estAq = true;
+      dhAq += sgn * coef[off + i] * (aq ? aq.v : s.dHf.v);
+    });
+    sum(lhs, 0, -1); sum(rhs, lhs.length, +1);
+    if (missing) {
+      const KIND_DH = { 中和: -57, 燃烧: -550, 置换: -150, 化合: -300, 分解: 120, 复分解: -60, 氧化还原: -200 };
+      dh = KIND_DH[kind] != null ? KIND_DH[kind] : -100;
+      est = true;
+      dhAq = dh; estAq = true;
+    }
+    dh = Math.round(dh * 10) / 10;
+    dhAq = Math.round(dhAq * 10) / 10;
+    // 气体／沉淀自动识别
+    const gases = [], ppts = [];
+    rhs.forEach((f, i) => {
+      const s = subOf(f);
+      if (s.st === 'g') gases.push(f);
+      else if ((s.solubility === -1 || s.solubility === -2) && ['salt', 'base', 'oxide'].includes(s.cat)
+        && (cond.sol || lhs.some((lf) => subOf(lf).st === 'aq'))) ppts.push(f);
+    });
+    const eq = lhs.map((f, i) => (coef[i] > 1 ? coef[i] : '') + f).join(' + ')
+      + ' → ' + rhs.map((f, i) => (coef[lhs.length + i] > 1 ? coef[lhs.length + i] : '') + f
+        + (gases.includes(f) ? '↑' : ppts.includes(f) ? '↓' : '')).join(' + ');
+    const condText = [cond.ignite ? '点燃' : '', cond.temp ? '≥' + cond.temp + 'K' : '',
+      cond.cat ? '催化剂 ' + cond.cat : '', cond.conc === 'conc' ? '浓' : cond.conc === 'dil' ? '稀' : '',
+      cond.discharge ? '放电' : '', cond.sol ? '溶液' : ''].filter(Boolean).join(' · ');
+    RXNS.push({
+      id: RXNS.length, kind, lhs, rhs, coef, cond, rate, phen: phen.split('、'),
+      note, dH: dh, dhEst: est, dHaq: dhAq, dhAqEst: estAq, gases, ppts, eq, condText,
+      key: lhs.slice().sort().join(',') + '>' + rhs.slice().sort().join(','),
+    });
+  });
+  return RXNS;
+}
+buildReactions();
+
+/* ------------------------------ 反应匹配 --------------------------------- */
+/** 条件是否满足（env = {temp, catalysts:Set, conc, dilute}） */
+function condMet(rx, env) {
+  const c = rx.cond;
+  if (c.ignite && !env.ignite) return false;
+  if (c.discharge && !env.discharge) return false;
+  if (c.light && !env.light) return false;
+  if (c.temp && env.temp + 1e-6 < c.temp) return false;
+  if (c.cat && !(env.catalysts && env.catalysts.has(c.cat))) return false;
+  if (c.conc === 'conc' && env.conc !== 'conc') return false;
+  if (c.conc === 'dil' && env.conc === 'conc') return false;
+  return true;
+}
+
+/** 从容器内容里找出所有能进行的反应（按 条件更苛刻者优先 排序） */
+function matchReactions(contents, env) {
+  const have = new Map();
+  contents.forEach((c) => { if (c.mol > 1e-9) have.set(c.formula, (have.get(c.formula) || 0) + c.mol); });
+  const out = [];
+  for (const rx of RXNS) {
+    if (!condMet(rx, env)) continue;
+    if (rx.cond.sol) {   // 溶液反应：允许有固体（固液界面反应），但必须存在溶液相
+      const ok = rx.lhs.every((f) => (have.get(f) || 0) > 1e-9);
+      const hasSolution = contents.some((c) => c.mol > 1e-9 && (c.dissolved || subOf(c.formula).st === 'aq' || subOf(c.formula).st === 'l'));
+      if (!ok || !hasSolution) continue;
+    } else if (!rx.lhs.every((f) => (have.get(f) || 0) > 1e-9)) continue;
+    // 反应进度上限 = 极限试剂
+    let max = Infinity;
+    rx.lhs.forEach((f, i) => { max = Math.min(max, (have.get(f) || 0) / rx.coef[i]); });
+    if (!(max > 1e-12)) continue;
+    out.push({ rx, max });
+  }
+  // 更苛刻（有温度/点燃/催化剂要求）的排前面，避免被泛化反应抢走
+  out.sort((a, b) => {
+    const sc = (o) => (o.rx.cond.ignite ? 8 : 0) + (o.rx.cond.cat ? 4 : 0) + (o.rx.cond.conc ? 2 : 0) + (o.rx.cond.temp ? 1 : 0);
+    return sc(b) - sc(a) || b.rx.rate - a.rx.rate;
+  });
+  return out;
+}
+
+/** 按极限试剂推进一次反应；返回 {extent, dH(J), eq, phen, gases, ppts}
+ *  inSolution=true 时用「水合离子生成焓」算 ΔH —— 溶液里真正生成的是水合离子，
+ *  用纯态生成焓会把中和热算成 −104 kJ/mol（真值 −57.3）。 */
+function applyReaction(match, dtSec, inSolution) {
+  const { rx, max } = match;
+  const rateLimit = rx.rate * 0.25 * dtSec;         // 速率越高越快完成
+  const extent = Math.min(max, rateLimit);
+  if (!(extent > 1e-12)) return null;
+  const useAq = !!inSolution && rx.dHaq != null && !rx.dhAqEst;
+  const dh = useAq ? rx.dHaq : rx.dH;
+  return {
+    rx, extent, dHUsed: dh, usedAq: useAq,
+    dH: dh * 1000 * extent,                       // kJ/mol → J
+    consume: rx.lhs.map((f, i) => ({ formula: f, mol: rx.coef[i] * extent })),
+    produce: rx.rhs.map((f, i) => ({ formula: f, mol: rx.coef[rx.lhs.length + i] * extent })),
+  };
+}
+
+/* 自检：全库守恒（探针会再独立跑一遍） */
+const RX_BAD = RXNS.filter((rx) => verifyBalance(rx.lhs, rx.rhs, rx.coef).length > 0);
+
+
+/* ================= 04-physics.js ================= */
+/* ============================================================================
+ * 04-physics.js —— 物理层：热量、相变、溶解、浓度、pH（全部按真实公式/常数）
+ * ----------------------------------------------------------------------------
+ * 统一记账单位：物质的量 mol（质量 g = mol × M，体积 L 由水的量推出）
+ *   热     Q = Σ n·Cp,m·ΔT      （水 Cp,m = 75.3 J/(mol·K)，实测）
+ *   供热   Q = P·η·dt，且不超过热源温度（火焰不是无限热源）
+ *   散热   牛顿冷却 dQ = -k·(T−T_env)·dt
+ *   沸腾   达到沸点后多出来的能量全部用于汽化：Δn = ΔQ / ΔHvap（水 40.65 kJ/mol → 2257 J/g）
+ *   溶解   溶解速率 ∝ 表面积 ×(1−c/c_sat)，并计入真实溶解焓（硝酸铵溶于水会真的变冷）
+ *   沸点升高 ΔTb = Kb·b（水 Kb=0.512）、凝固点降低 ΔTf = Kf·b（Kf=1.86）
+ * ==========================================================================*/
+
+const PHYS = {
+  R: 8.314, T0: 298.15, P0: 101325,
+  Kb: 0.512, Kf: 1.86,          // 水的沸点升高 / 凝固点降低常数 K·kg/mol
+  ETA_FLAME: 0.35, ETA_PLATE: 0.72,  // 火焰/电热板 传热效率
+  MAX_PARTICLES: 140,
+};
+
+const _sub = (f) => subOf(f);
+
+/** 液态水物质的量 */
+const waterMol = (app) => app.contents.filter((c) => c.formula === 'H2O' && c.phase !== 'g')
+  .reduce((a, c) => a + c.mol, 0);
+/** 水溶液体积 L */
+const waterVolume = (app) => waterMol(app) * 18.015 / 1000;
+/** 溶质总物质的量（已溶解、非水） */
+const soluteMol = (app) => app.contents.filter((c) => c.dissolved && c.formula !== 'H2O')
+  .reduce((a, c) => a + c.mol, 0);
+/** 质量 g */
+const massOf = (c) => c.mol * (_sub(c.formula) ? _sub(c.formula).M : 20);
+const totalMass = (app) => app.contents.reduce((a, c) => a + massOf(c), 0) + app.glassMass;
+
+/** 热容 J/K：内容物 + 玻璃器壁 */
+function heatCapacity(app) {
+  let C = app.glassMass * 0.83;                 // 硼硅玻璃 cp ≈ 0.83 J/(g·K)
+  app.contents.forEach((c) => {
+    const s = _sub(c.formula); if (!s) return;
+    C += c.mol * subCp(s) * s.M;
+  });
+  return C;
+}
+
+/** 沸点 K：水的沸点 + 溶质引起的沸点升高 */
+function boilingPoint(app) {
+  const w = waterMol(app); if (!w) return 373.15;
+  const m = (soluteMol(app) / (w * 18.015)) * 1000;   // 质量摩尔浓度 mol/kg
+  return 373.15 + PHYS.Kb * m;
+}
+/** 凝固点 K */
+function freezingPoint(app) {
+  const w = waterMol(app); if (!w) return 273.15;
+  const m = (soluteMol(app) / (w * 18.015)) * 1000;
+  return 273.15 - PHYS.Kf * m;
+}
+
+/* --------------------------------- 溶解 ---------------------------------- */
+const _dissRate = new Map();
+function stepDissolution(app, dt) {
+  const w = waterMol(app);
+  if (!w) return;
+  const V = waterVolume(app);
+  app.contents.forEach((c) => {
+    if (c.dissolved || c.phase === 'g' || c.formula === 'H2O') return;
+    const s = _sub(c.formula); if (!s || !s.balanced) return;
+    if (!Number.isFinite(c.mol) || c.mol <= 0) return;
+    let sol = s.solubility;
+    if (sol === -1) return;                       // 不溶
+    if (sol === -2) sol = 0.2;                    // 微溶
+    if (sol === Infinity) sol = 1000;
+    if (sol == null) sol = 5;
+    // 溶解度随温度升高而增大（KNO3 类显著，用 2%/K 近似）
+    sol *= 1 + 0.02 * (app.temp - 298.15);
+    const csat = (sol * 10) / s.M;                // mol/L
+    const conc = c.mol / V;
+    if (conc >= csat - 1e-12) return;
+    const area = Math.pow(Math.max(c.mol, 1e-9), 2 / 3);   // 表面积近似
+    let rate = 0.35 * area * (1 - conc / csat);            // mol/s
+    if (s.st === 'aq' || s.st === 'l') rate = c.mol / dt;  // 液体/溶液立刻混匀
+    const dn = Math.min(c.mol, rate * dt, (csat - conc) * V);
+    if (dn <= 1e-12) return;
+    c.mol -= dn;
+    addContent(app, c.formula, dn, 'aq', true);
+    const dh = DISSOLUTION_DH[c.formula];
+    if (dh != null) app.heatBuffer += -dh * 1000 * dn;      // 吸热为正 → 温度下降
+    app.events.push({ t: 'dissolve', f: c.formula, mol: dn, dh: dh || 0 });
+    if (c.mol <= 1e-9) c.mol = 0;
+  });
+  app.contents = app.contents.filter((c) => c.mol > 1e-12);   // 清掉溶解完的空壳
+}
+
+/* ------------------------------ 内容物操作 ------------------------------- */
+function addContent(app, formula, mol, phase, dissolved) {
+  const ex = app.contents.find((c) => c.formula === formula && c.phase === (phase || (subOf(formula) || {}).st) && !!c.dissolved === !!dissolved);
+  if (ex) { ex.mol += mol; return ex; }
+  const s = subOf(formula);
+  const st = phase || (s ? s.st : 's');
+  const entry = { formula, mol, phase: dissolved ? 'aq' : st, dissolved: !!dissolved, born: app.time };
+  app.contents.push(entry);
+  return entry;
+}
+function removeContent(app, formula, mol) {
+  const c = app.contents.find((x) => x.formula === formula && x.mol > 0);
+  if (!c) return;
+  c.mol = Math.max(0, c.mol - mol);
+  if (c.mol <= 1e-9) app.contents.splice(app.contents.indexOf(c), 1);
+}
+/** 容器里元素原子总数（守恒断言用） */
+function atomTally(app) {
+  const t = {}; 
+  app.contents.forEach((c) => {
+    const p = parseFormula(c.formula);
+    p.atoms.forEach((n, sym) => { t[sym] = (t[sym] || 0) + n * c.mol; });
+  });
+  return t;
+}
+
+/* --------------------------------- 热量 ---------------------------------- */
+function stepThermal(app, dt) {
+  if (!Number.isFinite(app.temp)) app.temp = PHYS.T0;   // 自愈：任何非有限温度都拉回室温
+  if (!Number.isFinite(app.heatBuffer)) app.heatBuffer = 0;
+  const C = heatCapacity(app);
+  let dQ = app.heatBuffer; app.heatBuffer = 0;
+  const src = app.heater && app.heater.on ? app.heater : null;
+  if (src) {
+    const gap = src.flameT - app.temp;
+    if (gap > 0) dQ += Math.min(src.power * (src.eff || PHYS.ETA_FLAME) * dt, C * gap);
+  }
+  dQ -= app.kCool * (app.temp - PHYS.T0) * dt;      // 牛顿冷却
+  app.temp += dQ / C;
+
+  // ---- 沸腾：多余能量全部用于汽化，温度锁在沸点 ----
+  const w = waterMol(app);
+  const bp = boilingPoint(app);
+  if (w > 1e-9 && app.temp > bp) {
+    const C2 = heatCapacity(app);
+    const excess = (app.temp - bp) * C2;
+    const hvapJ = (HVAP.H2O || 40.65) * 1000;
+    const dn = Math.min(w, excess / hvapJ);
+    app.temp = bp;
+    if (dn > 0) {
+      removeContent(app, 'H2O', dn);
+      app.steamAccum += dn;
+      app.events.push({ t: 'boil', mol: dn });
+    }
+    // 继续沸腾由后续供热推动（温度被锁在沸点，热量不断转成汽化）
+    if (dn <= 1e-12 && src) {
+      const dn2 = Math.min(w, src.power * (src.eff || PHYS.ETA_FLAME) * dt / hvapJ);
+      if (dn2 > 0) { removeContent(app, 'H2O', dn2); app.steamAccum += dn2; app.events.push({ t: 'boil', mol: dn2 }); }
+    }
+  }
+  // ---- 凝固：水结冰（放热） ----
+  const fp = freezingPoint(app);
+  if (w > 1e-9 && app.temp < fp) {
+    const C2 = heatCapacity(app);
+    const deficit = (fp - app.temp) * C2;
+    const hfusJ = (HFUS.H2O || 6.01) * 1000;
+    const dn = Math.min(w, deficit / hfusJ);
+    if (dn > 0) { app.temp = fp; app.iceMol = (app.iceMol || 0) + dn; app.events.push({ t: 'freeze', mol: dn }); }
+  }
+  // ---- 干烧保护：容器耐温上限 ----
+  if (app.temp > app.maxTemp) { app.temp = app.maxTemp; app.dryWarn = true; }
+  if (waterMol(app) < 1e-9 && app.heater && app.heater.on) app.dryWarn = true;
+  else if (waterMol(app) > 1e-9) app.dryWarn = false;
+  // ---- 辐射散热让温度不会无限涨（大温差时冷却更快，已是线性近似） ----
+  app.C = C;
+  return app.temp;
+}
+
+/* --------------------------------- 反应 ---------------------------------- */
+function stepChemistry(app, dt, env) {
+  const contents = app.contents;
+  const matches = matchReactions(contents, env);
+  const done = [];
+  for (const mt of matches) {
+    const r = applyReaction(mt, dt, waterMol(app) > 1e-9);   // 有水就是溶液态 → 用水合生成焓
+    if (!r) continue;
+    // 消耗：跨多条同种物质记录按化学计量精确扣除（同一物质可能同时有固体和已溶两份）
+    r.consume.forEach(({ formula, mol }) => {
+      let need = mol;
+      for (let i = 0; i < contents.length && need > 1e-12; i++) {
+        const c = contents[i];
+        if (c.formula !== formula) continue;
+        const take = Math.min(c.mol, need);
+        c.mol -= take; need -= take;
+      }
+    });
+    for (let i = contents.length - 1; i >= 0; i--) if (contents[i].mol <= 1e-12) contents.splice(i, 1);
+    // 生成产物
+    r.produce.forEach(({ formula, mol }) => {
+      const s = subOf(formula);
+      if (s.st === 'g') {
+        // 可溶气体先溶（NH3/HCl/SO2/CO2 会真的溶进水里），其余直接冒泡逸出
+        const sol = s.solubility;
+        const w = waterMol(app);
+        if (w > 0 && sol !== null && sol !== -1 && sol > 0.05) {
+          const csat = (sol * 10) / s.M;
+          const V = waterVolume(app);
+          const c = app.contents.filter((x) => x.formula === formula && x.dissolved).reduce((a, x) => a + x.mol, 0) / V;
+          const canDis = Math.max(0, (csat - c) * V);
+          const dis = Math.min(mol, canDis);
+          if (dis > 1e-12) addContent(app, formula, dis, 'aq', true);
+          if (mol - dis > 1e-12) { app.gasBubbles.push({ f: formula, mol: mol - dis }); app.gasVented += mol - dis; }
+        } else { app.gasBubbles.push({ f: formula, mol }); app.gasVented += mol; }
+      } else {
+        // 在溶液里生成的可溶物应当直接溶在水里，而不是凭空变成一堆固体颗粒
+        const w = waterMol(app);
+        const dissolvable = s.st === 'aq' || (s.st !== 'l' && (s.solubility === Infinity
+          || (typeof s.solubility === 'number' && s.solubility > 0.01)));
+        const asDissolved = dissolvable && (s.st === 'aq' || w > 1e-9);
+        addContent(app, formula, mol, asDissolved ? 'aq' : null, asDissolved);
+      }
+    });
+    app.heatBuffer -= r.dH;                    // ΔH：负=放热 → 给体系加热（符号别写反）
+    app.flash = Math.min(1, app.flash + Math.min(1, Math.abs(r.dH) / 4000) * (r.dH < 0 ? 1 : 0.25));
+    app.events.push({ t: 'rxn', rx: r.rx, extent: r.extent, dH: r.dH });
+    done.push(r);
+    if (r.rx.gases.length) app.bubbleRate = Math.min(80, app.bubbleRate + 40 * r.extent * 20);
+    if (r.rx.ppts.length) {
+      app.pptRate = Math.min(60, app.pptRate + 40 * r.extent * 20);
+      r.rx.ppts.forEach((f) => { const p = r.produce.find((x) => x.formula === f); if (p) app.pptMade += p.mol; });
+    }
+    if (r.rx.phen.includes('白烟') || r.rx.phen.includes('大量白烟')) app.smoke = Math.min(1.5, app.smoke + 0.6);
+    if (r.rx.phen.some((p) => p.includes('火焰') || p.includes('白光') || p.includes('火星'))) app.flame = Math.min(1.6, app.flame + 0.8);
+  }
+  return done;
+}
+
+/* --------------------------------- pH ----------------------------------- */
+/** 真实 pKa / pKb（第一个质子） */
+const ACID_PKA = { HCl: -6.3, H2SO4: -3.0, HNO3: -1.4, HF: 3.17, H3PO4: 2.15, H2CO3: 6.35, H2S: 7.05, CH3COOH: 4.76, H2O2: 11.6 };
+const BASE_PKB = { NaOH: -0.6, KOH: -0.5, 'Ca(OH)2': -2.4, 'Ba(OH)2': -2.4, 'NH3·H2O': 4.75 };
+
+function computePH(app) {
+  const V = waterVolume(app);
+  if (V < 1e-6) return null;
+  let cH = 0, cOH = 0;
+  app.contents.filter((c) => c.dissolved).forEach((c) => {
+    const c0 = c.mol / V;
+    const pKa = ACID_PKA[c.formula];
+    if (pKa != null) {
+      const ka = Math.pow(10, -pKa);
+      cH += ka > 1 ? c0 : Math.sqrt(ka * c0);      // 强酸完全电离 / 弱酸近似
+    }
+    const pKb = BASE_PKB[c.formula];
+    if (pKb != null) {
+      const kb = Math.pow(10, -pKb);
+      cOH += kb > 1 ? c0 : Math.sqrt(kb * c0);
+    }
+  });
+  const net = cH - cOH;
+  if (Math.abs(net) < 1e-12) return 7;
+  const negLog = (x) => -Math.log10(Math.max(1e-15, Math.min(1, x)));
+  return net > 0 ? negLog(net) : 14 - negLog(-net);
+}
+/** 指示剂颜色（真实变色范围：酚酞 8.2 无色→红，石蕊 5.5~7.5 红→蓝） */
+function indicatorTint(app) {
+  const ph = computePH(app);
+  if (ph == null) return null;
+  const has = (name) => app.contents.some((c) => c.dissolved && c.formula === name);
+  if (has('酚酞')) return ph >= 8.2 ? '#e0409a' : null;
+  if (has('石蕊')) return ph < 5.5 ? '#e04040' : ph > 7.5 ? '#4050e0' : '#8a5fbf';
+  return null;
+}
+
+/* ------------------------------ 单步推进 -------------------------------- */
+function worldStep(app, dt, env) {
+  app.events = app.events.filter((e) => (app.time - (e.at || (e.at = app.time))) < 0.2);
+  stepDissolution(app, dt);
+  const rxns = stepChemistry(app, dt, env || { temp: app.temp });
+  stepThermal(app, dt);
+  app.time += dt;
+  app.gasMol = app.gasBubbles.reduce((a, g) => a + g.mol, 0);
+  return rxns;
+}
+
+/** 新建容器状态 */
+function makeApparatus(def) {
+  return {
+    id: def.id, def, contents: [], temp: PHYS.T0, time: 0,
+    glassMass: def.glassMass, kCool: def.kCool, maxTemp: def.maxTemp,
+    heatBuffer: 0, heater: null, events: [], gasBubbles: [], steamAccum: 0, iceMol: 0,
+    bubbleRate: 0, pptRate: 0, flash: 0, flame: 0, smoke: 0, dryWarn: false,
+    gasVented: 0, pptMade: 0,
+    stir: 0, ignited: false, stirrerOn: false, catalysts: new Set(),
+    dirty: true, bubbles: [], ppts: [], steam: [], C: 0, gasMol: 0,
+  };
+}
+
+
+/* ================= 05-lab.js ================= */
+/* ============================================================================
+ * 05-lab.js —— 仪器系统与操作：容器、热源、测量、加料、倾倒、引导任务
+ * ==========================================================================*/
+
+/** 容器定义：cap 容积 mL；direct = 能否直火加热；maxTemp 耐温上限 K */
+const APPARATUS = [
+  { id: 'tube', name: '试管', cap: 25, glassMass: 16, maxTemp: 800, kCool: 0.45, direct: true, shape: 'tube' },
+  { id: 'beaker', name: '烧杯', cap: 250, glassMass: 110, maxTemp: 750, kCool: 0.70, direct: false, shape: 'beaker' },
+  { id: 'flask', name: '锥形瓶', cap: 150, glassMass: 95, maxTemp: 750, kCool: 0.55, direct: false, shape: 'flask' },
+  { id: 'dish', name: '蒸发皿', cap: 60, glassMass: 55, maxTemp: 900, kCool: 0.80, direct: true, shape: 'dish' },
+  { id: 'crucible', name: '坩埚', cap: 40, glassMass: 78, maxTemp: 1800, kCool: 0.60, direct: true, shape: 'crucible' },
+];
+
+/** 热源：power W、flameT 最高火焰温度 K、eff 传热效率（都有真实量级） */
+const HEATERS = [
+  { id: 'lamp', name: '酒精灯', power: 250, flameT: 850, eff: 0.35, needsDirect: true, fuel: '乙醇', icon: '🕯' },
+  { id: 'bunsen', name: '本生灯', power: 900, flameT: 1500, eff: 0.40, needsDirect: true, fuel: '甲烷', icon: '🔥' },
+  { id: 'plate', name: '电热板', power: 600, flameT: 673, eff: 0.72, needsDirect: false, fuel: '电', icon: '🟥' },
+];
+
+/** 催化剂（不消耗，只开门） */
+const CATALYSTS = new Set(['MnO2', 'Fe', 'V2O5']);
+
+const AMOUNT_DEFAULT = { g: 5, mL: 50 };   // 默认取用量
+
+/* ------------------------------- 世界状态 -------------------------------- */
+const Lab = {
+  apps: [], seq: 1, log: [], selected: null, discovered: new Set(),
+  tasks: [], taskDone: {}, guideOn: true, totalRx: 0,
+  time: 0, lastMsg: '',
+};
+
+function addApparatus(kindId) {
+  const def = APPARATUS.find((a) => a.id === kindId);
+  if (!def) return null;
+  if (Lab.apps.length >= 6) return null;            // 到上限就拒绝，绝不静默挤掉别人的容器
+  const app = makeApparatus(def);
+  app.uid = 'A' + (Lab.seq++);
+  Lab.apps.push(app);
+  if (!Lab.selected) Lab.selected = app.uid;
+  return app;
+}
+const appByUid = (uid) => Lab.apps.find((a) => a.uid === uid) || null;
+const selectedApp = () => appByUid(Lab.selected);
+
+/** 容器里的液面高度比例（0~1），供渲染与容积判断 */
+function fillRatio(app) {
+  const mL = waterMol(app) * 18.015 + app.contents.filter((c) => !c.dissolved && c.phase !== 'g')
+    .reduce((a, c) => a + massOf(c) / Math.max(1, (subOf(c.formula) || {}).density || 2), 0);
+  return Math.max(0, Math.min(1.2, mL / app.def.cap));
+}
+
+/* --------------------------------- 加料 ---------------------------------- */
+/** 把「数值 + 单位」换算成 mol */
+function amountToMol(formula, value, unit) {
+  const s = subOf(formula); if (!s) return 0;
+  if (unit === 'mol') return value;
+  if (unit === 'g') return value / s.M;
+  if (unit === 'mL') {                     // 体积：真实密度 × 质量分数换算（浓盐酸 37%、浓硫酸 98%）
+    const d = subDensity(s) || 1.0;
+    return (value * d * massFrac(formula)) / s.M;
+  }
+  return 0;
+}
+
+function addReagent(uid, formula, value, unit) {
+  const app = appByUid(uid); if (!app) return { ok: false, why: '没有这个容器' };
+  const s = subOf(formula); if (!s) return { ok: false, why: '库里没有这种物质' };
+  const mol = amountToMol(formula, value, unit || 'g');
+  if (!Number.isFinite(mol) || !(mol > 0)) return { ok: false, why: '取用量无效（' + value + ' ' + (unit || 'g') + '）' };
+  const after = waterMol(app) + (formula === 'H2O' ? mol : 0);
+  if (after * 18.015 > app.def.cap) return { ok: false, why: app.def.name + ' 装不下（容积 ' + app.def.cap + ' mL）' };
+  // 气体：只有能溶的先溶，其余作为气泡逸出（通气）
+  if (s.st === 'g' && s.solubility !== null && s.solubility > 0.05 && waterMol(app) > 0) {
+    const V = waterVolume(app);
+    const csat = (s.solubility * 10) / s.M;
+    const cur = app.contents.filter((c) => c.formula === formula && c.dissolved).reduce((a, c) => a + c.mol, 0);
+    const dis = Math.min(mol, Math.max(0, csat * V - cur));
+    if (dis > 1e-12) addContent(app, formula, dis, 'aq', true);
+    if (mol - dis > 1e-12) app.gasBubbles.push({ f: formula, mol: mol - dis });
+  } else if (s.st === 'g') {
+    app.gasBubbles.push({ f: formula, mol });
+  } else if (formula === 'H2O' || s.st === 'l' || s.st === 'aq' || !app.contents.some((c) => c.formula === 'H2O')) {
+    // 溶剂/液体/溶液，或干容器里直接投料：液体成相，固体先当未溶固体
+    const liquid = (formula === 'H2O' || s.st === 'l' || s.st === 'aq') && !CATALYSTS.has(formula);
+    addContent(app, formula, mol, liquid ? null : 's', false);
+  } else {
+    addContent(app, formula, mol, 's', false);
+  }
+  Lab.log.push({ k: 'add', text: '往 ' + app.def.name + ' 里加入 ' + fmtAmount(s, value, unit) + ' ' + s.name + (formula === s.formula ? '' : '（' + formula + '）'), at: Lab.time });
+  const haz = (s.note || '').match(/放射性|剧毒|有毒|自燃|燃烧|爆炸|腐蚀/);
+  if (haz) pushMsg('⚠ ' + s.name + '（' + formula + '）：' + haz[0] + '物质，按规范操作 —— 本模拟不做核反应，也不模拟毒性伤害');
+  return { ok: true, mol };
+}
+
+function fmtAmount(s, value, unit) {
+  if (unit === 'mol') return round(value, 3) + ' mol';
+  if (unit === 'g') return round(value, 2) + ' g';
+  return round(value, 1) + ' mL';
+}
+const round = (v, n = 2) => { const p = Math.pow(10, n); return Math.round(v * p) / p; };
+
+/* --------------------------------- 操作 ---------------------------------- */
+function setHeater(uid, heaterId, on) {
+  const app = appByUid(uid); if (!app) return;
+  if (!on) { if (app.heater) app.heater.on = false; app.heater = null; return; }
+  const h = HEATERS.find((x) => x.id === heaterId); if (!h) return;
+  app.heater = { ...h, on: true };
+  if (h.needsDirect && !app.def.direct) {
+    app.heater.eff *= 0.5;
+    pushMsg(app.def.name + ' 不能直接放在明火上，须垫石棉网：受热不均，传热效率下降，可能炸裂');
+  }
+}
+function ignite(uid) {
+  const app = appByUid(uid); if (!app) return;
+  app.ignited = true; app.igniteUntil = Lab.time + 3;
+  app.flame = Math.max(app.flame, 0.6);
+  Lab.log.push({ k: 'ignite', text: '点燃 ' + app.def.name + ' 中的物质', at: Lab.time });
+}
+function stir(uid) {
+  const app = appByUid(uid); if (!app) return;
+  app.stirrerOn = !app.stirrerOn;
+  Lab.log.push({ k: 'stir', text: (app.stirrerOn ? '开始' : '停止') + '搅拌 ' + app.def.name, at: Lab.time });
+}
+function clearApp(uid) {
+  const app = appByUid(uid); if (!app) return;
+  app.contents.length = 0; app.gasBubbles.length = 0; app.bubbles.length = 0; app.ppts.length = 0;
+  app.temp = PHYS.T0; app.iceMol = 0; app.dryWarn = false;
+  Lab.log.push({ k: 'clear', text: '倒空并洗净 ' + app.def.name, at: Lab.time });
+}
+/** 倾倒：把 from 的液体（含溶质）全部转移到 to */
+function pour(fromUid, toUid) {
+  const a = appByUid(fromUid), b = appByUid(toUid);
+  if (!a || !b || a === b) return { ok: false, why: '无效的倾倒' };
+  const liquid = a.contents.filter((c) => c.dissolved || c.phase === 'l' || c.phase === 'aq');
+  const wMol = liquid.filter((c) => c.formula === 'H2O').reduce((s, c) => s + c.mol, 0);
+  if (wMol <= 1e-9) return { ok: false, why: a.def.name + ' 里没有可倒的液体' };
+  if ((waterMol(b) + wMol) * 18.015 > b.def.cap) return { ok: false, why: b.def.name + ' 装不下这些液体' };
+  liquid.forEach((c) => {
+    addContent(b, c.formula, c.mol, c.phase === 'l' ? 'l' : 'aq', c.phase !== 'l');
+    c.mol = 0;
+  });
+  a.contents = a.contents.filter((c) => c.mol > 1e-9);
+  Lab.log.push({ k: 'pour', text: '把 ' + a.def.name + ' 中的液体倒入 ' + b.def.name, at: Lab.time });
+  return { ok: true };
+}
+
+function pushMsg(text) { Lab.lastMsg = text; Lab.log.push({ k: 'warn', text, at: Lab.time }); if (Lab.log.length > 200) Lab.log.shift(); }
+
+/** 每步环境（点燃/催化剂/浓度） */
+function envOf(app) {
+  const cats = new Set(app.contents.filter((c) => c.mol > 1e-9 && CATALYSTS.has(c.formula)).map((c) => c.formula));
+  return {
+    temp: app.temp,
+    catalysts: cats,
+    ignite: !!app.ignited && (app.igniteUntil || 0) > Lab.time,
+    conc: app.acidConc === 'conc' ? 'conc' : 'dil',
+    light: false, discharge: !!app.discharge,
+  };
+}
+
+/* ------------------------------ 引导任务 --------------------------------- */
+/** 反应是否已被发现（key 是排序过的，用集合比较更稳） */
+function rxFound(lhs, rhs) {
+  const norm = (s) => s.split(',').map((x) => x.trim()).sort().join(',');
+  const want = norm(lhs) + '>' + norm(rhs);
+  return Lab.discovered.has(want);
+}
+const TASKS = [
+  { id: 't1', text: '称 5 g 食盐溶于 50 mL 水，得到澄清溶液', check: () => Lab.apps.some((a) => a.contents.some((c) => c.formula === 'NaCl' && c.dissolved && c.mol > 0.05)) },
+  { id: 't2', text: '把水加热到沸腾（看温度计到 373 K 以上）', check: () => Lab.apps.some((a) => a.steamAccum > 0) },
+  { id: 't3', text: '让盐酸和氢氧化钠中和，并用酚酞或 pH 计确认接近中性', check: () => rxFound('HCl,NaOH', 'NaCl,H2O') || Lab.apps.some((a) => { const ph = computePH(a); return ph != null && ph > 5.5 && ph < 8.5 && a.contents.some((c) => c.formula === 'NaCl' && c.dissolved); }) },
+  { id: 't4', text: '用锌（或铁）把硫酸铜里的铜置换出来（蓝色褪去、析出红色铜）', check: () => rxFound('Zn,CuSO4', 'ZnSO4,Cu') || rxFound('Fe,CuSO4', 'FeSO4,Cu') },
+  { id: 't5', text: '做出一次明显放热反应（反应本身让温度上升 10 K 以上）', check: () => (Lab.maxRxRise || 0) > 10 },
+  { id: 't6', text: '放出一次气体（看到气泡逸出）', check: () => Lab.apps.some((a) => a.gasVented > 0.001) },
+];
+function refreshTasks() {
+  TASKS.forEach((t) => { if (!Lab.taskDone[t.id] && t.check()) { Lab.taskDone[t.id] = true; Lab.log.push({ k: 'task', text: '✅ 任务完成：' + t.text, at: Lab.time }); } });
+  return TASKS;
+}
+
+/* ------------------------------ 主循环一步 ------------------------------- */
+function labStep(dt) {
+  const envs = [];
+  Lab.time += dt;
+  Lab.apps.forEach((app) => {
+    // 反应产物气泡/蒸汽速率自然衰减（缓慢衰减：气泡要飘一会儿才散）
+    app.bubbleRate = Math.max(0, app.bubbleRate - dt * 6);
+    app.pptRate = Math.max(0, app.pptRate - dt * 4);
+    if (app.gasBubbles.length) app.bubbleRate = Math.max(app.bubbleRate, 30);
+    app.flash = Math.max(0, app.flash - dt * 1.6);
+    app.flame = Math.max(0, app.flame - dt * 0.8);
+    app.smoke = Math.max(0, app.smoke - dt * 0.7);
+    if (app.ignited && (app.igniteUntil || 0) <= Lab.time && app.flame <= 0.05) app.ignited = false;
+    // 冒泡计数 → 供渲染与气体验证
+    app.gasBubbles = app.gasBubbles.filter((g) => { g.mol -= dt * 0.02; return g.mol > 1e-4; });
+    const before = app.temp;
+    const rx = worldStep(app, dt, envOf(app));
+    rx.forEach((r) => {
+      Lab.totalRx++;
+      Lab.discovered.add(r.rx.key);
+      Lab.log.push({
+        k: 'rxn', at: Lab.time, uid: app.uid,
+        text: r.rx.eq + (r.rx.condText ? '  （' + r.rx.condText + '）' : ''),
+        note: r.rx.note + '｜' + r.rx.phen.join('、') + '｜ΔH≈' + round(r.dHUsed, 1) + ' kJ/mol'
+          + (r.usedAq ? (r.rx.dhAqEst ? '（估算）' : '（水合态生成焓）') : (r.rx.dhEst ? '（估算）' : '（由生成焓算出）')),
+      });
+    });
+    // 反应过程内的累计温升（同一次反应可能跨好几步，不能只看单步；单纯加热不算）
+    if (rx.length) {
+      if (app._rxMark == null || Lab.time - (app._rxLast || 0) > 1.5) app._rxMark = before;
+      app._rxLast = Lab.time;
+      Lab.maxRxRise = Math.max(Lab.maxRxRise || 0, app.temp - app._rxMark);
+    } else if (app._rxMark != null && Lab.time - (app._rxLast || 0) > 1.5) app._rxMark = null;
+  });
+  if (Lab.log.length > 240) Lab.log.splice(0, Lab.log.length - 240);
+  refreshTasks();
+}
+
+
+/* ================= 06-view.js ================= */
+/* ============================================================================
+ * 06-view.js —— 视觉层：玻璃器皿、液面、固体堆积、气泡、沉淀、火焰、蒸汽、闪光
+ * ----------------------------------------------------------------------------
+ * 全部 Canvas 2D 手绘，无贴图无外部资源。粒子数与物理步长解耦（固定 dt 上限）。
+ * ==========================================================================*/
+
+const VIEW = { bubbleCap: 90, pptCap: 80, steamCap: 40 };
+
+/* ---------------------------- 溶液颜色（真实观感） ------------------------- */
+const TINT_STRENGTH = {
+  CuSO4: 3.2, CuCl2: 2.6, 'Cu(NO3)2': 2.6, KMnO4: 6.0, I2: 4.0, Br2: 4.0,
+  FeCl3: 2.0, 'Fe2(SO4)3': 2.0, K2MnO4: 3.0, 酚酞: 2.0, 石蕊: 1.5,
+};
+function solutionColor(app) {
+  const V = Math.max(1e-4, waterVolume(app));
+  let r = 0, g = 0, b = 0, wsum = 0;
+  app.contents.filter((c) => c.dissolved && c.formula !== 'H2O').forEach((c) => {
+    const s = subOf(c.formula); if (!s) return;
+    const col = hex2rgb(s.color);
+    // 无色溶质（食盐、硝酸银、氢氧化钠…）不该把水染成白汤，只有带色离子的才计权
+    const mx = Math.max(col[0], col[1], col[2]);
+    if (mx <= 0) return;
+    const sat = (mx - Math.min(col[0], col[1], col[2])) / mx;
+    if (sat < 0.12) return;
+    const conc = c.mol / V;
+    const str = (TINT_STRENGTH[c.formula] || 1) * conc;
+    if (str < 1e-4) return;
+    r += col[0] * str; g += col[1] * str; b += col[2] * str; wsum += str;
+  });
+  // 指示剂（酚酞遇碱变红 / 石蕊变蓝）优先级最高：真实实验里它就是一眼能看见
+  const tint = indicatorTint(app);
+  if (tint) { const col = hex2rgb(tint); const w = 1.1; r += col[0] * w; g += col[1] * w; b += col[2] * w; wsum += w; }
+  if (wsum > 0) {
+    const base = [200, 228, 245];
+    const mix = [r / wsum, g / wsum, b / wsum];
+    const a = Math.min(0.92, 0.12 + wsum * 0.5);
+    const col = base.map((v, i) => Math.round(v * (1 - a) + mix[i] * a));
+    return { rgb: col, alpha: 0.62 + a * 0.28 };
+  }
+  return { rgb: [200, 228, 245], alpha: 0.55 };
+}
+const hex2rgb = (h) => {
+  if (!h) return [200, 200, 200];
+  if (h[0] !== '#') return [200, 200, 200];
+  const v = h.length === 4 ? h.slice(1).split('').map((c) => c + c).join('') : h.slice(1);
+  return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+};
+const rgba = (c, a) => 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
+
+/* ------------------------------- 器皿几何 -------------------------------- */
+function vesselGeom(shape, w, h) {
+  const P = new Path2D();
+  let top, bot, x0, x1;
+  if (shape === 'tube') {
+    x0 = w * 0.37; x1 = w * 0.63; top = h * 0.10; bot = h * 0.86;
+    const r = (x1 - x0) / 2;
+    P.moveTo(x0, top); P.lineTo(x0, bot - r); P.arc((x0 + x1) / 2, bot - r, r, Math.PI, 0, true);
+    P.lineTo(x1, top); P.closePath();
+  } else if (shape === 'beaker') {
+    x0 = w * 0.24; x1 = w * 0.76; top = h * 0.20; bot = h * 0.84;
+    P.moveTo(x0, top); P.lineTo(x0 + w * 0.02, bot - h * 0.04); P.quadraticCurveTo(x0 + w * 0.03, bot, x0 + w * 0.09, bot);
+    P.lineTo(x1 - w * 0.09, bot); P.quadraticCurveTo(x1 - w * 0.03, bot, x1 - w * 0.02, bot - h * 0.04);
+    P.lineTo(x1, top); P.closePath();
+  } else if (shape === 'flask') {
+    x0 = w * 0.20; x1 = w * 0.80; top = h * 0.08; bot = h * 0.88;
+    const nx0 = w * 0.43, nx1 = w * 0.57, ny = h * 0.36;
+    P.moveTo(nx0, top); P.lineTo(nx0, ny); P.lineTo(x0, bot - h * 0.05);
+    P.quadraticCurveTo(x0, bot, x0 + w * 0.12, bot); P.lineTo(x1 - w * 0.12, bot);
+    P.quadraticCurveTo(x1, bot, x1, bot - h * 0.05); P.lineTo(nx1, ny); P.lineTo(nx1, top); P.closePath();
+  } else if (shape === 'dish') {
+    x0 = w * 0.18; x1 = w * 0.82; top = h * 0.46; bot = h * 0.84;
+    P.moveTo(x0, top); P.quadraticCurveTo(w * 0.5, bot + h * 0.06, x1, top); P.closePath();
+  } else {                                  // crucible 坩埚
+    x0 = w * 0.28; x1 = w * 0.72; top = h * 0.34; bot = h * 0.86;
+    P.moveTo(x0, top); P.lineTo(x0 + w * 0.06, bot); P.lineTo(x1 - w * 0.06, bot); P.lineTo(x1, top); P.closePath();
+  }
+  return { path: P, top, bot, x0, x1, cx: (x0 + x1) / 2, w: x1 - x0 };
+}
+
+/* -------------------------------- 粒子系统 -------------------------------- */
+function spawnParticles(app, dt) {
+  const g = app._geo; if (!g) return;
+  const boil = app.temp > (typeof boilingPoint === 'function' ? boilingPoint(app) - 1.5 : 372) && waterMol(app) > 1e-9;
+  let rate = app.bubbleRate + (boil ? 26 : 0);
+  if (app.heater && app.heater.on && waterMol(app) > 1e-9 && app.temp > 320) rate += (app.temp - 320) * 0.08;
+  // 累积器：每帧生成量常常不足 1 个，直接四舍五入会永远生不出粒子
+  const acc = (k, amt) => { app[k] = (app[k] || 0) + amt; const n = Math.floor(app[k]); app[k] -= n; return n; };
+  const nB = Math.min(8, acc('_bAcc', rate * dt * 2));
+  for (let i = 0; i < nB && app.bubbles.length < VIEW.bubbleCap; i++) {
+    const bx = g.x0 + (g.x1 - g.x0) * (0.12 + Math.random() * 0.76);
+    const y = app._liquidTop + (g.bot - app._liquidTop) * (0.3 + Math.random() * 0.7);
+    app.bubbles.push({ x: bx, y, r: 1.2 + Math.random() * 2.6, v: 12 + Math.random() * 26, ph: Math.random() * 6.28 });
+  }
+  const nP = Math.min(6, acc('_pAcc', app.pptRate * dt * 2));
+  for (let i = 0; i < nP && app.ppts.length < VIEW.pptCap; i++) {
+    const px = g.x0 + (g.x1 - g.x0) * (0.08 + Math.random() * 0.84);
+    app.ppts.push({ x: px, y: app._liquidTop + Math.random() * (g.bot - app._liquidTop) * 0.5, r: 0.8 + Math.random() * 1.6, v: 4 + Math.random() * 9, c: app._pptRgb || [80, 80, 80] });
+  }
+  const nS = Math.min(4, acc('_sAcc', boil ? dt * 18 : 0));
+  for (let i = 0; i < nS && app.steam.length < VIEW.steamCap; i++) {
+    app.steam.push({ x: g.cx + (Math.random() - 0.5) * g.w * 0.7, y: app._liquidTop - 2, r: 4 + Math.random() * 7, life: 1, v: 14 + Math.random() * 16 });
+  }
+}
+
+function stepParticles(app, dt) {
+  const g = app._geo; if (!g) return;
+  const surface = app._liquidTop;
+  app.bubbles = app.bubbles.filter((b) => {
+    b.y -= b.v * dt; b.ph += dt * 6;
+    return b.y > surface - 3;
+  });
+  app.ppts = app.ppts.filter((p) => {
+    p.y += p.v * dt;
+    return p.y < g.bot - 2;
+  });
+  app.steam = app.steam.filter((s) => { s.y -= s.v * dt; s.r += dt * 9; s.life -= dt * 0.55; return s.life > 0; });
+}
+
+/* --------------------------------- 渲染 ---------------------------------- */
+function drawBench(ctx, w, h) {
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#10161d'); bg.addColorStop(0.62, '#0d1319'); bg.addColorStop(1, '#1b2833');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(120,180,220,0.10)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, h * 0.86); ctx.lineTo(w, h * 0.86); ctx.stroke();
+  ctx.fillStyle = 'rgba(120,180,220,0.05)'; ctx.fillRect(0, h * 0.86, w, h * 0.14);
+  // 网格纹路
+  ctx.strokeStyle = 'rgba(120,180,220,0.05)';
+  for (let x = 0; x < w; x += 18) { ctx.beginPath(); ctx.moveTo(x, h * 0.86); ctx.lineTo(x, h); ctx.stroke(); }
+}
+
+function drawFlame(ctx, app, g, h) {
+  if (!app.heater || !app.heater.on) return;
+  const t = app.time * 8;
+  const cx = g.cx, base = h * 0.90;
+  const kind = app.heater.id;
+  const flick = 0.85 + 0.15 * Math.sin(t) + 0.08 * Math.sin(t * 2.7);
+  if (kind === 'plate') {
+    const grd = ctx.createRadialGradient(cx, base - 4, 2, cx, base - 4, g.w * 0.8);
+    grd.addColorStop(0, 'rgba(255,90,40,0.55)'); grd.addColorStop(1, 'rgba(255,60,20,0)');
+    ctx.fillStyle = grd; ctx.beginPath(); ctx.ellipse(cx, base - 2, g.w * 0.8, h * 0.05, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = 'rgba(20,20,24,0.9)'; ctx.fillRect(cx - g.w * 0.55, base - 2, g.w * 1.1, 6);
+    return;
+  }
+  const fh = (kind === 'bunsen' ? h * 0.22 : h * 0.15) * flick;
+  const fw = g.w * (kind === 'bunsen' ? 0.34 : 0.42);
+  // 外焰
+  let grd = ctx.createRadialGradient(cx, base - fh * 0.45, 1, cx, base - fh * 0.45, fh * 0.9);
+  grd.addColorStop(0, kind === 'bunsen' ? 'rgba(170,220,255,0.95)' : 'rgba(255,230,150,0.95)');
+  grd.addColorStop(0.5, kind === 'bunsen' ? 'rgba(90,150,255,0.65)' : 'rgba(255,150,40,0.7)');
+  grd.addColorStop(1, 'rgba(255,80,0,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath(); ctx.ellipse(cx, base - fh * 0.45, fw * 0.6, fh * 0.62, 0, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx - fw * 0.35, base); ctx.quadraticCurveTo(cx - fw * 0.15, base - fh * 0.9, cx, base - fh);
+  ctx.quadraticCurveTo(cx + fw * 0.15, base - fh * 0.9, cx + fw * 0.35, base); ctx.closePath();
+  ctx.fillStyle = kind === 'bunsen' ? 'rgba(150,200,255,0.55)' : 'rgba(255,200,90,0.5)'; ctx.fill();
+  // 灯体
+  if (kind === 'lamp') { ctx.fillStyle = '#2a3947'; ctx.fillRect(cx - g.w * 0.26, base, g.w * 0.52, h * 0.07); }
+  else { ctx.fillStyle = '#26333f'; ctx.fillRect(cx - 4, base, 8, h * 0.07); ctx.fillRect(cx - g.w * 0.3, h * 0.97, g.w * 0.6, 4); }
+}
+
+function renderApparatus(canvas, app, dt) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 190, h = canvas.clientHeight || 150;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawBench(ctx, w, h);
+  const g = vesselGeom(app.def.shape, w, h);
+  app._geo = g;
+
+  // 液面高度
+  const fr = Math.max(0, Math.min(1, fillRatio(app)));
+  const innerTop = g.top + (g.bot - g.top) * 0.06;
+  const liquidTop = g.bot - (g.bot - innerTop) * Math.min(1, fr);
+  app._liquidTop = liquidTop;
+  const col = solutionColor(app);
+  app._pptRgb = (app.contents.find((c) => !c.dissolved && c.phase !== 'g' && subOf(c.formula) && subOf(c.formula).solubility === -1) ?
+    hex2rgb(subOf(app.contents.find((c) => !c.dissolved && c.phase !== 'g' && subOf(c.formula) && subOf(c.formula).solubility === -1).formula).color) : [70, 70, 70]);
+
+  spawnParticles(app, dt);
+  stepParticles(app, dt);
+
+  drawFlame(ctx, app, g, h);
+
+  // 玻璃内部
+  ctx.save();
+  ctx.fillStyle = 'rgba(190,225,245,0.06)'; ctx.fill(g.path); ctx.fill();
+  if (waterMol(app) > 1e-9 || app.iceMol > 0) {
+    ctx.save(); ctx.clip(g.path);
+    const lg = ctx.createLinearGradient(0, liquidTop, 0, g.bot);
+    lg.addColorStop(0, rgba(col.rgb, col.alpha * 0.85));
+    lg.addColorStop(1, rgba(col.rgb.map((v) => Math.round(v * 0.82)), col.alpha));
+    ctx.fillStyle = lg;
+    ctx.fillRect(g.x0 - 2, liquidTop, g.w + 4, g.bot - liquidTop + 2);
+    // 水面的弯月面
+    ctx.strokeStyle = rgba([235, 248, 255], 0.55); ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(g.x0, liquidTop); ctx.quadraticCurveTo(g.cx, liquidTop + 3, g.x1, liquidTop); ctx.stroke();
+    ctx.restore();
+  }
+  // 未溶解固体（按量堆积）
+  const solids = app.contents.filter((c) => !c.dissolved && c.phase !== 'g' && c.formula !== 'H2O');
+  if (solids.length) {
+    ctx.save(); ctx.clip(g.path);
+    let pile = 0;
+    solids.forEach((c) => {
+      const s = subOf(c.formula); if (!s) return;
+      const c2 = hex2rgb(s.color);
+      const vol = massOf(c) / Math.max(0.5, subDensity(s) || 2);
+      const hgt = Math.min(h * 0.30, 3 + vol * 0.9);
+      const yy = g.bot - pile;
+      ctx.fillStyle = rgba(c2, 0.95);
+      ctx.beginPath();
+      ctx.moveTo(g.x0 + 1, yy);
+      for (let i = 0; i <= 8; i++) {
+        const x = g.x0 + 1 + (g.w - 2) * (i / 8);
+        const bump = Math.sin(i * 1.7 + c.mol * 3) * (hgt * 0.22);
+        ctx.lineTo(x, yy - hgt * (0.55 + 0.45 * Math.sin((i / 8) * Math.PI)) - bump);
+      }
+      ctx.lineTo(g.x1 - 1, yy); ctx.closePath(); ctx.fill();
+      pile += hgt * 0.28;
+    });
+    ctx.restore();
+  }
+  // 沉淀颗粒
+  app.ppts.forEach((p) => {
+    ctx.fillStyle = rgba(p.c, 0.85);
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill();
+  });
+  // 气泡
+  app.bubbles.forEach((b) => {
+    const wob = Math.sin(b.ph) * 1.4;
+    ctx.strokeStyle = 'rgba(240,252,255,0.75)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(b.x + wob, b.y, b.r, 0, 6.283); ctx.stroke();
+    ctx.fillStyle = 'rgba(220,245,255,0.18)'; ctx.fill();
+  });
+  // 液面上方的蒸汽
+  app.steam.forEach((s) => {
+    ctx.fillStyle = 'rgba(225,240,250,' + (0.30 * s.life) + ')';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill();
+  });
+  // 玻璃高光与轮廓
+  ctx.save(); ctx.clip(g.path);
+  const hl = ctx.createLinearGradient(g.x0, 0, g.x1, 0);
+  hl.addColorStop(0, 'rgba(255,255,255,0.16)'); hl.addColorStop(0.18, 'rgba(255,255,255,0.03)');
+  hl.addColorStop(0.85, 'rgba(255,255,255,0.01)'); hl.addColorStop(1, 'rgba(255,255,255,0.13)');
+  ctx.fillStyle = hl; ctx.fillRect(g.x0 - 4, 0, g.w + 8, h);
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(200,232,248,0.55)'; ctx.lineWidth = 1.6; ctx.stroke(g.path);
+  // 刻度线
+  if (app.def.shape !== 'dish') {
+    ctx.strokeStyle = 'rgba(200,232,248,0.28)'; ctx.lineWidth = 1;
+    for (let i = 1; i <= 4; i++) {
+      const y = g.bot - (g.bot - g.top) * (i / 5);
+      ctx.beginPath(); ctx.moveTo(g.x1 - 6, y); ctx.lineTo(g.x1 - 1, y); ctx.stroke();
+    }
+  }
+  // 反应闪光 / 干烧告警
+  if (app.flash > 0.01) {
+    const grd = ctx.createRadialGradient(g.cx, liquidTop, 1, g.cx, liquidTop, Math.max(g.w, 60));
+    grd.addColorStop(0, 'rgba(255,240,190,' + Math.min(0.75, app.flash) + ')');
+    grd.addColorStop(1, 'rgba(255,150,60,0)');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, w, h);
+  }
+  if (app.flame > 0.5) {
+    ctx.fillStyle = 'rgba(255,200,120,' + Math.min(0.35, app.flame * 0.25) + ')';
+    ctx.beginPath(); ctx.arc(g.cx, liquidTop, Math.max(g.w * 0.7, 40), 0, 6.283); ctx.fill();
+  }
+  if (app.smoke > 0.05) {
+    ctx.fillStyle = 'rgba(235,235,240,' + Math.min(0.5, app.smoke * 0.35) + ')';
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(g.cx + (Math.sin(app.time * 1.4 + i * 2) * g.w * 0.28), h * 0.16 - i * 5, 6 + i * 3, 0, 6.283);
+      ctx.fill();
+    }
+  }
+  if (app.dryWarn) {
+    ctx.strokeStyle = 'rgba(255,90,70,' + (0.35 + 0.25 * Math.sin(app.time * 6)) + ')';
+    ctx.lineWidth = 2.4; ctx.stroke(g.path);
+  }
+  // 高温红热
+  if (app.temp > 700) {
+    const hot = Math.min(0.5, (app.temp - 700) / 900);
+    ctx.save(); ctx.clip(g.path);
+    ctx.fillStyle = 'rgba(255,110,40,' + hot + ')'; ctx.fillRect(g.x0 - 4, g.bot - h * 0.3, g.w + 8, h * 0.3);
+    ctx.restore();
+  }
+}
+
+/** 初始化容器的粒子容器字段 */
+function initViewState(app) {
+  app.bubbles = app.bubbles || []; app.ppts = app.ppts || []; app.steam = app.steam || [];
+}
+
+
+/* ================= 07-app.js ================= */
+/* ============================================================================
+ * 07-app.js —— 界面与主循环：周期表、试剂架、工作台、操作、日志、引导、存档
+ * ==========================================================================*/
+
+const $ = (s) => document.querySelector(s);
+const mk = (tag, cls, html) => { const d = document.createElement(tag); if (cls) d.className = cls; if (html != null) d.innerHTML = html; return d; };
+const K2C = (k) => Math.round((k - 273.15) * 10) / 10;
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+/* ------------------------------- 周期表面板 ------------------------------- */
+function buildPtable() {
+  const g = $('#ptable'); if (!g) return;
+  g.innerHTML = '';
+  ELEMENTS.forEach((e) => {
+    const d = mk('button', 'el', '<b>' + e.sym + '</b><i>' + e.z + '</i>');
+    d.dataset.z = e.z; d.title = e.cn + ' ' + e.sym + '｜' + e.catName;
+    d.style.gridColumn = e.group; d.style.gridRow = e.period <= 7 ? e.period : e.period === 8 ? 9 : 10;
+    d.style.borderColor = e.color; d.style.background = 'color-mix(in srgb, ' + e.color + ' 16%, transparent)';
+    d.addEventListener('click', () => showElement(e));
+    g.appendChild(d);
+  });
+}
+function showElement(e) {
+  const box = $('#elemInfo');
+  box.innerHTML = '<h4>' + e.z + ' 号 · ' + e.cn + ' <span class="sym">' + e.sym + '</span></h4>'
+    + '<div class="kv"><span>类别</span><b>' + e.catName + '</b></div>'
+    + '<div class="kv"><span>原子量</span><b>' + e.mass + ' g/mol</b></div>'
+    + '<div class="kv"><span>密度</span><b>' + (e.density != null ? e.density + (e.st === 'g' ? ' g/L' : ' g/cm³') : '—') + '</b></div>'
+    + '<div class="kv"><span>熔点</span><b>' + (e.mp != null ? e.mp + ' K（' + K2C(e.mp) + '°C）' : '—') + '</b></div>'
+    + '<div class="kv"><span>沸点</span><b>' + (e.bp != null ? e.bp + ' K（' + K2C(e.bp) + '°C）' : '—') + '</b></div>'
+    + '<div class="kv"><span>电负性</span><b>' + (e.en != null ? e.en : '—') + '</b></div>'
+    + '<div class="kv"><span>常见氧化态</span><b>' + e.ox.join(' / ') + '</b></div>'
+    + '<div class="kv"><span>外观</span><b>' + (e.look || '—') + '</b></div>'
+    + (e.hazard.length ? '<div class="hazard">⚠ ' + e.hazard.join('、') + '</div>' : '')
+    + '<button class="primary" id="takeElem">取用 5 g ' + e.cn + '（' + (ELEM_REAGENT.get(e.sym) || e.sym) + '）</button>';
+  $('#takeElem').addEventListener('click', () => askAmount(ELEM_REAGENT.get(e.sym) || e.sym, 5, (v, u) => {
+    const app = selectedApp();
+    if (!app) return toast('先添加一个容器并选中它');
+    const r = addReagent(app.uid, ELEM_REAGENT.get(e.sym) || e.sym, v, u);
+    toast(r.ok ? '已加入 ' + e.cn : r.why);
+  }));
+}
+
+/* -------------------------------- 试剂架 --------------------------------- */
+const CAT_NAME = { acid: '酸', base: '碱', salt: '盐', oxide: '氧化物', element: '单质', organic: '有机物', indicator: '指示剂', solvent: '溶剂' };
+function buildShelf() {
+  const box = $('#shelf'); if (!box) return;
+  const cats = ['acid', 'base', 'salt', 'oxide', 'element', 'organic', 'indicator', 'solvent'];
+  const q = ($('#shelfSearch') || {}).value || '';
+  box.innerHTML = '';
+  cats.forEach((cat) => {
+    const list = SUBSTANCES.filter((s) => s.cat === cat && !s.isElem)
+      .filter((s) => !q || s.name.includes(q) || s.formula.toLowerCase().includes(q.toLowerCase()));
+    if (!list.length) return;
+    const sec = mk('div', 'shelfsec', '<h5>' + CAT_NAME[cat] + '</h5>');
+    const wrap = mk('div', 'chips');
+    list.forEach((s) => {
+      const b = mk('button', 'chip', '<b>' + s.formula + '</b><span>' + s.name + '</span>');
+      b.style.borderColor = 'color-mix(in srgb, ' + s.color + ' 55%, #4a6a80)';
+      b.addEventListener('click', () => {
+        const isLiq = s.st === 'l' || s.st === 'aq' || s.formula === 'H2O';
+        askAmount(s.formula, isLiq ? 50 : 5, (v, u) => {
+          const app = selectedApp();
+          if (!app) return toast('先添加一个容器并选中它');
+          const r = addReagent(app.uid, s.formula, v, u);
+          toast(r.ok ? '已加入 ' + s.name : r.why);
+        }, isLiq ? 'mL' : 'g');
+      });
+      wrap.appendChild(b);
+    });
+    sec.appendChild(wrap); box.appendChild(sec);
+  });
+  // 单质（118 种元素）单独一格
+  const sec = mk('div', 'shelfsec', '<h5>元素单质（' + ELEMENTS.length + ' 种，点周期表取用）</h5>');
+  sec.appendChild(mk('div', 'hint', '周期表里点任一元素 → 取用该单质'));
+  box.appendChild(sec);
+}
+
+/* ------------------------------- 取用量弹窗 ------------------------------- */
+function askAmount(formula, def, cb, unit) {
+  const s = subOf(formula);
+  const isLiq = unit === 'mL' || s.st === 'l' || s.st === 'aq' || formula === 'H2O';
+  const m = $('#modal');
+  m.innerHTML = '<div class="card"><h4>' + s.name + '（' + formula + '）</h4>'
+    + '<div class="kv"><span>摩尔质量</span><b>' + s.M + ' g/mol</b></div>'
+    + '<div class="kv"><span>溶解度</span><b>' + solText(s) + '</b></div>'
+    + (s.dHf ? '<div class="kv"><span>ΔfH°</span><b>' + s.dHf.v + ' kJ/mol' + (s.dHf.est ? '（估算）' : '') + '</b></div>' : '')
+    + '<label>用量 <input id="amtVal" type="number" value="' + def + '" min="0.01" step="0.5"></label>'
+    + '<label>单位 <select id="amtUnit">'
+    + '<option value="g">克 g</option><option value="mL">毫升 mL</option><option value="mol">摩尔 mol</option>'
+    + '</select></label>'
+    + '<div class="row"><button class="primary" id="amtOk">加入 ' + (selectedApp() ? selectedApp().def.name : '（未选容器）') + '</button>'
+    + '<button id="amtCancel">取消</button></div></div>';
+  m.classList.add('show');
+  $('#amtUnit').value = isLiq ? 'mL' : 'g';
+  $('#amtOk').addEventListener('click', () => {
+    const v = Number($('#amtVal').value), u = $('#amtUnit').value;
+    m.classList.remove('show'); cb(v, u);
+  });
+  $('#amtCancel').addEventListener('click', () => m.classList.remove('show'));
+  m.addEventListener('click', (ev) => { if (ev.target === m) m.classList.remove('show'); });
+}
+const solText = (s) => s.solubility === -1 ? '不溶' : s.solubility === -2 ? '微溶' : s.solubility === Infinity ? '互溶' : s.solubility == null ? '—' : s.solubility + ' g/100g 水';
+
+/* ------------------------------- 工作台 --------------------------------- */
+let benchSig = '';
+let taskSig = '';
+function benchSignature() { return Lab.apps.map((a) => a.uid + ':' + a.def.id).join('|'); }
+function renderBench(force) {
+  const sig = benchSignature();
+  if (!force && sig === benchSig) return;
+  benchSig = sig;
+  const bench = $('#bench'); bench.innerHTML = '';
+  if (!Lab.apps.length) { bench.appendChild(mk('div', 'empty', '工作台是空的 —— 上面点一个仪器加进来')); return; }
+  Lab.apps.forEach((app) => {
+    const card = mk('div', 'appcard' + (Lab.selected === app.uid ? ' sel' : ''));
+    card.dataset.uid = app.uid;
+    card.innerHTML = '<div class="apphead"><b>' + app.def.name + '</b><span class="uid">' + app.uid + '</span>'
+      + '<span class="cap">' + app.def.cap + ' mL</span></div>'
+      + '<canvas class="vessel"></canvas>'
+      + '<div class="readouts"></div>'
+      + '<div class="ops">'
+      + '<button data-op="heat">🔥 加热</button><button data-op="ignite">⚡ 点燃</button><button data-op="stir">🌀 搅拌</button>'
+      + '<button data-op="measure">📏 测量</button><button data-op="clear">🧼 倒空</button><button data-op="del">✕ 移除</button>'
+      + '</div><div class="heatrow"></div>';
+    card.addEventListener('click', (ev) => {
+      if (ev.target.closest('button')) return;
+      Lab.selected = app.uid; renderBench(true); updateReadouts();
+    });
+    card.querySelectorAll('.ops button').forEach((b) => b.addEventListener('click', () => opClick(app, b.dataset.op)));
+    bench.appendChild(card);
+    app.canvas = card.querySelector('canvas');
+  });
+  buildHeatRow();
+}
+
+function buildHeatRow() {
+  const app = selectedApp(); if (!app) return;
+  const card = document.querySelector('.appcard[data-uid="' + app.uid + '"]'); if (!card) return;
+  const row = card.querySelector('.heatrow');
+  row.innerHTML = '<span class="lbl">热源</span>';
+  HEATERS.forEach((h) => {
+    const on = app.heater && app.heater.on && app.heater.id === h.id;
+    const b = mk('button', 'hbtn' + (on ? ' on' : ''), h.icon + ' ' + h.name + ' <i>' + h.power + 'W</i>');
+    b.title = '最高温度 ' + K2C(h.flameT) + '°C，传热效率 ' + Math.round((h.eff || 0) * 100) + '%'
+      + (h.needsDirect ? '（需可直火容器，否则垫石棉网）' : '');
+    b.addEventListener('click', () => { setHeater(app.uid, h.id, !on); buildHeatRow(); updateReadouts(); });
+    row.appendChild(b);
+  });
+  const cc = mk('button', 'hbtn' + (app.acidConc === 'conc' ? ' on' : ''), '酸浓度：' + (app.acidConc === 'conc' ? '浓' : '稀'));
+  cc.title = '影响铜与硝酸等反应（浓硝酸放 NO₂，稀硝酸放 NO）';
+  cc.addEventListener('click', () => { app.acidConc = app.acidConc === 'conc' ? 'dil' : 'conc'; buildHeatRow(); });
+  row.appendChild(cc);
+  const flame = mk('button', 'hbtn' + (app.stirrerOn ? ' on' : ''), '🌀 持续搅拌');
+  flame.addEventListener('click', () => { stir(app.uid); buildHeatRow(); });
+  row.appendChild(flame);
+}
+
+function opClick(app, op) {
+  Lab.selected = app.uid;
+  if (op === 'heat') { const h = HEATERS[0]; const on = app.heater && app.heater.on; setHeater(app.uid, h.id, !on); buildHeatRow(); }
+  else if (op === 'ignite') ignite(app.uid);
+  else if (op === 'stir') { stir(app.uid); buildHeatRow(); }
+  else if (op === 'clear') clearApp(app.uid);
+  else if (op === 'del') { Lab.apps.splice(Lab.apps.indexOf(app), 1); if (Lab.selected === app.uid) Lab.selected = null; renderBench(true); }
+  else if (op === 'measure') measure(app);
+  updateReadouts();
+}
+function measure(app) {
+  const parts = [];
+  parts.push('温度计：' + K2C(app.temp) + ' °C（' + round(app.temp, 2) + ' K）');
+  parts.push('天平：' + round(totalMass(app), 3) + ' g');
+  parts.push('量筒：' + round(waterVolume(app) * 1000, 1) + ' mL 溶液');
+  const ph = computePH(app);
+  if (ph != null) parts.push('pH 计：' + round(ph, 2));
+  Lab.log.push({ k: 'measure', at: Lab.time, text: '【测量 ' + app.def.name + '】' + parts.join('｜') });
+}
+
+/* ------------------------------ 读数刷新 --------------------------------- */
+function updateReadouts() {
+  Lab.apps.forEach((app) => {
+    const card = document.querySelector('.appcard[data-uid="' + app.uid + '"]');
+    if (!card) return;
+    card.classList.toggle('sel', Lab.selected === app.uid);
+    const ro = card.querySelector('.readouts');
+    const ph = computePH(app);
+    const liq = app.contents.filter((c) => c.dissolved);
+    const solid = app.contents.filter((c) => !c.dissolved && c.phase !== 'g' && c.formula !== 'H2O');
+    const gas = app.gasBubbles.concat(app.contents.filter((c) => c.dissolved && subOf(c.formula).st === 'g'));
+    const cTxt = (n) => (n >= 0.01 ? round(n, 3) : n.toExponential(1));
+    const html = '<div class="ro"><span>🌡</span><b class="' + (app.temp > 340 ? 'hot' : '') + '">' + K2C(app.temp) + ' °C</b></div>'
+      + '<div class="ro"><span>⚖</span><b>' + round(totalMass(app), 2) + ' g</b></div>'
+      + '<div class="ro"><span>🧪</span><b>' + round(waterVolume(app) * 1000, 1) + ' mL</b>'
+      + (ph != null ? ' · pH <b>' + round(ph, 2) + '</b>' : '') + '</div>'
+      + (liq.filter((c) => c.formula !== 'H2O').length || waterMol(app) > 1e-9
+        ? '<div class="contents"><i>溶液：</i>' + (waterMol(app) > 1e-9 ? '水 ' + round(waterMol(app) * 18.015, 1) + ' g　' : '')
+          + liq.filter((c) => c.formula !== 'H2O').map((c) => esc(c.formula) + ' ' + cTxt(c.mol) + ' mol').join('，') + '</div>' : '')
+      + (solid.length ? '<div class="contents"><i>固体：</i>' + solid.map((c) => esc(c.formula) + ' ' + round(massOf(c), 2) + ' g').join('，') + '</div>' : '')
+      + (gas.length ? '<div class="contents gas"><i>气体：</i>' + gas.map((g) => esc(g.f || g.formula)).join('，') + '</div>' : '')
+      + (app.dryWarn ? '<div class="warn">⚠ 干烧！容器里没有液体了</div>' : '');
+    if (ro._sig !== html) { ro.innerHTML = html; ro._sig = html; }
+    card.querySelectorAll('.ops button').forEach((b) => {
+      if (b.dataset.op === 'stir') b.classList.toggle('on', !!app.stirrerOn);
+      if (b.dataset.op === 'heat') b.classList.toggle('on', !!(app.heater && app.heater.on));
+    });
+  });
+  $('#apparatusCount').textContent = Lab.apps.length + ' / 6';
+}
+
+/* -------------------------------- 日志 --------------------------------- */
+let logShown = 0;
+const ICON = { rxn: '🧪', add: '➕', measure: '📏', warn: '⚠', task: '✅', ignite: '🔥', stir: '🌀', clear: '🧼', pour: '🫗' };
+function flushLog() {
+  const box = $('#log');
+  if (logShown > Lab.log.length) { box.innerHTML = ''; logShown = 0; }
+  for (let i = logShown; i < Lab.log.length; i++) {
+    const e = Lab.log[i];
+    const d = mk('div', 'logrow ' + e.k);
+    d.innerHTML = '<span class="ic">' + (ICON[e.k] || '·') + '</span><span class="tx">' + esc(e.text)
+      + (e.note ? '<br><small>' + esc(e.note) + '</small>' : '') + '</span>';
+    box.appendChild(d);
+  }
+  if (Lab.log.length > logShown) { box.scrollTop = box.scrollHeight; logShown = Lab.log.length; }
+  $('#rxCount').textContent = Lab.discovered.size;
+  $('#rxTotal').textContent = RXNS.length;
+}
+
+/* -------------------------------- 任务 --------------------------------- */
+function renderTasks(force) {
+  const sig = String(Lab.guideOn) + '|' + TASKS.map((t) => (Lab.taskDone[t.id] ? 1 : 0)).join('');
+  if (!force && sig === taskSig) return;
+  taskSig = sig;
+  const box = $('#tasks');
+  box.innerHTML = '<h4>新手引导 ' + (Lab.guideOn ? '' : '<small>（已关闭）</small>') + '</h4>';
+  if (!Lab.guideOn) { box.appendChild(mk('div', 'hint', '引导已关闭：随便玩。想重新打开点右上角「引导」。')); return; }
+  TASKS.forEach((t) => {
+    const done = !!Lab.taskDone[t.id];
+    box.appendChild(mk('div', 'task' + (done ? ' done' : ''), (done ? '✅ ' : '⬜ ') + t.text));
+  });
+  const done = TASKS.filter((t) => Lab.taskDone[t.id]).length;
+  box.appendChild(mk('div', 'hint', '进度 ' + done + ' / ' + TASKS.length + (done === TASKS.length ? '　🎉 全部完成' : '')));
+}
+
+/* -------------------------------- 存档 --------------------------------- */
+const SAVE_KEY = 'chemlab.v01';
+function save() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      guideOn: Lab.guideOn, taskDone: Lab.taskDone, discovered: [...Lab.discovered],
+      apps: Lab.apps.map((a) => ({ def: a.def.id, contents: a.contents.map((c) => ({ f: c.formula, m: c.mol, d: c.dissolved })) })),
+    }));
+  } catch (e) { /* file:// 下 localStorage 可能不可用，静默降级 */ }
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY); if (!raw) return false;
+    const s = JSON.parse(raw);
+    Lab.guideOn = s.guideOn !== false;
+    Lab.taskDone = s.taskDone || {};
+    (s.discovered || []).forEach((k) => Lab.discovered.add(k));
+    (s.apps || []).slice(0, 3).forEach((a) => {
+      const app = addApparatus(a.def); if (!app) return;
+      (a.contents || []).forEach((c) => { if (subOf(c.f)) addContent(app, c.f, c.m, null, c.d); });
+    });
+    return true;
+  } catch (e) { return false; }
+}
+
+/* -------------------------------- 提示 --------------------------------- */
+let toastTimer = null;
+function toast(msg) {
+  const t = $('#toast'); if (!t) return;
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* ------------------------------- 主循环 -------------------------------- */
+let lastT = 0, acc = 0;
+function frame(now) {
+  const dtReal = Math.min(0.05, (now - lastT) / 1000 || 0.016);
+  lastT = now;
+  acc += dtReal;
+  const step = 1 / 60;
+  let guard = 0;
+  while (acc >= step && guard++ < 4) { labStep(step); acc -= step; }
+  Lab.apps.forEach((app) => { initViewState(app); if (app.canvas) renderApparatus(app.canvas, app, dtReal); });
+  renderBench(false);
+  updateReadouts(); flushLog(); renderTasks();
+  if (Lab.dirtySave || (Lab.time % 5) < 0.02) { save(); Lab.dirtySave = false; }
+  requestAnimationFrame(frame);
+}
+
+/* -------------------------------- 启动 --------------------------------- */
+function boot() {
+  buildPtable(); buildShelf();
+  if (!load()) { addApparatus('beaker'); addApparatus('tube'); }
+  Lab.selected = Lab.apps.length ? Lab.apps[0].uid : null;
+  renderBench(true);
+  $('#addApparatus').innerHTML = APPARATUS.map((a) => '<button data-kind="' + a.id + '">' + a.name + '<i>' + a.cap + 'mL</i></button>').join('');
+  $('#addApparatus').addEventListener('click', (ev) => {
+    const k = ev.target.dataset.kind; if (!k) return;
+    const app = addApparatus(k);
+    if (app) { Lab.selected = app.uid; Lab.dirtySave = true; renderBench(true); shim(); }
+    else toast('最多 6 个容器');
+    updateReadouts();
+  });
+  $('#guideToggle').addEventListener('click', () => {
+    Lab.guideOn = !Lab.guideOn; renderTasks(); save();
+    toast(Lab.guideOn ? '引导已打开' : '引导已关闭（纯沙盒）');
+  });
+  $('#resetAll').addEventListener('click', () => {
+    Lab.apps.length = 0; Lab.log.length = 0; Lab.discovered.clear(); Lab.taskDone = {}; logShown = 0;
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
+    addApparatus('beaker'); addApparatus('tube'); renderBench(true); toast('已重置');
+  });
+  $('#shelfSearch').addEventListener('input', buildShelf);
+  Lab.log.push({ k: 'warn', at: 0, text: '欢迎来到元素实验室：左边点元素取单质，右边点试剂加料，中间加热/点燃/搅拌，看现象。' });
+  renderTasks(); updateReadouts();
+  requestAnimationFrame((t) => { lastT = t; frame(t); });
+}
+const shim = () => { };
+document.addEventListener('DOMContentLoaded', boot);
+
+/* ------------------------- 调试/验证 API（探针用） ------------------------ */
+window.CHEM = {
+  Lab, ELEMENTS, ELEM_BY_SYM, SUBSTANCES, SUB, RXNS, RX_WARN, PARSE: parseFormula,
+  ELEM_REAGENT, molarMass, balanceReaction, verifyBalance, matchReactions, computePH, atomTally,
+  addApparatus, addReagent, setHeater, ignite, stir, clearApp, pour, measure, worldStep, labStep,
+  waterMol, waterVolume, totalMass, boilingPoint, heatCapacity, subOf, PHYS, APPARATUS, HEATERS,
+  TASKS, save, load, envOf, rxFound,
+};
+
+</script>
+</body>
+</html>
