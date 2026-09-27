@@ -61,17 +61,44 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 .chip span { font-size: 10px; color: var(--dim); }
 .hint { color: var(--dim); font-size: 11px; }
 
-/* 工作台 */
-#addApparatus { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-#addApparatus button i { color: var(--dim); font-size: 10px; font-style: normal; margin-left: 4px; }
-#bench { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; overflow: auto; }
-.empty { color: var(--dim); padding: 40px; width: 100%; text-align: center; }
-.appcard { width: 216px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; }
+/* 工作台：一大片空地 —— 容器和热源器材都是摆上台面的"实物" */
+.bars { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.barrow { display: flex; align-items: center; gap: 6px; }
+.barlbl { color: var(--dim); font-size: 10.5px; min-width: 82px; }
+.barlbl b { color: var(--txt); }
+#addApparatus, #addTools { display: flex; gap: 5px; flex-wrap: wrap; }
+#addApparatus button i, #addTools button i { color: var(--dim); font-size: 10px; font-style: normal; margin-left: 4px; }
+#addTools button { border-color: #5c4520; background: linear-gradient(180deg, #2a2114, #221a10); }
+#addTools button:hover { border-color: var(--warm); background: #322616; }
+
+#bench { position: relative; flex: 1 1 auto; min-height: 296px; margin-top: 4px; border-radius: 12px;
+  border: 1px solid var(--line); overflow-x: auto; overflow-y: hidden;
+  background: radial-gradient(130% 90% at 50% 0%, #16222d 0%, #0e1720 58%, #0a111a 100%); }
+#bench::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 54px; pointer-events: none;
+  background: linear-gradient(180deg, #1e2c37 0%, #17222c 14%, #121b24 100%);
+  border-top: 2px solid #2b3d4d; box-shadow: inset 0 1px 0 #ffffff10; }
+.empty { position: relative; z-index: 3; color: var(--dim); padding: 96px 30px; text-align: center; }
+
+.appcard, .toolcard { position: absolute; bottom: 0; background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 7px; cursor: pointer; }
+.appcard { width: 168px; z-index: 2; }
+.toolcard { width: 104px; padding: 5px; z-index: 1; background: linear-gradient(180deg, #231b12, #1a140d); border-color: #4a3a22; }
 .appcard.sel { border-color: var(--acc); box-shadow: 0 0 0 1px #4fd1c555, 0 6px 20px #0008; }
-.apphead { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 4px; }
-.apphead .uid, .apphead .cap { color: var(--dim); font-size: 10px; }
-.apphead .uid { margin-left: auto; }
-.vessel { width: 100%; height: 148px; border-radius: 8px; display: block; background: #0a1116; }
+.appcard.onrig { border-color: #ffab4a; box-shadow: 0 0 0 1px #ffab4a44, 0 8px 22px #000a; }
+.toolcard.lit { border-color: #ff8a3d; box-shadow: 0 0 16px #ff7a2a55; }
+.toolcard.over { outline: 2px dashed #ffb35c; outline-offset: 3px; }
+.dragbar { cursor: grab; touch-action: none; }
+.dragging { opacity: .85; z-index: 44 !important; }
+.tutlift { z-index: 45 !important; }
+.apphead, .toolhead { display: flex; align-items: center; gap: 5px; font-size: 12px; margin-bottom: 4px; }
+.toolhead { font-size: 11px; }
+.apphead .uid, .apphead .cap, .toolhead .uid { color: var(--dim); font-size: 10px; }
+.apphead .uid, .toolhead .uid { margin-left: auto; }
+.vessel { width: 100%; height: 110px; border-radius: 8px; display: block; background: #0a1116; }
+.toolcv { width: 100%; height: 92px; display: block; background: transparent; }
+.toolmeta { color: var(--dim); font-size: 9.5px; text-align: center; margin-top: 3px; line-height: 1.25; }
+.toolcard .ops { justify-content: center; }
+.toolcard .ops button { padding: 2px 5px; font-size: 10px; }
 .readouts { margin: 6px 0; font-size: 11px; }
 .ro { display: flex; gap: 6px; align-items: center; }
 .ro b.hot { color: var(--warm); }
@@ -80,8 +107,11 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 .warn { color: var(--bad); font-size: 11px; }
 .ops { display: flex; flex-wrap: wrap; gap: 4px; }
 .ops button { padding: 3px 6px; font-size: 11px; }
-.heatrow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; align-items: center; }
-.heatrow .lbl { color: var(--dim); font-size: 11px; }
+.ops2, .ops3 { margin-top: 4px; }
+.heatrow { display: flex; flex-direction: column; gap: 1px; margin-top: 5px; }
+.heatrow .lbl { color: var(--dim); font-size: 10.5px; }
+.heatrow .lbl.hot { color: #ffb35c; }
+.heatrow i { color: var(--dim); font-size: 10px; font-style: normal; }
 .hbtn { padding: 2px 6px; font-size: 11px; }
 .hbtn i { color: var(--dim); font-style: normal; font-size: 10px; }
 
@@ -215,8 +245,11 @@ body.guiding #bench { scroll-margin-top: 120px; }
     </div>
   </aside>
   <section class="pane" id="center">
-    <h3>工作台</h3>
-    <div id="addApparatus"></div>
+    <h3>工作台<small id="benchTip">一大片空地 —— 容器和热源都是实物，摆上来、拖到位，再动手</small></h3>
+    <div class="bars">
+      <div class="barrow"><span class="barlbl">仪器</span><div id="addApparatus"></div></div>
+      <div class="barrow"><span class="barlbl">器材 <b id="toolCount">0 / 6</b></span><div id="addTools"></div></div>
+    </div>
     <div id="bench"></div>
   </section>
   <aside class="pane" id="right">
@@ -1118,6 +1151,7 @@ function breakVessel(app, why) {
   app.brokenWhy = why;
   app.contents = [];
   app.heater = null;
+  app.standOn = null;                       // 器皿碎了就不再架在灯上（灯还亮着，但没什么可加热了）
   app.elec = false;
   app.ignited = false;
   app.bubbleRate = 0; app.pptRate = 0; app.flash = 0; app.flame = 0; app.smoke = 0;
@@ -1494,6 +1528,44 @@ const HEATERS = [
   { id: 'plate', name: '电热板', power: 600, flameT: 673, eff: 0.72, needsDirect: false, fuel: '电', icon: '🟥' },
 ];
 
+/** 台面摆放：每件实物占一段台面宽度（px）——自动排位与"容器落到灯上"的吸附判定都用它 */
+const ITEM_W = { app: 178, heat: 104 };
+const TOOL_TOP = 112;                                  // 器材卡片高度：容器架上去后，底边抬高这么多
+const BENCH_MIN_W = 520;
+const benchW = () => {
+  const el = (typeof document !== 'undefined') && document.getElementById('bench');
+  return Math.max(BENCH_MIN_W, (el && el.clientWidth) || 700);
+};
+const slotX = (n, w) => 14 + n * w;                   // 自动排位：从左往右摆
+const clampX = (x, w) => Math.max(2, Math.min(benchW() - w - 2, x));
+
+/** 台面排位：一件件往右排（台面够长，排不下就横向滚动）——任何两张卡片都不会互相压住按钮。
+ *  返回 {x, y}（y 现在恒为 0，留着给以后分层用）。 */
+function nextX(w, exceptUid) {
+  let right = 10;
+  Lab.apps.forEach((a) => { if (a.uid !== exceptUid) right = Math.max(right, a.x + ITEM_W.app + 10); });
+  Lab.tools.forEach((t) => { if (t.uid !== exceptUid) right = Math.max(right, t.x + ITEM_W.heat + 10); });
+  return { x: right, y: 0 };
+}
+const findSpot = nextX;
+
+/** 台面重排：把"一件器材 + 架在它上面的容器"当成一摞，按位置从左往右排开 —— 任何两张卡片都不互相压住。
+ *  只在"架上去 / 拿下来 / 收走器材"时跑，玩家自己拖的位置不会被抢走。 */
+function repackBench() {
+  const groups = [];
+  Lab.tools.forEach((t) => {
+    const on = Lab.apps.filter((a) => a.standOn === t.uid);
+    groups.push({ x: t.x, items: [t].concat(on), w: Math.max.apply(null, [ITEM_W.heat].concat(on.map(() => ITEM_W.app))) });
+  });
+  Lab.apps.filter((a) => !standOf(a)).forEach((a) => groups.push({ x: a.x, items: [a], w: ITEM_W.app }));
+  groups.sort((p, q) => p.x - q.x);
+  let x = 10;
+  groups.forEach((g) => {
+    g.items.forEach((it) => { it.x = x; });
+    x += g.w + 10;
+  });
+}
+
 /** 催化剂（不消耗，只开门） */
 const CATALYSTS = new Set(['MnO2', 'Fe', 'V2O5']);
 
@@ -1501,19 +1573,24 @@ const AMOUNT_DEFAULT = { g: 5, mL: 50 };   // 默认取用量
 
 /* ------------------------------- 世界状态 -------------------------------- */
 const Lab = {
-  apps: [], seq: 1, log: [], selected: null, discovered: new Set(),
+  apps: [], tools: [], seq: 1, toolSeq: 1, zSeq: 1, log: [], selected: null, discovered: new Set(),
   tasks: [], taskDone: {}, guideOn: true, totalRx: 0,
   time: 0, lastMsg: '',
   pourCount: 0, filterCount: 0, gasFeedCount: 0, elecCount: 0,   // 操作计数（教程判定用：只认本实验里发生的操作）
 };
 
-function addApparatus(kindId) {
-  const def = APPARATUS.find((a) => a.id === kindId);
+function addApparatus(kindId, x) {
+  const def = (kindId && kindId.id) ? kindId : APPARATUS.find((a) => a.id === kindId);
   if (!def) return null;
   if (Lab.apps.length >= 6) return null;            // 到上限就拒绝，绝不静默挤掉别人的容器
   const app = makeApparatus(def);
   app.uid = 'A' + (Lab.seq++);
+  if (x == null) { const sp = nextX(ITEM_W.app); app.x = sp.x; app.y = sp.y; }         // 台面上的位置（px）
+  else { app.x = clampX(x, ITEM_W.app); app.y = 0; }
+  app.z = ++Lab.zSeq;                                                                // 后摆上来的在前面（台面挤了也不会点不到）
+  app.standOn = null;                                                              // 架在哪件器材上（没架 = null）
   Lab.apps.push(app);
+  Lab.scrollEnd = true;                                                              // 让刚摆上来的卡片滚进视野
   if (!Lab.selected) Lab.selected = app.uid;
   return app;
 }
@@ -1582,16 +1659,114 @@ function fmtAmount(s, value, unit) {
 const round = (v, n = 2) => { const p = Math.pow(10, n); return Math.round(v * p) / p; };
 
 /* --------------------------------- 操作 ---------------------------------- */
+/* ------------------ 工作台实物：器材（热源）与摆放关系 --------------------- */
+/** 器材是"实物"：要加热，得先摆一盏灯（addTool）、把容器架上去（placeOn）、再点着（lightTool）。
+ *  热量只在"容器确实架在这件器材上 + 这件器材确实点着"时才进入系统 —— 每步都按实物关系重算，
+ *  所以挪走、熄灭、撤器材都会立刻停止加热。 */
+function addTool(hid, x) {
+  const def = (hid && hid.id) ? hid : HEATERS.find((h) => h.id === hid);
+  if (!def) return null;
+  if (Lab.tools.length >= 6) { pushMsg('台面上的器材已经够多了（最多 6 件）'); return null; }
+  const t = {
+    uid: 'T' + (Lab.toolSeq++), kind: 'heat', hid: def.id, def: def, on: false,
+    x: 0, y: 0,
+    z: ++Lab.zSeq,                                  // 后摆上来的在前面
+    flame: 0, t: 0, canvas: null,
+  };
+  if (x == null) { const sp = nextX(ITEM_W.heat); t.x = sp.x; t.y = sp.y; }
+  else { t.x = clampX(x, ITEM_W.heat); t.y = 0; }
+  Lab.tools.push(t);
+  Lab.scrollEnd = true;
+  Lab.log.push({ k: 'add', at: Lab.time, text: '在工作台上摆了 ' + def.name + '（' + def.fuel + '，' + def.power + 'W，最高约 ' + K2C(def.flameT) + '°C）' });
+  return t;
+}
+const toolByUid = (uid) => Lab.tools.find((t) => t.uid === uid) || null;
+/** 容器现在架在哪件器材上（没架东西 = null） */
+const standOf = (app) => ((app && app.standOn) ? toolByUid(app.standOn) : null);
+/** 有没有别的容器已经占着这件器材 */
+const occupantOf = (tool, except) => Lab.apps.find((a) => a !== except && a.standOn === tool.uid) || null;
+const litTools = () => Lab.tools.filter((t) => t.on);
+
+function lightTool(uid, on) {
+  const t = toolByUid(uid); if (!t) return { ok: false, why: '台面上没有这件器材' };
+  t.on = !!on;
+  if (on) t.flame = Math.max(t.flame, 0.75);
+  Lab.log.push({ k: 'ignite', at: Lab.time, text: (on ? '点燃 ' : '熄灭 ') + t.def.name + '（' + t.def.fuel + '）' });
+  if (on) {
+    const above = Lab.apps.filter((a) => a.standOn === t.uid);
+    pushMsg('点燃 ' + t.def.name + '：火焰最高约 ' + K2C(t.def.flameT) + '°C，'
+      + (above.length ? '正在加热 ' + above.map((a) => a.def.name + ' ' + a.uid).join('、') : '上面还空着 —— 把容器拖到它上面'));
+  } else pushMsg('熄灭 ' + t.def.name);
+  syncHeaters();
+  return { ok: true, tool: t };
+}
+
+/** 把容器架到某件器材上（toolUid 传 null = 拿回台面） */
+function placeOn(appUid, toolUid) {
+  const app = appByUid(appUid); if (!app) return { ok: false, why: '没有这个容器' };
+  if (app.broken) return { ok: false, why: app.def.name + ' 已经炸裂了' };
+  if (!toolUid) { app.standOn = null; repackBench(); syncHeaters(); return { ok: true }; }
+  const t = toolByUid(toolUid); if (!t) return { ok: false, why: '台面上没有这件器材' };
+  const other = occupantOf(t, app);
+  if (other) return { ok: false, why: t.def.name + ' 上已经架着 ' + other.def.name + ' ' + other.uid + ' 了' };
+  app.standOn = t.uid; app.x = t.x; app.y = t.y || 0;
+  app.z = Math.max(app.z || 0, (t.z || 0) + 1);        // 架上去的容器画在器材上面（但别挡住器材的按钮区）
+  repackBench();                                       // 重排一次，别让两张卡片压住对方的按钮
+  Lab.log.push({ k: 'place', at: Lab.time, text: '把 ' + app.def.name + ' ' + app.uid + ' 架到 ' + t.def.name + ' ' + t.uid + ' 上' });
+  syncHeaters();
+  return { ok: true, tool: t };
+}
+
+function delTool(uid) {
+  const i = Lab.tools.findIndex((t) => t.uid === uid); if (i < 0) return;
+  const t = Lab.tools[i];
+  Lab.apps.forEach((a) => { if (a.standOn === t.uid) a.standOn = null; });   // 器材撤走 → 容器落回台面
+  Lab.tools.splice(i, 1);
+  repackBench();
+  Lab.log.push({ k: 'clear', at: Lab.time, text: '收走 ' + t.def.name });
+  syncHeaters();
+}
+
+function removeApp(uid) {
+  const i = Lab.apps.findIndex((a) => a.uid === uid); if (i < 0) return;
+  Lab.apps.splice(i, 1);
+  if (Lab.selected === uid) Lab.selected = Lab.apps.length ? Lab.apps[0].uid : null;
+  syncHeaters();
+}
+
+/** 把"实物关系"翻译成物理引擎认的 app.heater（每步同步一次，所以挪走/熄灭立刻生效） */
+function syncHeaters() {
+  Lab.apps.forEach((app) => {
+    if (app.broken) { app.heater = null; return; }         // 碎了的器皿不再受热
+    const t = standOf(app);
+    if (!t) { app.heater = null; return; }
+    const h = Object.assign({}, t.def, { on: !!t.on });
+    if (h.needsDirect && !app.def.direct) {                 // 烧杯这类不能直火，得垫石棉网
+      h.eff *= 0.5;
+      if (t.on && !app._meshWarned) {
+        app._meshWarned = true;
+        pushMsg(app.def.name + ' 不能直接放在明火上，须垫石棉网：受热不均，传热效率下降，可能炸裂');
+      }
+    }
+    app.heater = h;
+  });
+  return Lab.apps;
+}
+
+/** 脚本 API（老接口，教程/测试用）：等价于"摆一件器材 → 架上去 → 点着"三步。
+ *  手玩时请直接用台面上的「放一个」按钮、拖拽、器材卡片上的「点燃」。 */
 function setHeater(uid, heaterId, on) {
-  const app = appByUid(uid); if (!app) return;
-  if (app.broken) { pushMsg(app.def.name + ' 已经炸裂了，不能再加热'); return; }
-  if (!on) { if (app.heater) app.heater.on = false; app.heater = null; return; }
-  const h = HEATERS.find((x) => x.id === heaterId); if (!h) return;
-  app.heater = { ...h, on: true };
-  if (h.needsDirect && !app.def.direct) {
-    app.heater.eff *= 0.5;
-    pushMsg(app.def.name + ' 不能直接放在明火上，须垫石棉网：受热不均，传热效率下降，可能炸裂');
-  }
+  const app = appByUid(uid); if (!app) return { ok: false, why: '没有这个容器' };
+  if (app.broken) { pushMsg(app.def.name + ' 已经炸裂了，不能再加热'); return { ok: false, why: '已炸裂' }; }
+  if (!on) { const t = standOf(app); if (t) lightTool(t.uid, false); app.heater = null; return { ok: true, off: true }; }
+  const h = HEATERS.find((x) => x.id === heaterId); if (!h) return { ok: false, why: '没有这种热源' };
+  let t = standOf(app);
+  if (!t || t.hid !== h.id) t = Lab.tools.find((x) => x.hid === h.id && !occupantOf(x)) || addTool(h.id, app.x);
+  if (!t) return { ok: false, why: '台面摆不下器材了' };
+  const r = placeOn(app.uid, t.uid); if (!r.ok) return r;
+  lightTool(t.uid, true);
+  syncHeaters();
+  return { ok: true, tool: t };
 }
 function ignite(uid) {
   const app = appByUid(uid); if (!app) return;
@@ -1742,6 +1917,8 @@ function refreshTasks() {
 function labStep(dt) {
   const envs = [];
   Lab.time += dt;
+  syncHeaters();                                    // 先把"谁架在什么器材上、点着没有"翻译成热源，再跑物理
+  Lab.tools.forEach((t) => { t.t = (t.t || 0) + dt; t.flame = Math.max(0, (t.flame || 0) - dt * 0.8); });
   Lab.apps.forEach((app) => {
     // 反应产物气泡/蒸汽速率自然衰减（缓慢衰减：气泡要飘一会儿才散）
     app.bubbleRate = Math.max(0, app.bubbleRate - dt * 6);
@@ -2116,6 +2293,100 @@ function initViewState(app) {
   app.bubbles = app.bubbles || []; app.ppts = app.ppts || []; app.steam = app.steam || [];
 }
 
+/* ============================ 器材（热源）绘制 ============================= */
+/** 画一件热源器材。点着时火焰顶到画布上沿 —— 正好接住架在它上面的容器底部。 */
+function flame(ctx, cx, baseY, hh, ww, inner, outer) {
+  const grd = ctx.createRadialGradient(cx, baseY - hh * 0.35, 1, cx, baseY - hh * 0.3, Math.max(6, hh * 0.85));
+  grd.addColorStop(0, 'rgba(' + inner.join(',') + ',0.96)');
+  grd.addColorStop(0.45, 'rgba(' + outer.join(',') + ',0.85)');
+  grd.addColorStop(1, 'rgba(' + outer.join(',') + ',0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.moveTo(cx - ww / 2, baseY);
+  ctx.quadraticCurveTo(cx - ww * 0.64, baseY - hh * 0.55, cx, baseY - hh);
+  ctx.quadraticCurveTo(cx + ww * 0.64, baseY - hh * 0.55, cx + ww / 2, baseY);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,253,225,0.75)';
+  ctx.beginPath();
+  ctx.moveTo(cx - ww * 0.22, baseY);
+  ctx.quadraticCurveTo(cx - ww * 0.30, baseY - hh * 0.42, cx, baseY - hh * 0.64);
+  ctx.quadraticCurveTo(cx + ww * 0.30, baseY - hh * 0.42, cx + ww * 0.22, baseY);
+  ctx.closePath(); ctx.fill();
+}
+
+function renderTool(canvas, tool, dt) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 104, h = canvas.clientHeight || TOOL_TOP;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const cx = w / 2, baseY = h - 5;
+  const on = !!tool.on;
+  tool.t = (tool.t || 0) + dt;
+  const flick = 0.88 + 0.12 * Math.sin(tool.t * 9.3) + 0.06 * Math.sin(tool.t * 21.7);
+  // 台面上的影子
+  ctx.fillStyle = 'rgba(0,0,0,0.34)';
+  ctx.beginPath(); ctx.ellipse(cx, baseY + 2, w * 0.36, 4.5, 0, 0, 6.283); ctx.fill();
+
+  if (tool.hid === 'lamp') {
+    const bh = h * 0.46, bw = w * 0.58, tw = w * 0.28;
+    ctx.beginPath();                                     // 玻璃灯体
+    ctx.moveTo(cx - bw / 2, baseY);
+    ctx.lineTo(cx + bw / 2, baseY);
+    ctx.lineTo(cx + tw / 2, baseY - bh);
+    ctx.lineTo(cx - tw / 2, baseY - bh);
+    ctx.closePath();
+    const lg = ctx.createLinearGradient(cx - bw / 2, 0, cx + bw / 2, 0);
+    lg.addColorStop(0, 'rgba(190,225,245,0.32)'); lg.addColorStop(0.45, 'rgba(225,242,252,0.10)');
+    lg.addColorStop(1, 'rgba(170,210,235,0.28)');
+    ctx.fillStyle = lg; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = 'rgba(150,215,235,0.28)';            // 乙醇（约半瓶）
+    ctx.fillRect(cx - bw / 2, baseY - bh * 0.52, bw, bh * 0.52);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(200,232,248,0.62)'; ctx.lineWidth = 1.3; ctx.stroke();
+    ctx.fillStyle = '#8b939c';                           // 灯芯座
+    ctx.fillRect(cx - tw / 2 - 2, baseY - bh - 7, tw + 4, 8);
+    ctx.strokeStyle = '#cdbb9c'; ctx.lineWidth = 2.2;    // 灯芯
+    ctx.beginPath(); ctx.moveTo(cx, baseY - bh - 6); ctx.lineTo(cx, baseY - bh - 13); ctx.stroke();
+    if (on) flame(ctx, cx, baseY - bh - 11, h * 0.62 * flick, w * 0.24, [255, 235, 170], [255, 150, 40]);
+  } else if (tool.hid === 'bunsen') {
+    ctx.fillStyle = '#6f7883';                           // 底座
+    ctx.beginPath(); ctx.ellipse(cx, baseY - 3, w * 0.34, 7, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#7d8791';
+    ctx.fillRect(cx - w * 0.30, baseY - 5, w * 0.60, 6);
+    const th = h * 0.44, tw2 = w * 0.17;
+    const tg = ctx.createLinearGradient(cx - tw2, 0, cx + tw2, 0);
+    tg.addColorStop(0, '#5c646d'); tg.addColorStop(0.35, '#9aa4ad'); tg.addColorStop(1, '#5c646d');
+    ctx.fillStyle = tg; ctx.fillRect(cx - tw2 / 2, baseY - 5 - th, tw2, th);
+    ctx.fillStyle = '#3a424a';                           // 进气孔
+    for (let i = 0; i < 3; i++) ctx.fillRect(cx - tw2 / 2 - 1, baseY - 5 - th + 8 + i * 6, tw2 + 2, 2.4);
+    if (on) {
+      flame(ctx, cx, baseY - 5 - th + 1, h * 0.66 * flick, w * 0.20, [235, 246, 255], [90, 150, 255]);
+      ctx.fillStyle = 'rgba(255,180,90,0.35)';
+      ctx.beginPath(); ctx.arc(cx, baseY - 5 - th - 2, 3.6, 0, 6.283); ctx.fill();
+    }
+  } else {                                               // 电热板
+    const pw = w * 0.78, ph = h * 0.17, py = baseY - ph - 6;
+    ctx.fillStyle = '#2f3841';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(cx - pw / 2, py, pw, ph, 3) : ctx.rect(cx - pw / 2, py, pw, ph); ctx.fill();
+    ctx.fillStyle = on ? 'rgba(255,90,40,' + (0.55 + 0.25 * flick) + ')' : '#20272e';
+    ctx.beginPath(); ctx.ellipse(cx, py + ph / 2, pw * 0.40, ph * 0.42, 0, 0, 6.283); ctx.fill();
+    if (on) {
+      ctx.strokeStyle = 'rgba(255,190,110,0.75)'; ctx.lineWidth = 1;
+      for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(cx + i * pw * 0.13, py + 2); ctx.lineTo(cx + i * pw * 0.13, py + ph - 2); ctx.stroke(); }
+    }
+    ctx.fillStyle = '#4a555f';                           // 支柱 + 底座
+    ctx.fillRect(cx - w * 0.06, py + ph, w * 0.12, baseY - py - ph - 4);
+    ctx.fillRect(cx - w * 0.30, baseY - 4, w * 0.60, 5);
+    ctx.fillStyle = on ? '#ff6a3d' : '#3b444d';          // 指示灯
+    ctx.beginPath(); ctx.arc(cx + w * 0.26, baseY - 8, 2.6, 0, 6.283); ctx.fill();
+  }
+}
+
 
 /* ================= 07-app.js ================= */
 /* ============================================================================
@@ -2226,69 +2497,206 @@ const solText = (s) => s.solubility === -1 ? '不溶' : s.solubility === -2 ? '�
 /* ------------------------------- 工作台 --------------------------------- */
 let benchSig = '';
 let taskSig = '';
-function benchSignature() { return Lab.apps.map((a) => a.uid + ':' + a.def.id).join('|'); }
+function benchSignature() {
+  return Lab.apps.map((a) => a.uid + ':' + a.def.id + '@' + Math.round(a.x) + ',' + Math.round(a.y || 0) + '/' + (a.standOn || '-')
+    + (Lab.selected === a.uid ? '*' : '') + (a.broken ? 'B' : '') + (a.acidConc === 'conc' ? 'C' : '')).join('|')
+    + '#' + Lab.tools.map((t) => t.uid + ':' + t.hid + '@' + Math.round(t.x) + '/' + Math.round(t.y || 0) + (t.on ? '!' : '')).join('|');
+}
+const benchEl = () => document.getElementById('bench');
+const itemPos = (x, w) => Math.max(2, x);            // 台面够长：不压缩位置，超出就横向滚动
+
 function renderBench(force) {
   const sig = benchSignature();
   if (!force && sig === benchSig) return;
   benchSig = sig;
-  const bench = $('#bench'); bench.innerHTML = '';
-  if (!Lab.apps.length) { bench.appendChild(mk('div', 'empty', '工作台是空的 —— 上面点一个仪器加进来')); return; }
-  Lab.apps.forEach((app) => {
-    const card = mk('div', 'appcard' + (Lab.selected === app.uid ? ' sel' : ''));
-    card.dataset.uid = app.uid;
-    card.innerHTML = '<div class="apphead"><b>' + app.def.name + '</b><span class="uid">' + app.uid + '</span>'
-      + '<span class="cap">' + app.def.cap + ' mL</span></div>'
-      + '<canvas class="vessel"></canvas>'
-      + '<div class="readouts"></div>'
-      + '<div class="ops">'
-      + '<button data-op="heat">🔥 加热</button><button data-op="ignite">⚡ 点燃</button><button data-op="stir">🌀 搅拌</button>'
-      + '<button data-op="measure">📏 测量</button><button data-op="clear">🧼 倒空</button><button data-op="del">✕ 移除</button>'
-      + '</div><div class="ops ops2">'
-      + '<button data-op="pour">🫗 倾倒</button><button data-op="filter">🧻 过滤</button>'
-      + '<button data-op="gas">💨 导气</button><button data-op="power"' + (app.elec ? ' class="on"' : '') + '>⚡ 通电</button>'
-      + '</div><div class="heatrow"></div>';
-    card.addEventListener('click', (ev) => {
-      if (ev.target.closest('button')) return;
-      Lab.selected = app.uid; renderBench(true); updateReadouts();
-    });
-    card.querySelectorAll('.ops button').forEach((b) => b.addEventListener('click', () => opClick(app, b.dataset.op)));
-    bench.appendChild(card);
-    app.canvas = card.querySelector('canvas');
-  });
-  buildHeatRow();
+  const bench = benchEl(); bench.innerHTML = '';
+  if (!Lab.apps.length && !Lab.tools.length) {
+    bench.appendChild(mk('div', 'empty', '这是一大片空地 —— 上面点「放一个」把容器和酒精灯摆上台面'));
+    return;
+  }
+  assignZ();
+  Lab.tools.forEach((t) => { bench.appendChild(mkToolCard(t)); });     // 器材在下层，容器在上层
+  Lab.apps.forEach((app) => { bench.appendChild(mkAppCard(app)); });
+  if (Lab.scrollEnd) { Lab.scrollEnd = false; ensureVisible(); }   // 只有"刚摆上来"才滚到新卡片，别跟引导抢滚动
+  updateHeatStatus();
 }
 
-function buildHeatRow() {
-  const app = selectedApp(); if (!app) return;
-  const card = document.querySelector('.appcard[data-uid="' + app.uid + '"]'); if (!card) return;
-  const row = card.querySelector('.heatrow');
-  row.innerHTML = '<span class="lbl">热源</span>';
-  HEATERS.forEach((h) => {
-    const on = app.heater && app.heater.on && app.heater.id === h.id;
-    const b = mk('button', 'hbtn' + (on ? ' on' : ''), h.icon + ' ' + h.name + ' <i>' + h.power + 'W</i>');
-    b.dataset.heater = h.id;                      // 手把手引导：定位"该点哪个热源"
-    b.title = '最高温度 ' + K2C(h.flameT) + '°C，传热效率 ' + Math.round((h.eff || 0) * 100) + '%'
-      + (h.needsDirect ? '（需可直火容器，否则垫石棉网）' : '');
-    b.addEventListener('click', () => { setHeater(app.uid, h.id, !on); buildHeatRow(); updateReadouts(); });
-    row.appendChild(b);
+/** 台面比窗口宽时，把最右边（刚摆的）那张卡片滚进视野 */
+function ensureVisible() {
+  const bench = benchEl(); if (!bench) return;
+  let right = 0;
+  Lab.tools.concat(Lab.apps).forEach((it) => { right = Math.max(right, it.x + (it.kind === 'heat' ? ITEM_W.heat : ITEM_W.app)); });
+  if (right > bench.scrollLeft + bench.clientWidth - 8) bench.scrollLeft = right - bench.clientWidth + 16;
+}
+
+/** 台面层级：按"摆放先后"排成 10..21（永远压在弹窗 50 / 引导 55 / 教程 60 之下） */
+function assignZ() {
+  Lab.tools.concat(Lab.apps).sort((a, b) => (a.z || 0) - (b.z || 0)).forEach((it, i) => { it._zi = 10 + i; });
+}
+
+/** 容器卡片：底边 = 台面；架在器材上时抬高到器材顶 */
+function mkAppCard(app) {
+  const t = standOf(app);
+  const card = mk('div', 'appcard' + (Lab.selected === app.uid ? ' sel' : '') + (app.broken ? ' broken' : '') + (t ? ' onrig' : ''));
+  card.dataset.uid = app.uid;
+  card.style.left = itemPos(app.x, ITEM_W.app) + 'px';
+  card.style.bottom = ((t ? TOOL_TOP - 4 : 0) + (app.y || 0)) + 'px';
+  card.style.zIndex = String(app._zi || 12);
+  card.innerHTML = '<div class="apphead dragbar" title="按住这里可拖动；拖到酒精灯上面就架上去"><b>' + app.def.name + '</b><span class="uid">' + app.uid + '</span>'
+    + '<span class="cap">' + app.def.cap + ' mL</span></div>'
+    + '<canvas class="vessel"></canvas>'
+    + '<div class="readouts"></div>'
+    + '<div class="ops">'
+    + '<button data-op="ignite">🔥 点燃</button><button data-op="stir">🌀 搅拌</button>'
+    + '<button data-op="measure">📏 测量</button><button data-op="clear">🧼 倒空</button><button data-op="del">✕ 移除</button>'
+    + '</div><div class="ops ops2">'
+    + '<button data-op="pour">🫗 倾倒</button><button data-op="filter">🧻 过滤</button>'
+    + '<button data-op="gas">💨 导气</button><button data-op="power"' + (app.elec ? ' class="on"' : '') + '>⚡ 通电</button>'
+    + '</div><div class="ops ops3">'
+    + '<button data-op="conc"' + (app.acidConc === 'conc' ? ' class="on"' : '') + '>🧪 酸浓度：' + (app.acidConc === 'conc' ? '浓' : '稀') + '</button>'
+    + (t ? '<button data-op="unmount">⬇ 放回台面</button>' : '')
+    + '</div><div class="heatrow"></div>';
+  card.addEventListener('click', (ev) => {
+    if (ev.target.closest('button')) return;
+    Lab.selected = app.uid; renderBench(true); updateReadouts();
   });
-  const cc = mk('button', 'hbtn' + (app.acidConc === 'conc' ? ' on' : ''), '酸浓度：' + (app.acidConc === 'conc' ? '浓' : '稀'));
-  cc.title = '影响铜与硝酸等反应（浓硝酸放 NO₂，稀硝酸放 NO）';
-  cc.addEventListener('click', () => { app.acidConc = app.acidConc === 'conc' ? 'dil' : 'conc'; buildHeatRow(); });
-  row.appendChild(cc);
-  const flame = mk('button', 'hbtn' + (app.stirrerOn ? ' on' : ''), '🌀 持续搅拌');
-  flame.addEventListener('click', () => { stir(app.uid); buildHeatRow(); });
-  row.appendChild(flame);
+  card.querySelectorAll('.ops button').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); opClick(app, b.dataset.op); }));
+  attachDrag(card, app, 'app');
+  app.canvas = card.querySelector('canvas');
+  return card;
+}
+
+/** 器材卡片：一件实物（酒精灯/本生灯/电热板），自己有点燃开关 */
+function mkToolCard(t) {
+  const card = mk('div', 'toolcard' + (t.on ? ' lit' : ''));
+  card.dataset.uid = t.uid; card.dataset.hid = t.hid;
+  card.style.left = itemPos(t.x, ITEM_W.heat) + 'px';
+  card.style.bottom = (t.y || 0) + 'px';
+  card.style.zIndex = String(t._zi || 11);
+  card.innerHTML = '<div class="toolhead dragbar" title="按住这里拖动这件器材"><b>' + t.def.icon + ' ' + t.def.name + '</b><span class="uid">' + t.uid + '</span></div>'
+    + '<canvas class="toolcv"></canvas>'
+    + '<div class="ops"><button data-op="light"' + (t.on ? ' class="on"' : '') + '>' + (t.on ? '💨 熄灭' : '🔥 点燃') + '</button>'
+    + '<button data-op="mount">⬆ 架上来</button>'
+    + '<button data-op="deltool">✕ 收走</button></div>'
+    + '<div class="toolmeta">' + t.def.icon + ' ' + t.def.name + ' · ' + t.def.power + 'W · 最高 ' + K2C(t.def.flameT) + '°C · ' + t.def.fuel + '</div>';
+  card.querySelectorAll('.ops button').forEach((b) => b.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (b.dataset.op === 'light') { lightTool(t.uid, !t.on); renderBench(true); updateReadouts(); }
+    else if (b.dataset.op === 'mount') {
+      const app = mountTarget(t);
+      if (!app) { toast('台面上没有可以架上去的容器（都架着了？先加一个仪器）'); return; }
+      const r = placeOn(app.uid, t.uid);
+      if (r.ok) { Lab.selected = app.uid; toast('把 ' + app.def.name + ' 架到 ' + t.def.name + ' 上了' + (t.on ? '，正在加热' : '，记得点着它')); }
+      else toast(r.why);
+      renderBench(true); updateReadouts();
+    }
+    else { delTool(t.uid); renderBench(true); updateReadouts(); }
+  }));
+  card.addEventListener('click', (ev) => {
+    if (ev.target.closest('button')) return;
+    const a = occupantOf(t); if (a) { Lab.selected = a.uid; renderBench(true); updateReadouts(); }
+  });
+  attachDrag(card, t, 'heat');
+  t.canvas = card.querySelector('canvas');
+  return card;
+}
+
+/* ------------------------------ 拖拽摆放 -------------------------------- */
+function attachDrag(card, item, kind) {
+  const bar = card.querySelector('.dragbar'); if (!bar) return;
+  bar.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const bench = benchEl();
+    const bw = Math.max(160, bench.clientWidth);
+    const w = kind === 'heat' ? ITEM_W.heat : ITEM_W.app;
+    const startX = ev.clientX, origX = item.x;
+    let moved = false;
+    bar.setPointerCapture(ev.pointerId);
+    card.classList.add('dragging');
+    const move = (e) => {
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 2) moved = true;
+      item.x = Math.max(2, Math.min(bw - w - 2, origX + dx));
+      card.style.left = item.x + 'px';
+      if (kind === 'app') {
+        const near = nearestTool(item);
+        document.querySelectorAll('.toolcard').forEach((c) => c.classList.toggle('over', !!near && c.dataset.uid === near.uid));
+      }
+    };
+    const up = () => {
+      bar.removeEventListener('pointermove', move);
+      bar.removeEventListener('pointerup', up);
+      card.classList.remove('dragging');
+      document.querySelectorAll('.toolcard.over').forEach((c) => c.classList.remove('over'));
+      if (!moved) {                                  // 只是点了一下 = 选中
+        if (kind === 'app') Lab.selected = item.uid;
+        else { const a = occupantOf(item); if (a) Lab.selected = a.uid; }
+        renderBench(true); updateReadouts(); return;
+      }
+      if (kind === 'app') dropApp(item); else dropTool(item);
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up);
+  });
+}
+
+/** 离这个容器最近的、还没被占用的器材（横向距离够近就算"放上去"） */
+function nearestTool(app) {
+  const maxD = 78; let best = null, bd = 1e9;
+  Lab.tools.forEach((t) => {
+    const d = Math.abs((t.x + ITEM_W.heat / 2) - (app.x + ITEM_W.app / 2));
+    if (d < maxD && d < bd && !occupantOf(t, app)) { bd = d; best = t; }
+  });
+  return best;
+}
+function dropApp(app) {
+  const t = nearestTool(app);
+  if (t) {
+    const r = placeOn(app.uid, t.uid);
+    if (r.ok) toast('把 ' + app.def.name + ' 架到 ' + t.def.name + ' 上了' + (t.on ? '，正在加热' : '，记得点着它'));
+    else toast(r.why);
+  } else if (app.standOn) { placeOn(app.uid, null); toast(app.def.name + ' 放回台面'); }
+  else Lab.log.push({ k: 'place', at: Lab.time, text: '把 ' + app.def.name + ' ' + app.uid + ' 挪到台面另一处' });
+  renderBench(true); updateReadouts();
+}
+function dropTool(t) {
+  Lab.apps.forEach((a) => { if (a.standOn === t.uid) a.x = t.x; });     // 架在它上面的容器跟着走
+  renderBench(true); updateReadouts();
+}
+
+/** 点器材上「⬆ 架上来」时，架谁上去：优先当前选中的容器，否则挑第一个空着的 */
+function mountTarget(t) {
+  const free = (a) => a && !a.broken && (!a.standOn || a.standOn === t.uid) && !occupantOf(t, a);
+  const sel = selectedApp();
+  if (free(sel)) return sel;
+  return Lab.apps.find((a) => free(a)) || null;
+}
+
+/** 卡片底部那行"现在被什么加热"的状态 */
+function updateHeatStatus() {
+  Lab.apps.forEach((app) => {
+    const card = document.querySelector('.appcard[data-uid="' + app.uid + '"]'); if (!card) return;
+    const row = card.querySelector('.heatrow'); if (!row) return;
+    const t = standOf(app);
+    const txt = !t
+      ? '<span class="lbl">未加热</span><i>把酒精灯等器材拖到它下面就能加热</i>'
+      : (t.on
+        ? '<span class="lbl hot">' + t.def.icon + ' 正在用 ' + t.def.name + ' 加热</span><i>' + t.def.power + 'W · 火焰 ' + K2C(t.def.flameT) + '°C</i>'
+        : '<span class="lbl">' + t.def.icon + ' 架在 ' + t.def.name + ' ' + t.uid + ' 上（还没点着）</span><i>点器材上的「🔥 点燃」</i>');
+    if (row._sig !== txt) { row.innerHTML = txt; row._sig = txt; }
+  });
 }
 
 function opClick(app, op) {
   Lab.selected = app.uid;
-  if (op === 'heat') { const h = HEATERS[0]; const on = app.heater && app.heater.on; setHeater(app.uid, h.id, !on); buildHeatRow(); }
-  else if (op === 'ignite') ignite(app.uid);
-  else if (op === 'stir') { stir(app.uid); buildHeatRow(); }
+  if (op === 'ignite') ignite(app.uid);
+  else if (op === 'stir') { stir(app.uid); renderBench(true); }
   else if (op === 'clear') clearApp(app.uid);
-  else if (op === 'del') { Lab.apps.splice(Lab.apps.indexOf(app), 1); if (Lab.selected === app.uid) Lab.selected = null; renderBench(true); }
+  else if (op === 'del') { removeApp(app.uid); renderBench(true); }
   else if (op === 'measure') measure(app);
+  else if (op === 'conc') { app.acidConc = app.acidConc === 'conc' ? 'dil' : 'conc'; renderBench(true); }
+  else if (op === 'unmount') { placeOn(app.uid, null); toast(app.def.name + ' 放回台面'); renderBench(true); }
   else if (op === 'power') { const r = setPower(app.uid, !app.elec); if (!r.ok) toast(r.why); renderBench(true); }
   else if (op === 'pour' || op === 'filter' || op === 'gas') askTarget(app, op);
   updateReadouts();
@@ -2367,10 +2775,12 @@ function updateReadouts() {
     if (ro._sig !== html) { ro.innerHTML = html; ro._sig = html; }
     card.querySelectorAll('.ops button').forEach((b) => {
       if (b.dataset.op === 'stir') b.classList.toggle('on', !!app.stirrerOn);
-      if (b.dataset.op === 'heat') b.classList.toggle('on', !!(app.heater && app.heater.on));
+      if (b.dataset.op === 'conc') b.classList.toggle('on', app.acidConc === 'conc');
     });
   });
+  updateHeatStatus();
   $('#apparatusCount').textContent = Lab.apps.length + ' / 6';
+  const tc = $('#toolCount'); if (tc) tc.textContent = Lab.tools.length + ' / 6';
 }
 
 /* -------------------------------- 日志 --------------------------------- */
@@ -2452,6 +2862,7 @@ function frame(now) {
   let guard = 0;
   while (acc >= step && guard++ < 4) { for (let k = 0; k < sp; k++) labStep(step); acc -= step; }
   Lab.apps.forEach((app) => { initViewState(app); if (app.canvas) renderApparatus(app.canvas, app, dtReal); });
+  Lab.tools.forEach((t) => { if (t.canvas) renderTool(t.canvas, t, dtReal); });
   renderBench(false);
   updateReadouts(); flushLog(); renderTasks(); tutTick(dtReal);
   if (Lab.dirtySave || (Lab.time % 5) < 0.02) { save(); Lab.dirtySave = false; }
@@ -2470,6 +2881,14 @@ function boot() {
     const app = addApparatus(k);
     if (app) { Lab.selected = app.uid; Lab.dirtySave = true; renderBench(true); shim(); }
     else toast('最多 6 个容器');
+    updateReadouts();
+  });
+  $('#addTools').innerHTML = HEATERS.map((h) => '<button data-hid="' + h.id + '" title="' + h.power + 'W，最高 ' + K2C(h.flameT) + '°C，' + h.eff * 100 + '% 传热效率">'
+    + h.icon + ' ' + h.name + '<i>' + h.power + 'W</i></button>').join('');
+  $('#addTools').addEventListener('click', (ev) => {
+    const hid = ev.target.closest('button') && ev.target.closest('button').dataset.hid; if (!hid) return;
+    const t = addTool(hid);
+    if (t) { toast('台面上摆了 ' + t.def.name + ' —— 把容器拖到它上面，再点「🔥 点燃」'); Lab.dirtySave = true; renderBench(true); }
     updateReadouts();
   });
   $('#guideToggle').addEventListener('click', () => {
@@ -2502,6 +2921,8 @@ window.CHEM = {
   ELEM_REAGENT, molarMass, balanceReaction, verifyBalance, matchReactions, computePH, atomTally,
   addApparatus, addReagent, setHeater, ignite, stir, clearApp, pour, measure, worldStep, labStep,
   setPower, filterApp, feedGas, gasInApp, headspaceMol, K2C,
+  addTool, lightTool, placeOn, delTool, removeApp, syncHeaters, toolByUid, standOf, occupantOf, litTools,
+  ITEM_W, TOOL_TOP, renderBench, updateReadouts,
   waterMol, waterVolume, totalMass, boilingPoint, heatCapacity, subOf, PHYS, APPARATUS, HEATERS,
   TASKS, save, load, envOf, rxFound,
 };
@@ -2556,9 +2977,9 @@ const TUT = [
         () => anyHas('KMnO4', 0.005),
         () => addReagent(tutUid(0), 'KMnO4', 5, 'g')),
       mkStep('用酒精灯把试管加热到 240 °C 以上',
-        '试管卡片 → 热源行点「🕯 酒精灯 250W」。试管可直接加热，但别用本生灯猛烧',
+        '三步：① 工作台上方「器材」行点「🕯 酒精灯」摆一盏 ② 点灯上的「⬆ 架上来」把试管架上去 ③ 点灯上的「🔥 点燃」。试管可直接加热，别用本生灯猛烧',
         () => heatTo(513, 'KMnO4') || gasHere('O2', 1e-4),
-        () => setHeater(tutUid(0), 'lamp', true)),
+        () => { const t = addTool('lamp'); placeOn(tutUid(0), t.uid); lightTool(t.uid, true); }),
       mkStep('观察试管里放出气体（紫黑色固体变墨绿）',
         '看试管里冒出的气泡和读数里的气体量；慢的话点右上「⏩ 时间」加速',
         () => gasNew('O2', 5e-4), null),
@@ -2624,9 +3045,9 @@ const TUT = [
         () => anyHas('KClO3', 0.005),
         () => addReagent(tutUid(0), 'KClO3', 5, 'g')),
       mkStep('先不加二氧化锰，用酒精灯加热到 250 °C 以上，观察「几乎不分解」',
-        '热源行点「酒精灯」；注意：没有催化剂时，加热到 250 °C 也几乎看不到氧气',
+        '①「器材」行点「🕯 酒精灯」② 点「⬆ 架上来」把试管架上去 ③ 点「🔥 点燃」。注意：没有催化剂时，加热到 250 °C 也几乎看不到氧气',
         () => heatTo(523),
-        () => setHeater(tutUid(0), 'lamp', true)),
+        () => { let t = Lab.tools.find((x) => x.hid === 'lamp'); if (!t) t = addTool('lamp'); placeOn(tutUid(0), t.uid); lightTool(t.uid, true); }),
       mkStep('加入 0.5 g 二氧化锰（催化剂）',
         '试剂架搜「二氧化锰」→ 加入同样这支试管',
         () => anyHas('MnO2', 1e-4),
@@ -2728,9 +3149,9 @@ const TUT = [
           && (!tutApp(0) || !appHas(tutApp(0), 'H2O', 1e-3)),
         () => filterApp(tutUid(0), tutUid(1))),
       mkStep('把蒸发皿放到酒精灯上加热，让水沸腾蒸发',
-        '蒸发皿卡片 → 热源「🕯 酒精灯」（蒸发皿可直接加热；嫌慢就点「⏩ 时间」或改用电热板）',
+        '①「器材」行点「🕯 酒精灯」② 点灯上「⬆ 架上来」把蒸发皿架上去 ③ 点「🔥 点燃」（蒸发皿可直接加热；嫌慢就点「⏩ 时间」或改用 🟥 电热板）',
         () => heatTo(373, 'NaCl') || Lab.apps.some((a) => a.steamAccum > 0),
-        () => setHeater(tutUid(1), 'lamp', true)),
+        () => { let t = Lab.tools.find((x) => x.hid === 'lamp'); if (!t) t = addTool('lamp'); placeOn(tutUid(1), t.uid); lightTool(t.uid, true); }),
       mkStep('继续加热蒸发：水越来越少、溶液变浓，直到析出白色晶体（精盐）',
         '溶液饱和后食盐就以晶体析出（真实实验就是"蒸发浓缩 → 出现晶体 → 趁热过滤"）；沙子仍留在烧杯里。嫌慢就点「⏩ 时间」',
         () => !!tutApp(1) && tutApp(1).contents.some((c) => c.formula === 'NaCl' && !c.dissolved && c.mol > 1e-4), null),
@@ -3120,9 +3541,11 @@ Object.assign(window.CHEM, {
  *     ③ 不挡手：引导条贴在顶栏下方，工作台/试剂架照样能点
  * ==========================================================================*/
 
-const GUIDE_KINDS = ['addReagent', 'setHeater', 'ignite', 'stir', 'pour', 'feedGas', 'filterApp', 'setPower', 'clearApp', 'measure', 'addApparatus'];
+const GUIDE_KINDS = ['addReagent', 'setHeater', 'ignite', 'stir', 'pour', 'feedGas', 'filterApp', 'setPower', 'clearApp', 'measure', 'addApparatus',
+  'addTool', 'placeOn', 'lightTool'];
 const G_ORIG = {};
 let gDry = null;            // 非 null = 干跑模式（只记录调用，不碰真状态）
+let gDryTools = {};         // 干跑里"虚拟摆出来的器材"：uid → 影子器材（只为把种类对上，不碰真台面）
 let gActs = [];             // 玩家真实动作队列
 let gSig = '', gKey = '', gHint = 0, gLastStep = -1, gLastDone = null, gFrame = 0, gLastReal = 0;
 const gCfg = { hintSec: 12, demoSec: 30 };   // 卡多久给提示 / 卡多久放演示
@@ -3137,9 +3560,21 @@ function guideInstall() {
     if (typeof f !== 'function') return;
     G_ORIG[k] = f;
     window[k] = function (...a) {
-      if (gDry) { gDry.push({ k, a: a }); return { ok: true }; }      // 干跑：不改状态
+      if (gDry) {                                     // 干跑：不改状态
+        gDry.push({ k, a: a });
+        // 返回值要"像真的"，否则 auto 里 `const t = addTool('lamp'); placeOn(uid, t.uid)` 推导不出来
+        if (k === 'addTool') {                        // 影子器材：让 `const t = addTool('lamp'); placeOn(uid, t.uid)` 推得下去
+          const vt = { uid: 'T' + (Object.keys(gDryTools).length + 1), hid: a[0], def: HEATERS.find((x) => x.id === a[0]) || null, on: false, dry: true };
+          gDryTools[vt.uid] = vt;
+          return vt;
+        }
+        if (k === 'placeOn') return { ok: true, tool: gDryTools[a[1]] || null };
+        if (k === 'lightTool') { if (gDryTools[a[0]]) gDryTools[a[0]].on = !!a[1]; return { ok: true, tool: gDryTools[a[0]] || null }; }
+        return { ok: true };
+      }
       const r = f.apply(this, a);
-      gActs.push({ k: k, a: a, at: Lab.time || 0 });
+      // 记下"做这个动作时进行到第几步"：步骤已经翻页的动作不再拿新步骤去评判（否则会冤枉玩家）
+      gActs.push({ k: k, a: a, at: Lab.time || 0, step: (Lab.tut && Lab.tut.step) || 0 });
       return r;
     };
   });
@@ -3153,6 +3588,9 @@ function guideNorm(r) {
   else if (k === 'setPower') { o.uid = a[0]; o.on = a[1]; }
   else if (k === 'measure') { o.uid = a[0] && a[0].uid; }        // measure 收的是 app 对象
   else if (k === 'addApparatus') { o.kind = a[0]; }              // 参数是仪器 id（'tube'…）
+  else if (k === 'addTool') { o.hid = a[0]; }
+  else if (k === 'placeOn') { o.uid = a[0]; o.tool = a[1]; o.toolHid = ((gDryTools[a[1]] || toolByUid(a[1])) || {}).hid || null; }
+  else if (k === 'lightTool') { o.uid = a[0]; o.lit = a[1]; o.hid = ((gDryTools[a[0]] || toolByUid(a[0])) || {}).hid || null; }
   else { o.uid = a[0]; }
   return o;
 }
@@ -3164,7 +3602,7 @@ function guideDryRun(exp, idx) {
   const real = Lab.apps, realSel = Lab.selected, realSig = benchSig;
   Lab.apps = real.map((a) => Object.assign({}, a, { contents: a.contents.slice(), gasOut: Object.assign({}, a.gasOut) }));
   const rec = [];
-  gDry = rec;
+  gDry = rec; gDryTools = {};
   try { st.auto(); } catch (e) { /* 推导失败不算错，退化成"只给文字提示" */ }
   gDry = null;
   Lab.apps = real; Lab.selected = realSel; benchSig = realSig;   // 台面签名也还原，避免白刷一帧
@@ -3203,6 +3641,9 @@ function guideCoverage() {
 
 /* ------------------------------ ② 目标控件链 ------------------------------ */
 const gCard = (uid) => document.querySelector('.appcard[data-uid="' + uid + '"]');
+const gTool = (uid) => document.querySelector('.toolcard[data-uid="' + uid + '"]');
+const gToolBtn = (uid, op) => { const c = gTool(uid); return c ? c.querySelector('.ops button[data-op="' + op + '"]') : null; };
+const gToolName = (uid) => { const t = (typeof toolByUid === 'function') ? toolByUid(uid) : null; return t ? t.def.name + ' ' + uid : '器材'; };
 const gOpBtn = (uid, op) => { const c = gCard(uid); return c ? c.querySelector('.ops button[data-op="' + op + '"]') : null; };
 const gAppName = (uid) => { const a = appByUid(uid); return a ? a.def.name : '容器'; };
 
@@ -3227,14 +3668,31 @@ function guideTarget() {
     if (chip) return { key: 'chip:' + a.f, el: chip, label: '右边试剂架 → 点「' + a.f + ' ' + (s.name || '') + '」', kind: 'reagent' };
     return { key: 'search:' + a.f, el: document.querySelector('#shelfSearch'), label: '右边试剂架搜索框里搜「' + (s.name || a.f) + '」', kind: 'search' };
   }
+  if (a.k === 'addTool') {
+    const h = (typeof HEATERS !== 'undefined' ? HEATERS : []).find((x) => x.id === a.hid);
+    const ab = document.querySelector('#addTools button[data-hid="' + a.hid + '"]');
+    if (ab) return { key: 'addtool:' + a.hid, el: ab, label: '工作台上方「器材」行 → 点「' + (h ? h.icon + ' ' + h.name : a.hid) + '」摆一件上台面', kind: 'tool' };
+  }
+  if (a.k === 'placeOn') {
+    const t = Lab.tools.find((x) => x.hid === a.toolHid) || Lab.tools[0] || null;
+    const mb = t ? gToolBtn(t.uid, 'mount') : null;
+    if (mb) return { key: 'mount:' + t.uid, el: mb, label: '点「' + t.def.name + '」卡片上的「⬆ 架上来」，把' + gAppName(a.uid) + '架到它上面（也可以直接把容器拖到灯上）', kind: 'place' };
+    const ab = document.querySelector('#addTools button[data-hid="' + (a.toolHid || 'lamp') + '"]');
+    if (ab) return { key: 'addtool:' + (a.toolHid || 'lamp'), el: ab, label: '先在「器材」行点一件加热器材摆上台面', kind: 'tool' };
+  }
+  if (a.k === 'lightTool') {
+    const t = Lab.tools.find((x) => x.hid === a.hid && (a.lit ? !x.on : x.on)) || Lab.tools.find((x) => x.hid === a.hid) || null;
+    const lb = t ? gToolBtn(t.uid, 'light') : null;
+    if (lb) return { key: 'light:' + t.uid, el: lb, label: '在「' + t.def.name + '」卡片上点「' + (a.lit ? '🔥 点燃' : '💨 熄灭') + '」' + (a.lit ? ' —— 点着才会真的开始加热' : ''), kind: 'tool' };
+  }
   if (a.k === 'setHeater') {
     if (mTgt) return { key: 'closetgt', el: document.querySelector('#tgtCancel'), label: '这个窗口用不上 → 先点「取消」', kind: 'close' };
-    if (Lab.selected !== a.uid && gCard(a.uid)) return { key: 'sel:' + a.uid, el: gCard(a.uid), label: '先点一下「' + gAppName(a.uid) + '」卡片选中它', kind: 'select' };
     const h = (typeof HEATERS !== 'undefined' ? HEATERS : []).find((x) => x.id === a.h);
-    const hb = document.querySelector('.appcard[data-uid="' + a.uid + '"] .heatrow button[data-heater="' + a.h + '"]');
-    if (hb && h) return { key: 'heat:' + a.uid + ':' + a.h, el: hb, label: '卡片下方「热源」行 → 点「' + h.icon + ' ' + h.name + '」', kind: 'heater' };
-    const ob = gOpBtn(a.uid, 'heat');
-    return { key: 'op:' + a.uid + ':heat', el: ob, label: '在「' + gAppName(a.uid) + '」卡片上点「🔥 加热」' + (h ? '（默认就是' + h.name + '）' : ''), kind: 'op' };
+    const t = Lab.tools.find((x) => x.hid === a.h && x.on);
+    const lb = t ? gToolBtn(t.uid, 'light') : null;
+    if (lb) return { key: 'light:' + t.uid, el: lb, label: '在「' + t.def.name + '」卡片上点「🔥 点燃」', kind: 'tool' };
+    const ab = document.querySelector('#addTools button[data-hid="' + a.h + '"]');
+    if (ab && h) return { key: 'addtool:' + a.h, el: ab, label: '先摆一件「' + h.icon + ' ' + h.name + '」到台面上', kind: 'tool' };
   }
   if (a.k === 'pour' || a.k === 'feedGas' || a.k === 'filterApp') {
     const op = a.k === 'pour' ? 'pour' : a.k === 'feedGas' ? 'gas' : 'filter';
@@ -3273,6 +3731,10 @@ function guideMatch(act, want) {
   if (want.k === 'pour' || want.k === 'feedGas' || want.k === 'filterApp') return act.a[0] === want.uid && act.a[1] === want.to;
   if (want.k === 'measure') return !!(act.a[0] && act.a[0].uid === want.uid);
   if (want.k === 'addApparatus') return act.a[0] === want.kind;
+  if (want.k === 'addTool') return act.a[0] === want.hid;
+  // 器材 uid 每次摆都不是同一个（干跑摆的是影子器材），所以按"种类 + 谁被架上去了 + 点着与否"判定
+  if (want.k === 'placeOn') return act.a[0] === want.uid && (!want.toolHid || ((toolByUid(act.a[1]) || {}).hid === want.toolHid));
+  if (want.k === 'lightTool') return !!act.a[1] === !!want.lit && (!want.hid || ((toolByUid(act.a[0]) || {}).hid === want.hid));
   return act.a[0] === want.uid;
 }
 const gVerb = (act) => {
@@ -3288,6 +3750,9 @@ const gVerb = (act) => {
   if (act.k === 'stir') return '搅拌';
   if (act.k === 'measure') return '测量（' + gAppName(a[0] && a[0].uid) + '）';
   if (act.k === 'addApparatus') { const d = (APPARATUS || []).find((x) => x.id === a[0]); return '摆了' + (d ? d.name : a[0]); }
+  if (act.k === 'addTool') { const h = (HEATERS || []).find((x) => x.id === a[0]); return '摆了' + (h ? h.name : a[0]); }
+  if (act.k === 'placeOn') { const t = toolByUid(a[1]); return '把' + gAppName(a[0]) + '架到' + (t ? t.def.name : '台面') + '上'; }
+  if (act.k === 'lightTool') { const t = toolByUid(a[0]); return (a[1] ? '点燃' : '熄灭') + (t ? t.def.name : '器材'); }
   return act.k;
 };
 
@@ -3308,6 +3773,7 @@ function guideTick(dtReal) {
       const d = (Lab.tut.pdone || (Lab.tut.pdone = {}));
       gActs.forEach((act) => {
         Lab.tut.idle = 0; gHint = 0;
+        if (act.step !== Lab.tut.step) return;                          // 上一步的动作，别拿这一步的清单去评判
         if (act.k === 'stir') return;                                   // 搅拌无害，不评判
         let hit = -1;                                                   // 同一步里的动作顺序可以不同：命中任意未完成项都算对
         for (let i = 0; i < plan.length; i++) { if (!d[i] && guideMatch(act, plan[i])) { hit = i; break; } }
@@ -3337,8 +3803,20 @@ function guidePaintLast() {
   if (!t || !t.el || !t.el.isConnected) t = guideTarget();   // 台面 DOM 被重建过 → 重新解析目标，别让高亮凭空消失
   if (!t || !t.el) return;
   gLastT = t;
-  if (!t.el.classList.contains('tutglow')) { document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow')); t.el.classList.add('tutglow'); }
+  if (!t.el.classList.contains('tutglow')) { guideClearGlow(); t.el.classList.add('tutglow'); }
+  // 台面挤的时候，正在指的那张卡片抬到最上层 —— 否则它可能被别的卡片盖住点不到
+  const card = t.el.closest ? t.el.closest('.appcard, .toolcard') : null;
+  if (card) {
+    document.querySelectorAll('.tutlift').forEach((e) => { if (e !== card) e.classList.remove('tutlift'); });
+    card.classList.add('tutlift');
+  }
   guideArrow(t.el, t.label);
+}
+
+/** 清掉所有高亮（含"抬到上层"的卡片） */
+function guideClearGlow() {
+  document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow'));
+  document.querySelectorAll('.tutlift').forEach((e) => e.classList.remove('tutlift'));
 }
 
 function guideArrow(el, label) {
@@ -3355,17 +3833,30 @@ function guideArrow(el, label) {
 
 function guidePaint(t) {
   gLastT = t;
-  document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow'));
+  guideClearGlow();
   const ar = document.querySelector('#guarrow'); if (ar) ar.classList.remove('show');
   if (!t || !t.el) return;
   t.el.classList.add('tutglow');
+  const card = t.el.closest ? t.el.closest('.appcard, .toolcard') : null;
+  if (card) card.classList.add('tutlift');           // 指着的卡片抬到最上层，保证点得到
   if (t.key !== gKey) {                       // 目标变了才滚动，别跟玩家抢滚动条
     gKey = t.key;
     try { t.el.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) { }
+  } else {
+    // 台面是横向可滚的：指着的控件被滚出视野时要拉回来（否则引导指着看不见的东西）
+    try {
+      const bench = t.el.closest && t.el.closest('#bench');
+      if (bench) {
+        const r = t.el.getBoundingClientRect(), br = bench.getBoundingClientRect();
+        if (r.left < br.left + 6 || r.right > br.right - 6 || r.top < br.top + 6 || r.bottom > br.bottom - 6) {
+          t.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+      }
+    } catch (e) { }
   }
   guideArrow(t.el, t.label);
 }
-function guideArrowOff() { const ar = document.querySelector('#guarrow'); if (ar) ar.classList.remove('show'); document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow')); }
+function guideArrowOff() { const ar = document.querySelector('#guarrow'); if (ar) ar.classList.remove('show'); guideClearGlow(); }
 
 /* --------------------------------- 引导条 -------------------------------- */
 const guideOn = () => !!(Lab.tut.id && !Lab.tut.open && !Lab.tut.handOff);
