@@ -963,7 +963,9 @@ const SFX = (() => {
      off / len = 只取有声那段（上面 ① 的实测）；gain 把原文件电平拉回本作响度带。
      synth = 兜底图纸：解码失败 / 还没解完就挨打时放它，绝不哑火。 */
   const SAMPLES = {
-    steve:   { off: 0.537, len: 0.40, gain: 0.24, synth: (c, o, t0) => buildVoice(c, o, t0, VOICES.steve) },
+    /* steve 的 gain 从 0.24 抬到 0.40（玩家 2026-09-27：「受伤音效声音放大一点」）——
+       0.40 时峰值 0.195 / RMS 0.030，正好压在原版受击（峰 0.173 / RMS 0.020）之上一点点：听得见、不炸耳。 */
+    steve:   { off: 0.537, len: 0.40, gain: 0.40, synth: (c, o, t0) => buildVoice(c, o, t0, VOICES.steve) },
     wilhelm: { off: 0.000, len: 1.53, gain: 0.18, synth: (c, o, t0) => buildVoice(c, o, t0, VOICES.wilhelm) }
   };
   const sbuf = {}, serr = {}, sload = {};
@@ -1012,12 +1014,12 @@ const SFX = (() => {
      「史蒂夫（远古 MC）」这种长名字会直接冲出芯片边框（截图抓到的），短名才不会。 */
   const HURTS = [
     { id: "orig",  n: "原版", sn: "原版", d: "本作自带的合成撞击", dur: 0.32, build: buildOrigHurt },
-    { id: "steve", n: "史蒂夫（实录）", sn: "史蒂夫·实录", d: "远古 MC 原音 oof", dur: 0.40, sample: "steve",
+    { id: "steve", n: "史蒂夫", sn: "史蒂夫", d: "远古 MC 原音 oof", dur: 0.40, sample: "steve",
       build: (c, o, t0) => buildSample(c, o, t0, "steve") }
   ];
   const DEATHS = [
     { id: "orig",    n: "原版", sn: "原版", d: "本作自带的下沉音", dur: 1.00, build: buildOrigDeath },
-    { id: "wilhelm", n: "威廉尖叫（实录）", sn: "威廉·实录", d: "真·威廉尖叫", dur: 1.53, sample: "wilhelm",
+    { id: "wilhelm", n: "威廉尖叫", sn: "威廉尖叫", d: "真·威廉尖叫", dur: 1.53, sample: "wilhelm",
       build: (c, o, t0) => buildSample(c, o, t0, "wilhelm") }
   ];
   const pickOf = (list, id) => list.find((s) => s.id === id) || list[1] || list[0];
@@ -1206,7 +1208,7 @@ const G = {
   seed: 1
 };
 let AUTO_FREEZE = false;
-const SELFTEST = { active: false, pass: true, rows: [], lsOk: false, version: "0.3.3" };   // 0.3.3：受击 / 死亡换成玩家投喂的真原件（合成那两段降级兜底）
+const SELFTEST = { active: false, pass: true, rows: [], lsOk: false, version: "0.3.4" };   // 0.3.4：受击 / 死亡换成玩家投喂的真原件（受击加大音量；芯片名去掉括号后缀）
 
 const QUIPS = {
   S: "你这已经不是下潜，是在跟地心交朋友。",
