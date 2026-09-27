@@ -156,6 +156,43 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 #modal .targetlist { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 #modal .targetlist .tgt { text-align: left; }
 
+/* ===================== 手把手引导条（不挡手：贴在顶栏下方） ===================== */
+#guide { position: fixed; top: 52px; left: 0; right: 0; z-index: 55; display: none; padding: 0 10px; }
+#guide.show { display: block; }
+body.guiding main { padding-top: 122px; }
+body.guiding #bench { scroll-margin-top: 120px; }
+#guide .gwrap {
+  max-width: 1240px; margin: 0 auto; background: linear-gradient(180deg, #12303a, #0d2029);
+  border: 1px solid #2b6d70; border-radius: 10px; padding: 7px 12px 8px; box-shadow: 0 8px 24px #0008;
+}
+#guide .grow1 { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim); }
+#guide .gno { color: var(--acc); font-weight: 600; }
+#guide .gtitle { color: var(--txt); }
+#guide .gsp { flex: 1; }
+#guide .gbar { width: 120px; height: 5px; background: #0a1a20; border-radius: 3px; overflow: hidden; }
+#guide .gbar i { display: block; height: 100%; background: linear-gradient(90deg, #2f7b76, #4fd1c5); }
+#guide button { padding: 2px 8px; font-size: 11px; }
+#guide .grow2 { display: flex; align-items: baseline; gap: 14px; margin-top: 5px; flex-wrap: wrap; }
+#guide .gtodo { font-size: 14px; color: #eafcff; }
+#guide .gtgt { font-size: 12px; color: var(--warm); }
+#guide .gtgt b { color: #ffdca8; }
+#guide .grow3 { margin-top: 4px; font-size: 11px; min-height: 15px; }
+#guide .ghint { color: var(--warm); }
+#guide .gnudge { color: var(--bad); }
+#guide .gok { color: var(--ok); }
+#guide .gtip { color: var(--dim); }
+
+/* 目标控件脉冲高亮（只动 outline/阴影，不改尺寸 → 绝不挪动布局） */
+.tutglow { position: relative; z-index: 4; outline: 2px solid var(--warm) !important; outline-offset: 2px;
+  animation: tutpulse 1.05s ease-in-out infinite; }
+@keyframes tutpulse {
+  0%, 100% { box-shadow: 0 0 0 0 #ffb45488, 0 0 12px 2px #ffb45455; }
+  50% { box-shadow: 0 0 0 6px #ffb45400, 0 0 18px 6px #ffb45433; }
+}
+.guarrow { position: fixed; z-index: 70; pointer-events: none; display: none; padding: 2px 8px; font-size: 11px;
+  background: #ffb454; color: #201202; border-radius: 6px; font-weight: 600; box-shadow: 0 4px 12px #0007; max-width: 300px; }
+.guarrow.show { display: block; }
+
 </style>
 </head>
 <body>
@@ -191,6 +228,7 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
     <div id="tasks"></div>
   </aside>
 </main>
+<div id="guide"></div>
 <div id="tutorial"></div>
 <div id="modal"></div>
 <div id="toast"></div>
@@ -2138,6 +2176,7 @@ function buildShelf() {
     const wrap = mk('div', 'chips');
     list.forEach((s) => {
       const b = mk('button', 'chip', '<b>' + s.formula + '</b><span>' + s.name + '</span>');
+      b.dataset.sub = s.formula;                    // 手把手引导要靠它找到"该点哪个试剂"
       b.style.borderColor = 'color-mix(in srgb, ' + s.color + ' 55%, #4a6a80)';
       b.addEventListener('click', () => {
         const isLiq = s.st === 'l' || s.st === 'aq' || s.formula === 'H2O';
@@ -2227,6 +2266,7 @@ function buildHeatRow() {
   HEATERS.forEach((h) => {
     const on = app.heater && app.heater.on && app.heater.id === h.id;
     const b = mk('button', 'hbtn' + (on ? ' on' : ''), h.icon + ' ' + h.name + ' <i>' + h.power + 'W</i>');
+    b.dataset.heater = h.id;                      // 手把手引导：定位"该点哪个热源"
     b.title = '最高温度 ' + K2C(h.flameT) + '°C，传热效率 ' + Math.round((h.eff || 0) * 100) + '%'
       + (h.needsDirect ? '（需可直火容器，否则垫石棉网）' : '');
     b.addEventListener('click', () => { setHeater(app.uid, h.id, !on); buildHeatRow(); updateReadouts(); });
@@ -2925,6 +2965,10 @@ function tutReset() {
   tutRender(true);
 }
 const tutExp = (id) => TUT.find((e) => e.id === (id || Lab.tut.id)) || null;
+/** 教程在进行中吗：面板打开（全览）或手把手引导条在跑 —— 两种模式都必须判定步骤 */
+function tutActive() {
+  return !!Lab.tut.open || !!(window.CHEM && typeof window.CHEM.guideOn === 'function' && window.CHEM.guideOn());
+}
 
 /** 开始/切换实验：清空工作台 → 摆好仪器 → 记录基线。
  *  restart=true 时连进度一起清掉；切换实验则保留各实验自己的进度（不会把做过的一步步弄丢） */
@@ -2970,7 +3014,7 @@ function tutTick(dt) {
   if (tutThrottle < 0.2) return;
   tutThrottle = 0;
   const exp = tutExp();
-  if (!exp || !Lab.tut.open) return;
+  if (!exp || !tutActive()) return;
   const st = exp.steps[Lab.tut.step];
   if (!st) return;
   let ok = false;
@@ -3064,6 +3108,351 @@ document.addEventListener('DOMContentLoaded', tutInit);
 Object.assign(window.CHEM, {
   TUT, tutStart, tutDemo, tutTick, tutReset, tutToggle, tutRender, tutSave, tutLoad,
   tutState: () => ({ id: Lab.tut.id, step: Lab.tut.step, done: Lab.tut.done, expDone: Lab.tut.expDone, uids: Lab.tut.uids.slice(), open: Lab.tut.open }),
+});
+
+
+/* ================= 09-guide.js ================= */
+/* ============================================================================
+ * 09-guide.js —— 手把手带做（不是演示）
+ *   三件事：
+ *     ① 推导：每一步到底该点哪个按钮（干跑 st.auto，拿真实调用参数）
+ *     ② 盯着你手：高亮目标控件 + 点错当场纠正 + 卡住才给提示
+ *     ③ 不挡手：引导条贴在顶栏下方，工作台/试剂架照样能点
+ * ==========================================================================*/
+
+const GUIDE_KINDS = ['addReagent', 'setHeater', 'ignite', 'stir', 'pour', 'feedGas', 'filterApp', 'setPower', 'clearApp', 'measure', 'addApparatus'];
+const G_ORIG = {};
+let gDry = null;            // 非 null = 干跑模式（只记录调用，不碰真状态）
+let gActs = [];             // 玩家真实动作队列
+let gSig = '', gKey = '', gHint = 0, gLastStep = -1, gLastDone = null, gFrame = 0, gLastReal = 0;
+const gCfg = { hintSec: 12, demoSec: 30 };   // 卡多久给提示 / 卡多久放演示
+
+/* --------------------------- ① 动作录制与计划推导 -------------------------- */
+let gInstalled = false;
+function guideInstall() {
+  if (gInstalled) return;
+  gInstalled = true;
+  GUIDE_KINDS.forEach((k) => {
+    const f = window[k];
+    if (typeof f !== 'function') return;
+    G_ORIG[k] = f;
+    window[k] = function (...a) {
+      if (gDry) { gDry.push({ k, a: a }); return { ok: true }; }      // 干跑：不改状态
+      const r = f.apply(this, a);
+      gActs.push({ k: k, a: a, at: Lab.time || 0 });
+      return r;
+    };
+  });
+}
+
+function guideNorm(r) {
+  const k = r.k, a = r.a || [], o = { k: k };
+  if (k === 'addReagent') { o.uid = a[0]; o.f = a[1]; o.v = a[2]; o.u = a[3]; }
+  else if (k === 'setHeater') { o.uid = a[0]; o.h = a[1]; o.on = a[2]; }
+  else if (k === 'pour' || k === 'feedGas' || k === 'filterApp') { o.uid = a[0]; o.to = a[1]; }
+  else if (k === 'setPower') { o.uid = a[0]; o.on = a[1]; }
+  else if (k === 'measure') { o.uid = a[0] && a[0].uid; }        // measure 收的是 app 对象
+  else if (k === 'addApparatus') { o.kind = a[0]; }              // 参数是仪器 id（'tube'…）
+  else { o.uid = a[0]; }
+  return o;
+}
+
+/** 干跑这一步的 auto：把动作函数换成记录器、把工作台换成一次性副本 → 拿到"该做哪些动作"且零副作用 */
+function guideDryRun(exp, idx) {
+  const st = exp.steps[idx];
+  if (!st || !st.auto) return [];
+  const real = Lab.apps, realSel = Lab.selected, realSig = benchSig;
+  Lab.apps = real.map((a) => Object.assign({}, a, { contents: a.contents.slice(), gasOut: Object.assign({}, a.gasOut) }));
+  const rec = [];
+  gDry = rec;
+  try { st.auto(); } catch (e) { /* 推导失败不算错，退化成"只给文字提示" */ }
+  gDry = null;
+  Lab.apps = real; Lab.selected = realSel; benchSig = realSig;   // 台面签名也还原，避免白刷一帧
+  return rec.map(guideNorm);
+}
+
+function guidePlan(exp, idx) {
+  if (!exp) return [];
+  if (!Lab.tut.pcache) Lab.tut.pcache = {};
+  const key = exp.id + ':' + idx;
+  if (!Lab.tut.pcache[key]) Lab.tut.pcache[key] = guideDryRun(exp, idx);
+  return Lab.tut.pcache[key];
+}
+
+/** 覆盖率自检：49 步里有多少步能指出"点哪个控件"（用各实验自己的台面、按顺序推进状态再推导，状态相关的 auto 才准） */
+function guideCoverage() {
+  const keep = { id: Lab.tut.id, open: Lab.tut.open, step: Lab.tut.step, done: Object.assign({}, Lab.tut.done), pos: Object.assign({}, Lab.tut.pos), expDone: Object.assign({}, Lab.tut.expDone) };
+  const rows = []; const kinds = {};
+  TUT.forEach((e) => {
+    tutStart(e.id, true);
+    e.steps.forEach((s, i) => {
+      Lab.tut.step = i;
+      const t = guideTarget();
+      const kind = t ? t.kind : null;
+      kinds[kind || 'none'] = (kinds[kind || 'none'] || 0) + 1;
+      rows.push({ at: e.id + ':' + (i + 1), kind: kind, label: t ? t.label : null, text: s.t });
+      if (s.auto) { try { s.auto(); } catch (err) { } }     // 按理想路径把状态推到下一步（只推导，不跑物理）
+    });
+  });
+  Lab.tut.done = keep.done; Lab.tut.pos = keep.pos; Lab.tut.expDone = keep.expDone; Lab.tut.pcache = {};
+  if (keep.id) { tutStart(keep.id); Lab.tut.step = keep.step; Lab.tut.pos[keep.id] = keep.step; } else { tutReset(); }
+  if (keep.open) tutToggle(true);
+  const waits = rows.filter((r) => r.kind === 'wait' || r.kind === 'done').length;
+  return { steps: rows.length, waits: waits, pointed: rows.length - waits, kinds: kinds, rows: rows };
+}
+
+/* ------------------------------ ② 目标控件链 ------------------------------ */
+const gCard = (uid) => document.querySelector('.appcard[data-uid="' + uid + '"]');
+const gOpBtn = (uid, op) => { const c = gCard(uid); return c ? c.querySelector('.ops button[data-op="' + op + '"]') : null; };
+const gAppName = (uid) => { const a = appByUid(uid); return a ? a.def.name : '容器'; };
+
+/** 当前这一步，玩家"现在该点哪个控件" —— 按真实 UI 路径一步步指 */
+function guideTarget() {
+  const exp = tutExp(); if (!exp) return null;
+  const st = exp.steps[Lab.tut.step];
+  const speedBtn = document.querySelector('#speedBtn');
+  if (!st) return { key: 'alldone', el: speedBtn, label: '🎉 这个实验做完了 —— 点「📖 全览」写实验报告', kind: 'done' };
+  const plan = guidePlan(exp, Lab.tut.step);
+  const a = plan[Lab.tut.pi];
+  const mAmt = document.querySelector('#modal.show #amtOk');
+  const mTgt = document.querySelector('#modal.show .tgt');
+  // 有对话框挡着，但它不是这一步要用的 → 先让玩家关掉
+  if (!a) return { key: 'wait' + (Lab.speed || 1), el: (Lab.speed || 1) < 20 ? speedBtn : null, label: (Lab.speed || 1) < 20 ? '这一步会自动发生 —— 想快点就点「⏩ 时间」' : '已经在 ×20 最快速度了 —— 看着它发生就行', kind: 'wait' };
+  if (a.k !== 'addReagent' && mAmt) return { key: 'closex', el: document.querySelector('#amtCancel'), label: '这一步不需要加入药品 → 先点「取消」', kind: 'close' };
+  if (a.k === 'addReagent') {
+    if (mAmt) return { key: 'amt', el: mAmt, label: '用量用默认值就行 → 点「加入 ' + gAppName(a.uid) + '」', kind: 'modal' };
+    if (Lab.selected !== a.uid && gCard(a.uid)) return { key: 'sel:' + a.uid, el: gCard(a.uid), label: '先点一下「' + gAppName(a.uid) + '」卡片，把它选中', kind: 'select' };
+    const s = subOf(a.f) || {};
+    const chip = document.querySelector('#shelf [data-sub="' + a.f + '"]');
+    if (chip) return { key: 'chip:' + a.f, el: chip, label: '右边试剂架 → 点「' + a.f + ' ' + (s.name || '') + '」', kind: 'reagent' };
+    return { key: 'search:' + a.f, el: document.querySelector('#shelfSearch'), label: '右边试剂架搜索框里搜「' + (s.name || a.f) + '」', kind: 'search' };
+  }
+  if (a.k === 'setHeater') {
+    if (mTgt) return { key: 'closetgt', el: document.querySelector('#tgtCancel'), label: '这个窗口用不上 → 先点「取消」', kind: 'close' };
+    if (Lab.selected !== a.uid && gCard(a.uid)) return { key: 'sel:' + a.uid, el: gCard(a.uid), label: '先点一下「' + gAppName(a.uid) + '」卡片选中它', kind: 'select' };
+    const h = (typeof HEATERS !== 'undefined' ? HEATERS : []).find((x) => x.id === a.h);
+    const hb = document.querySelector('.appcard[data-uid="' + a.uid + '"] .heatrow button[data-heater="' + a.h + '"]');
+    if (hb && h) return { key: 'heat:' + a.uid + ':' + a.h, el: hb, label: '卡片下方「热源」行 → 点「' + h.icon + ' ' + h.name + '」', kind: 'heater' };
+    const ob = gOpBtn(a.uid, 'heat');
+    return { key: 'op:' + a.uid + ':heat', el: ob, label: '在「' + gAppName(a.uid) + '」卡片上点「🔥 加热」' + (h ? '（默认就是' + h.name + '）' : ''), kind: 'op' };
+  }
+  if (a.k === 'pour' || a.k === 'feedGas' || a.k === 'filterApp') {
+    const op = a.k === 'pour' ? 'pour' : a.k === 'feedGas' ? 'gas' : 'filter';
+    const tgt = document.querySelector('#modal.show .tgt[data-uid="' + a.to + '"]');
+    if (tgt) return { key: 'tgt:' + a.to, el: tgt, label: '在弹窗里点「' + gAppName(a.to) + '」当目标容器', kind: 'target' };
+    const ob = gOpBtn(a.uid, op);
+    const verb = { pour: '🫗 倾倒', gas: '💨 导气', filter: '🧻 过滤' }[op];
+    return { key: 'op:' + a.uid + ':' + op, el: ob, label: '在「' + gAppName(a.uid) + '」卡片上点「' + verb + '」', kind: 'op' };
+  }
+  if (a.k === 'measure') {
+    const mb = gOpBtn(a.uid, 'measure');
+    if (mb) return { key: 'op:' + a.uid + ':measure', el: mb, label: '在「' + gAppName(a.uid) + '」卡片上点「📏 测量」，读数会写进现象日志', kind: 'op' };
+  }
+  if (a.k === 'addApparatus') {
+    const ab = document.querySelector('#addApparatus button[data-kind="' + a.kind + '"]');
+    const def = (typeof APPARATUS !== 'undefined' ? APPARATUS : []).find((x) => x.id === a.kind);
+    if (ab) return { key: 'add:' + a.kind, el: ab, label: '工作台上方点「' + (def ? def.name : a.kind) + '」添一个容器', kind: 'apparatus' };
+  }
+  const opMap = { ignite: 'ignite', stir: 'stir', setPower: 'power', clearApp: 'clear' };
+  const op = opMap[a.k];
+  if (op) {
+    const ob = gOpBtn(a.uid, op);
+    const verb = { ignite: '⚡ 点燃', stir: '🌀 搅拌', power: '⚡ 通电', clear: '🧼 倒空' }[op];
+    if (ob) return { key: 'op:' + a.uid + ':' + op, el: ob, label: '在「' + gAppName(a.uid) + '」卡片上点「' + verb + '」', kind: 'op' };
+  }
+  return { key: 'wait', el: speedBtn, label: '这一步会自动发生 —— 想快点就点「⏩ 时间」', kind: 'wait' };
+}
+
+/** 玩家刚才那个动作，算不算"这一步该做的" */
+function guideMatch(act, want) {
+  if (!want) return false;
+  if (act.k !== want.k) return false;
+  if (want.k === 'addReagent') return act.a[0] === want.uid && act.a[1] === want.f;
+  if (want.k === 'setHeater') return act.a[0] === want.uid;
+  if (want.k === 'pour' || want.k === 'feedGas' || want.k === 'filterApp') return act.a[0] === want.uid && act.a[1] === want.to;
+  if (want.k === 'measure') return !!(act.a[0] && act.a[0].uid === want.uid);
+  if (want.k === 'addApparatus') return act.a[0] === want.kind;
+  return act.a[0] === want.uid;
+}
+const gVerb = (act) => {
+  const a = act.a || [];
+  if (act.k === 'addReagent') { const s = subOf(a[1]) || {}; return '加入 ' + (s.name || a[1]); }
+  if (act.k === 'setHeater') { const h = (HEATERS || []).find((x) => x.id === a[1]); return (a[2] ? '打开' : '关掉') + (h ? h.name : '热源') + '（' + gAppName(a[0]) + '）'; }
+  if (act.k === 'pour') return '倾倒（' + gAppName(a[0]) + '）';
+  if (act.k === 'feedGas') return '导气（' + gAppName(a[0]) + '）';
+  if (act.k === 'filterApp') return '过滤（' + gAppName(a[0]) + '）';
+  if (act.k === 'ignite') return '点燃（' + gAppName(a[0]) + '）';
+  if (act.k === 'setPower') return (a[1] ? '通电' : '断电') + '（' + gAppName(a[0]) + '）';
+  if (act.k === 'clearApp') return '倒空（' + gAppName(a[0]) + '）';
+  if (act.k === 'stir') return '搅拌';
+  if (act.k === 'measure') return '测量（' + gAppName(a[0] && a[0].uid) + '）';
+  if (act.k === 'addApparatus') { const d = (APPARATUS || []).find((x) => x.id === a[0]); return '摆了' + (d ? d.name : a[0]); }
+  return act.k;
+};
+
+/* --------------------------- ③ 每帧：判定 / 纠错 / 提示 --------------------------- */
+function guideTick(dtReal) {
+  guideInstall();
+  const exp = tutExp();
+  const step = exp ? Lab.tut.step : -1;
+  if (exp && step !== gLastStep) {            // 换步：重置本步子动作指针与计时
+    gLastStep = step; Lab.tut.pi = 0; Lab.tut.idle = 0; gHint = 0; Lab.tut.nudge = null; Lab.tut.nudgeAt = 0;
+  }
+  if (gActs.length) {
+    const plan = exp ? guidePlan(exp, Lab.tut.step) : [];
+    gActs.forEach((act) => {
+      Lab.tut.idle = 0; gHint = 0;
+      if (act.k === 'stir') return;                                   // 搅拌无害，不评判
+      const want = plan[Lab.tut.pi];
+      if (guideMatch(act, want)) { Lab.tut.pi++; Lab.tut.nudge = null; return; }
+      if (!Lab.tut.nudge || (Lab.time - Lab.tut.nudgeAt) > 6) {       // 同一类错别刷屏
+        Lab.tut.nudge = '⚠ 刚才那步不是必需的：' + gVerb(act) + ' —— 这一步要做的是「' + (exp && exp.steps[Lab.tut.step] ? exp.steps[Lab.tut.step].t : '') + '」';
+        Lab.tut.nudgeAt = Lab.time;
+        Lab.tut.wrong = (Lab.tut.wrong || 0) + 1;
+        Lab.log.push({ k: 'warn', at: Lab.time, text: '🎓 引导：' + Lab.tut.nudge });
+      }
+    });
+    gActs = [];
+  }
+  if (exp && exp.steps[Lab.tut.step]) { Lab.tut.idle = (Lab.tut.idle || 0) + dtReal; }
+  const lvl = Lab.tut.idle >= gCfg.demoSec ? 2 : Lab.tut.idle >= gCfg.hintSec ? 1 : 0;
+  if (lvl !== gHint) gHint = lvl;
+  guideRender(false);
+  // 只有引导条在跑时才画高亮/箭头 —— 否则「全览」面板打开时箭头会浮在面板上面穿帮
+  if (guideOn()) { if ((gFrame = (gFrame + 1) % 6) === 0) guidePaintLast(); }
+}
+
+let gLastT = null;
+function guidePaintLast() {
+  if (!guideOn()) return;                   // 全览面板打开时一律不画（滚动/缩放事件也会走到这里）
+  const t = gLastT; if (!t || !t.el || !t.el.isConnected) return;
+  if (!t.el.classList.contains('tutglow')) { document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow')); t.el.classList.add('tutglow'); }
+  guideArrow(t.el, t.label);
+}
+
+function guideArrow(el, label) {
+  const ar = document.querySelector('#guarrow'); if (!ar) return;
+  const r = el.getBoundingClientRect();
+  const vis = r.width > 0 && r.bottom > 56 && r.top < (window.innerHeight - 4);
+  if (!vis) { ar.classList.remove('show'); return; }
+  ar.textContent = '👆 ' + (label || '点这里');
+  ar.classList.add('show');
+  const above = r.top > 96;
+  ar.style.left = Math.max(8, Math.min(window.innerWidth - 260, r.left + r.width / 2 - 90)) + 'px';
+  ar.style.top = (above ? r.top - 30 : r.bottom + 6) + 'px';
+}
+
+function guidePaint(t) {
+  gLastT = t;
+  document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow'));
+  const ar = document.querySelector('#guarrow'); if (ar) ar.classList.remove('show');
+  if (!t || !t.el) return;
+  t.el.classList.add('tutglow');
+  if (t.key !== gKey) {                       // 目标变了才滚动，别跟玩家抢滚动条
+    gKey = t.key;
+    try { t.el.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) { }
+  }
+  guideArrow(t.el, t.label);
+}
+function guideArrowOff() { const ar = document.querySelector('#guarrow'); if (ar) ar.classList.remove('show'); document.querySelectorAll('.tutglow').forEach((e) => e.classList.remove('tutglow')); }
+
+/* --------------------------------- 引导条 -------------------------------- */
+const guideOn = () => !!(Lab.tut.id && !Lab.tut.open && !Lab.tut.handOff);
+function guideRender(force) {
+  const box = document.querySelector('#guide'); if (!box) return;
+  const on = guideOn();
+  document.body.classList.toggle('guiding', on);
+  if (!on) { if (box.classList.contains('show')) { box.classList.remove('show'); box.innerHTML = ''; } gSig = ''; guideArrowOff(); return; }
+  const exp = tutExp(); if (!exp) { box.classList.remove('show'); return; }
+  const st = exp.steps[Lab.tut.step];
+  const t = guideTarget();
+  const done = !st;
+  const sig = [exp.id, Lab.tut.step, Lab.tut.pi, t && t.key, Lab.tut.nudge || '', gHint, done].join('|');
+  if (!force && sig === gSig) { guidePaintLast(); return; }
+  gSig = sig;
+  const pct = Math.round(Lab.tut.step / exp.steps.length * 100);
+  const hintText = gHint >= 1 && st && st.h ? '💡 ' + st.h : '';
+  let line3 = '';
+  if (Lab.tut.nudge) line3 = '<span class="gnudge">' + Lab.tut.nudge + '</span>';
+  else if (hintText) line3 = '<span class="ghint">' + hintText + '</span>';
+  else if (gLastDone && (Lab.time - gLastDone.at) < 6) line3 = '<span class="gok">✅ ' + gLastDone.text + '</span>';
+  else line3 = '<span class="gtip">照着「🎯」点就行。点错了我会当场提醒，不会扣你分。</span>';
+  box.innerHTML = '<div class="gwrap">'
+    + '<div class="grow1">'
+    + '<span class="gno">' + exp.no + '　第 ' + Math.min(Lab.tut.step + 1, exp.steps.length) + ' / ' + exp.steps.length + ' 步</span>'
+    + '<span class="gbar"><i style="width:' + pct + '%"></i></span>'
+    + '<span class="gtitle">' + exp.title + '</span>'
+    + '<span class="gsp"></span>'
+    + '<button id="gFull">📖 全览</button>'
+    + (gHint >= 2 && st && st.auto ? '<button id="gDemo" class="ghost">🎬 看一遍</button>' : '')
+    + '<button id="gRestart">↺ 重做</button>'
+    + '<button id="gOff" title="收起引导条（教程面板里还能找回来）">✕</button>'
+    + '</div>'
+    + '<div class="grow2"><b class="gtodo">👉 ' + (done ? '本实验全部完成！' : st.t) + '</b>'
+    + (t ? '<span class="gtgt">🎯 <b>' + t.label + '</b></span>' : '') + '</div>'
+    + '<div class="grow3">' + line3 + '</div>'
+    + '</div>';
+  box.classList.add('show');
+  const b1 = box.querySelector('#gFull'); if (b1) b1.addEventListener('click', () => tutToggle(true));
+  const b2 = box.querySelector('#gRestart'); if (b2) b2.addEventListener('click', () => { tutStart(exp.id, true); toast('已重置工作台，从第 1 步重做'); });
+  const b3 = box.querySelector('#gOff'); if (b3) b3.addEventListener('click', () => { Lab.tut.handOff = true; guideRender(true); toast('引导条已收起（点右上「📘 实验教程」可再打开）'); });
+  const b4 = box.querySelector('#gDemo'); if (b4) b4.addEventListener('click', () => { Lab.tut.demoN = (Lab.tut.demoN || 0) + 1; const r = tutDemo(); if (!r.ok) toast(r.why); });
+  guidePaint(t);
+}
+
+/* --------------------------- 接入：包住教程的状态机 --------------------------- */
+function guideWrapTut() {
+  const _start = window.tutStart, _reset = window.tutReset, _tick = window.tutTick, _toggle = window.tutToggle;
+  window.tutStart = function (id, restart) {
+    const r = _start(id, restart);
+    gActs = [];                                 // 摆仪器是教程自动做的，不算"玩家动作"（不然一开局就误报）
+    Lab.tut.pcache = {}; Lab.tut.pi = 0; Lab.tut.idle = 0; Lab.tut.nudge = null; Lab.tut.wrong = 0; Lab.tut.handOff = false;
+    gLastStep = -1; gHint = 0; gLastDone = null; gKey = '';
+    _toggle.call(null, false);                 // 手把手：面板让开，别挡着工作台
+    guideRender(true);
+    return r;
+  };
+  window.tutReset = function () { const r = _reset(); gActs = []; Lab.tut.handOff = false; guideRender(true); return r; };
+  window.tutToggle = function (on) { const r = _toggle(on); gSig = ''; guideRender(true); return r; };
+  window.tutTick = function (dt) {
+    const before = Lab.tut.step;
+    _tick(dt);
+    if (Lab.tut.step !== before && tutExp()) {
+      const prev = tutExp().steps[before];
+      if (prev) { gLastDone = { text: '第 ' + Lab.tut.step + ' 步完成：' + prev.t, at: Lab.time }; Lab.tut.pi = 0; }
+    }
+    guideTick(dt);
+  };
+}
+
+function guideInit() {
+  if (document.querySelector('#guarrow')) return;
+  const ar = document.createElement('div');
+  ar.id = 'guarrow'; ar.className = 'guarrow';
+  document.body.appendChild(ar);
+  window.addEventListener('scroll', () => guidePaintLast(), true);
+  window.addEventListener('resize', () => guidePaintLast());
+  guideInstall(); guideWrapTut(); guideRender(true);
+  // 教程模块导出的是"包装前"的函数引用 —— 这里换成包装后的，外部调用才走引导
+  Object.assign(window.CHEM, { tutStart: window.tutStart, tutReset: window.tutReset, tutTick: window.tutTick, tutToggle: window.tutToggle });
+}
+document.addEventListener('DOMContentLoaded', guideInit);
+
+Object.assign(window.CHEM, {
+  guideOn: guideOn, guideTarget: guideTarget, guidePlan: guidePlan, guideCoverage: guideCoverage,
+  guideTick: guideTick, guideRender: guideRender, guideCfg: gCfg,
+  guideActs: () => gActs.slice(),
+  guideState: () => {
+    const exp = tutExp(), t = guideTarget();
+    return {
+      on: guideOn(), mode: Lab.tut.open ? 'list' : 'hand', exp: exp ? exp.id : null, step: Lab.tut.step,
+      steps: exp ? exp.steps.length : 0, pi: Lab.tut.pi, wrong: Lab.tut.wrong || 0, demoN: Lab.tut.demoN || 0,
+      hint: gHint, idle: Math.round((Lab.tut.idle || 0) * 10) / 10, nudge: Lab.tut.nudge || null,
+      plan: exp ? guidePlan(exp, Lab.tut.step) : [],
+      target: t ? { key: t.key, label: t.label, kind: t.kind, tag: t.el ? (t.el.tagName + (t.el.dataset ? JSON.stringify(t.el.dataset) : '')) : null,
+        visible: !!(t.el && t.el.getBoundingClientRect().width > 0) } : null,
+    };
+  },
 });
 
 </script>
