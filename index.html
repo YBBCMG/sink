@@ -1081,6 +1081,8 @@ function startRun(seed) {
   G.huntT = rr(CFG.hunterEvery[0], CFG.hunterEvery[1]); G.spitT = rr(CFG.spitterEvery[0], CFG.spitterEvery[1]);
   G.lastGapC = W0 / 2;
   G.shakeT = 0; G.shakeMag = 0; G.flash = 0; G.redFlash = 0; G.newBest = false;
+  G.runT0 = G.t;                      /* 通关画面要报用时 */
+  G.cleared = false;                  /* 新一局：闸门复位 */
   /* 注意：这里不调 SFX.unlock()。AudioContext 只允许在真实用户手势里建，
      否则浏览器会刷一片 autoplay 警告；程序化开局（自检/截图）本就该静音。 */
   SFX.droneOn(); SFX.start();
@@ -1816,7 +1818,7 @@ function spawnSpitter() {
 function mobHP(base) {
   const k = clamp((G.depth - CFG.mobHpFrom) / CFG.mobHpSpan, 0, 1);
   const mul = 1 + k * (CFG.mobHpCap - 1);
-  return Math.round(base * mul * (NET.connected ? CFG.coopMul : 1) * ocMobHp());   // 双人 ×2 · 海域再乘一道
+  return Math.round(base * mul * (NET.connected ? CFG.coopMul : 1) * ocMobHp() * modeK());   // 双人 ×2 · 海域再乘一道
 }
 /* 剃刀鲸：2000m+。体型大、血厚、斜插猛冲，撞完不消失 —— 逼你真的挪位置，
    原地站桩放技能会先被它撞掉一层氧。 */
@@ -2374,7 +2376,9 @@ function stepPlay(dt) {
   /* Boss 战：米数不涨（玩家口径「boss 战的时候，米数不会增加」），三选一也押后到打完 */
   G.depth += G.boss ? 0 : dm;
   if (!G.boss && G.boosting) G.bonus += dm * (boostMulNow() - 1);
-  if (!G.boss && G.depth >= G.nextLv) levelUp();          // 到点就三选一（状态切 levelup，本帧剩余照跑）
+  /* 通关/阵亡那一帧别再开牌：终局霸主刚清空 G.boss，强化卡片会把「通关」页当场顶掉
+     （2026-09-26 探针 probe-modes 9b/11 抓到的真 bug，与 stepBoss 的先后顺序无关的闸门）*/
+  if (G.state === "play" && !G.cleared && !G.boss && G.depth >= G.nextLv) levelUp();          // 到点就三选一（状态切 levelup，本帧剩余照跑）
 
   /* --- 氧气（深渊压力：越深耗得越快）--- */
   const dk = G.diff = diffK(G.depth);
@@ -2932,7 +2936,7 @@ const ICE_CFG = { iceServers: [
 ] };
 
 /* ---------- 双人规则的地基：谁是活的、氧气在谁身上、死了怎么复活 ---------- */
-function coopHit() { return NET.connected ? CFG.coopMul : 1; }         // 咬 / 撞 / 电 的伤害倍率
+function coopHit() { return (NET.connected ? CFG.coopMul : 1) * modeK(); }         // 咬 / 撞 / 电 的伤害倍率
 function o2Get(q) { return q === p ? G.o2 : q.o2; }
 function o2Set(q, v) { const m = o2MaxNow(q); if (q === p) G.o2 = clamp(v, 0, m); else q.o2 = clamp(v, 0, m); }
 function o2Sub(q, v) { o2Set(q, o2Get(q) - v); }
@@ -3109,6 +3113,8 @@ function netSnapBuild() {
     ac2: [+p2.act.q.toFixed(1), +p2.act.e.toFixed(1), +p2.act.f.toFixed(1)], fl2: +p2.actFx.flare.toFixed(2),
     b2: { r: p2.route || null, mu: p2.mutate || "", t2: p2.t2 || "", sk: Object.assign({}, p2.sk) },
     mu: G.mutate || "", t2: G.t2 || "", sk: G.sk, ski: SKIN_I,
+    /* 难度/名字/通关：难度房主拍板客人只读；名字两边互看；clr=1 让客人也弹通关页 */
+    df: G.diffMode | 0, n1: G.myName || "", n2: NET.peerName || "", clr: G.state === "clear" ? 1 : 0,
     /* 房主自己那道普攻光束的远端副本：没有它客人永远看不到房主在打（只能看见怪自己掉血） */
     hb: [+G.aim.beam.toFixed(2), Math.round(G.aim.sx), Math.round(G.aim.sy), Math.round(G.aim.ex), Math.round(G.aim.ey)],
     a: [Math.round(p.x), Math.round(p.y), +p.invuln.toFixed(1), p.dead ? 1 : 0, +p.reviveT.toFixed(1)],
@@ -3168,6 +3174,10 @@ function netApplySnap() {
   G.lightR = L("lr", G.lightR); G.lightBonus = L("lb", G.lightBonus); G.lightEat = L("le", 0);
   G.bonus = L("bn", G.bonus); G.level = sb.lv; G.kills = sb.kn;
   /* 冲锋：fxh 是房主那份（客人照它画房主那条鱼的尾巴），d2 是客人自己那份（画自己） */
+  if (sb.df !== undefined) G.diffMode = clamp(sb.df | 0, 0, DIFFS.length - 1);   /* 难度听房主的 */
+  if (sb.n1 !== undefined) NET.hostName = sb.n1;
+  if (sb.n2 !== undefined) NET.peerName = sb.n2;
+  if (sb.clr && G.state === "play") runClear();                                  /* 房主打穿了，客人也弹 */
   if (sb.fxh) { G.actFx.dash = sb.fxh[0]; G.dashVX = sb.fxh[1]; G.dashVY = sb.fxh[2]; }
   if (sb.d2) { p2.actFx.dash = sb.d2[0]; p2.dashVX = sb.d2[1]; p2.dashVY = sb.d2[2]; }
   /* 海洋类型（第四期）：房主说现在是什么海，我这边就换成什么海（装饰跟着重摆一份） */
@@ -3279,6 +3289,7 @@ function netGuestFrame(dt) {
   /* 操作上行 30Hz */
   if (performance.now() - NET.lastInput >= 33) {
     NET.lastInput = performance.now();
+    if (G.myName !== NET.nmSent) { NET.nmSent = G.myName; netSend({ k: "nm", v: G.myName || "" }); }   /* 改名才发 */
     netSend({ k: "i", l: NET.in.l, x: Math.round(NET.in.ax), y: Math.round(NET.in.ay), b: NET.in.b, p: NET.in.p === null ? null : Math.round(NET.in.p) });
   }
 }
@@ -3387,6 +3398,7 @@ function netWireDC() {
   NET.dc.onclose = () => { NET.connected = false; p2.active = false; netLog(netLogText()); };
   NET.dc.onmessage = (ev) => {
     let m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+  if (m.k === "nm") { NET.peerName = String(m.v || "").slice(0, 10); return; }   /* 客人的名字 */
     if (m.k === "s") { NET.snapA = NET.snapB; NET.snapB = { s: m.s, t: performance.now() }; }
     else if (m.k === "i") { NET.in = { l: m.l | 0, p: m.p === null ? null : m.p, ax: m.x, ay: m.y, b: m.b | 0 }; }
     else if (m.k === "p") { NET.rtt = Math.max(0, (performance.now() | 0) - m.t); netSend({ k: "q", t: m.t }); }
@@ -3424,7 +3436,7 @@ function netLogText() {
     return role + " · 房间 " + NET.code + " · 准备室 · " + st + (NET.pub ? " · 已在大厅" : "");
   }
   if (!NET.connected) return role + " · 房间 " + NET.code + " · 等待连接…";
-  return role + " · 房间 " + NET.code + " · 已连接 · " + NET.rtt + "ms" + (NET.role === "host" ? " · 双人难度 ×" + CFG.coopMul : "");
+  return role + " · 房间 " + NET.code + " · 已连接 · " + NET.rtt + "ms" + (NET.role === "host" ? " · 双人难度 ×" + CFG.coopMul : "") + (G.diffMode !== 1 ? " · " + diffTag() : "");
 }
 async function netWaitIce(pc, ms) {
   if (pc.iceGatheringState === "complete") return;
@@ -3961,7 +3973,7 @@ function drawPlayer2() {
   ctx.strokeStyle = p2.dead ? "rgba(170,190,200,0.6)" : "rgba(150,255,235,0.72)";
   ctx.lineWidth = 2.2; ctx.stroke();
   ctx.restore();
-  const who = mine ? "我" : "潜伴";
+  const who = nameOf(mine);
   text(p2.dead ? who + " · 复活 " + Math.max(0, p2.reviveT).toFixed(1) + "s" : who,
        x, y - 38, 12, p2.dead ? "rgba(255,170,170,0.95)" : "rgba(180,255,240,0.95)", "center", 700);
 }
@@ -3976,8 +3988,8 @@ function update(dt) {
   updateFxRings(dt);
   updatePopups(dt);
   if (G.state === "play") stepPlay(dt);
-  else if (G.state === "over") stepTrail(dt);      // 结算画面：尾流慢慢散干净
-  if (G.state === "title" || G.state === "over") { G.speed += (CFG.baseSpeed - G.speed) * Math.min(1, dt * 2); }
+  else if (G.state === "over" || G.state === "clear") stepTrail(dt);      // 结算画面：尾流慢慢散干净
+  if (G.state === "title" || G.state === "over" || G.state === "clear") { G.speed += (CFG.baseSpeed - G.speed) * Math.min(1, dt * 2); }
   /* 行灯环：位置放在本体挪完之后再算（早一步算就会慢一帧 —— 探针量出 28~214px 的乱值）。
      这里在 update() 里，标题页 G.m 还是 null，必须先挡一道。 */
   if (G.state === "play" && G.m && G.m.lant) {
@@ -4644,6 +4656,7 @@ function drawHUD() {
     text(OCNOW.up + " ｜ " + OCNOW.down, W0 / 2, 160, 11, "rgba(175,215,238,0.72)", "center", 600);
   }
   /* 最佳 */
+  { const dd = diffNow(); text(diffTag(), W0 - 24, 60, 13.5, "rgba(" + dd.col.join(",") + ",0.9)", "right", 700); }
   text("最佳 " + Math.max(G.best, depth) + " m", W0 - 24, 38, 15, "rgba(140,190,220,0.7)", "right", 600);
   /* 深渊压力：越深越高，耗氧/障碍/伤害一起跟着涨 */
   const press = Math.round(diffK(depth) * 100);
@@ -4927,7 +4940,7 @@ const BOSSES = [
     d: "诱饵光球 · 冲锋撞击", sub: "追着你的那盏灯" },
   { id: "kraken", at: 4000, n: "深渊章鱼", col: [190, 140, 255], r: 70, hp: 1700, style: "kraken",
     d: "触手横扫 · 墨汁遮光 · 吸流", sub: "看不见它的时候最危险" },
-  { id: "whale",  at: 6000, n: "鲸落之主", col: [215, 240, 255], r: 78, hp: 2800, style: "whale",
+  { id: "whale",  at: 5000, final: true, n: "鲸落之主", col: [215, 240, 255], r: 78, hp: 2800, style: "whale",
     d: "骨甲护身 · 骨片风暴 · 鲸落冲击", sub: "先砸骨头，再砸它" }
 ];
 const BOSS_MAP = {}; for (const b of BOSSES) BOSS_MAP[b.id] = b;
@@ -4938,7 +4951,7 @@ function bossNow() { return G.boss; }
 function bossStart(i) {
   const B = BOSSES[i];
   if (!B) return;
-  const hp = Math.round(B.hp * (NET.connected ? CFG.coopMul : 1));
+  const hp = Math.round(B.hp * (NET.connected ? CFG.coopMul : 1) * modeK());
   ents.length = 0;                              /* 清场：Boss 战里没有小怪、没有障礁、连气泡也重来 */
   G.zones.length = 0; G.shards.length = 0;
   const e = {
@@ -5081,7 +5094,12 @@ function stepBoss(dt) {
   }
   const e = G.boss;
   G.bossT = (G.bossT || 0) + dt;
-  if (e.dead || e.hp <= 0) { bossEnd(); return; }
+  if (e.dead || e.hp <= 0) {
+    const fin = !!(BOSS_MAP[e.id] && BOSS_MAP[e.id].final);
+    bossEnd();
+    if (fin) runClear();          /* 5000m 终局霸主：打死它 = 通关 */
+    return;
+  }
   bossAI(e, dt);
 }
 /* Boss 的画法：三只三张脸，玩家一眼能分出自己在打谁 */
@@ -5213,7 +5231,7 @@ function drawWorld() {
     ctx.fillStyle = "rgb(" + q.col + ")"; ctx.fill();
   }
   ctx.globalAlpha = 1;
-  if (G.state === "play" || G.state === "pause" || G.state === "over") { drawTrail(); drawPlayer(); }
+  if (G.state === "play" || G.state === "pause" || G.state === "over" || G.state === "clear") { drawTrail(); drawPlayer(); }
   else { const bx = p.x, by = p.y; p.x = W0 / 2; p.y = 78 + Math.sin(G.t * 1.4) * 7; drawPlayer(); p.x = bx; p.y = by; }
   /* 拾取飘字 */
   for (const q of G.popups) {
@@ -6171,6 +6189,108 @@ function netBtnHit(lx, ly) {
   const r = netBtnRect();
   return lx >= r.x - 6 && lx <= r.x + r.w + 6 && ly >= r.y - 6 && ly <= r.y + r.h + 6;
 }
+/* ============ 难度模式 · 取名 · 成就（2026-09-26 玩家口径）====================
+   四个模式只乘「怪物血量 + 怪物打你的伤害」，和联机 coopMul（双人 ×2）**叠乘**：
+   双人 + 深渊 = ×2 × ×2 = ×4。普通 = 一切不变（默认）。
+   名字与成就落 store（= localStorage）—— 重进游戏还在；file:// 下 store 自动降级内存。 */
+const DIFFS = [
+  { id: "easy",   n: "简单", k: 0.5, col: [150, 255, 190], d: "怪物血量 · 伤害 ×0.5" },
+  { id: "normal", n: "普通", k: 1,   col: [170, 215, 255], d: "一切不变（默认）" },
+  { id: "hard",   n: "困难", k: 1.5, col: [255, 205, 140], d: "怪物血量 · 伤害 ×1.5" },
+  { id: "abyss",  n: "深渊", k: 2,   col: [255, 140, 175], d: "怪物血量 · 伤害 ×2 · 通关得「深渊征服者」" }
+];
+const DIFF_MAP = {}; for (const d of DIFFS) DIFF_MAP[d.id] = d;
+const ACHS = [{ id: "abyss", n: "深渊征服者", d: "深渊模式（×2）打穿 5000m" }];
+function diffNow() { return DIFFS[clamp(G.diffMode | 0, 0, DIFFS.length - 1)]; }
+function modeK() { return diffNow().k; }
+function diffTag() { const d = diffNow(); return d.k === 1 ? d.n : d.n + " ×" + d.k; }
+function setDiff(i) {
+  if (NET.connected && NET.role === "guest") return false;   /* 联机里难度由房主拍板 */
+  G.diffMode = clamp(i | 0, 0, DIFFS.length - 1);
+  store.set("sink.diff", diffNow().id);
+  return true;
+}
+function diffChipRect(i) {
+  const n = DIFFS.length;
+  const h = TOUCH ? clamp(cssPx(40), 42, 110) : 30;
+  const w = TOUCH ? Math.min(150, (W0 - 40) / n) : 112;
+  const gap = TOUCH ? 8 : 10;
+  const y = TOUCH ? (H0 - clamp(cssPx(44), 46, 120) - 22) - h - 12 : 330;
+  return { x: W0 / 2 - (n * w + (n - 1) * gap) / 2 + i * (w + gap), y: y, w: w, h: h };
+}
+function diffHit(x, y) {
+  for (let i = 0; i < DIFFS.length; i++) {
+    const r = diffChipRect(i);
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return i;
+  }
+  return -1;
+}
+/* 标题页那排难度按钮：选中的用这一档的颜色描边+底色，一眼看出现在是什么难度 */
+function drawDiffPicker() {
+  const cur = G.diffMode | 0;
+  const hot = TOUCH ? -1 : diffHit(G.input.ax, G.input.ay);
+  for (let i = 0; i < DIFFS.length; i++) {
+    const d = DIFFS[i], r = diffChipRect(i), on = i === cur;
+    ctx.save();
+    rrRect(r.x, r.y, r.w, r.h, r.h / 2);
+    ctx.fillStyle = on ? "rgba(" + d.col.join(",") + ",0.20)" : i === hot ? "rgba(30,74,110,0.9)" : "rgba(10,30,48,0.8)";
+    ctx.fill();
+    ctx.strokeStyle = on ? "rgba(" + d.col.join(",") + ",0.95)" : "rgba(120,170,205,0.45)";
+    ctx.lineWidth = on ? 2 : 1.2; ctx.stroke(); ctx.restore();
+    text(d.n, r.x + r.w / 2, r.y + r.h * 0.7, TOUCH ? clamp(cssPx(15), 15, 34) : 14,
+      on ? "rgb(" + d.col.join(",") + ")" : "rgba(180,215,240,0.85)", "center", 700);
+  }
+  const d = diffNow(), y0 = diffChipRect(0).y;
+  text("难度 · " + d.d, W0 / 2, y0 + 46, 12.5, "rgba(" + d.col.join(",") + ",0.92)", "center", 600);
+  if (NET.connected && NET.role === "guest") text("难度由房主决定", W0 / 2, y0 + 65, 11.5, "rgba(150,255,220,0.85)", "center", 600);
+}
+/* 成就（现在只有一条；存 store，重进还在） */
+function hasAch(id) { return (G.ach || []).indexOf(id) >= 0; }
+function giveAch(id) { if (!G.ach) G.ach = []; if (hasAch(id)) return false; G.ach.push(id); store.set("sink.ach", G.ach.join(",")); return true; }
+/* ---- 名字：用真的 <input>（中文输入法 / 手机键盘 / 粘贴都能用），标题页浮在画布上 ---- */
+function nmBox() { if (!G.nmEl) G.nmEl = document.getElementById("nm"); return G.nmEl; }
+function nmBind() {
+  const el = nmBox(); if (!el || el.dataset.b) return;
+  el.dataset.b = "1";
+  el.value = G.myName || "";
+  el.addEventListener("input", () => { G.myName = String(el.value || "").slice(0, 10); store.set("sink.name", G.myName); });
+  el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+  el.addEventListener("keydown", (ev) => {
+  if (document.activeElement && document.activeElement.id === "nm") return;   /* 在输入名字：别让空格顺手开局 */ ev.stopPropagation(); if (ev.key === "Enter") el.blur(); });
+}
+function syncNameBox() {
+  nmBind();
+  const el = nmBox(); if (!el) return;
+  const show = G.state === "title" && !G.helpOpen && !(NET.on || NET.waiting);
+  if (el.dataset.show !== String(show)) {
+    el.dataset.show = String(show);
+    el.style.display = show ? "block" : "none";
+    if (show && el.value !== (G.myName || "")) el.value = G.myName || "";
+    if (!show && document.activeElement === el) el.blur();
+  }
+  if (!show) return;
+  const r = canvas.getBoundingClientRect();
+  const w = Math.max(160, 250 * R.scale), h = Math.max(26, 30 * R.scale);
+  const x = r.left + R.ox + (W0 / 2) * R.scale - w / 2;
+  const y = r.top + R.oy + 401 * R.scale - h / 2;
+  const sig = [x | 0, y | 0, w | 0, h | 0].join(",");
+  if (sig === el.dataset.pos) return;
+  el.dataset.pos = sig;
+  el.style.left = (x | 0) + "px"; el.style.top = (y | 0) + "px";
+  el.style.width = (w | 0) + "px"; el.style.height = (h | 0) + "px";
+  el.style.fontSize = Math.max(12, Math.round(14 * R.scale)) + "px";
+}
+/* 名字牌文案：联机才画（单机不显示名字） */
+function nameOf(mine) {
+  if (mine) return G.myName || "我";
+  return (NET.role === "host" ? (NET.peerName || "潜伴") : (NET.hostName || "房主"));
+}
+/* 难度 / 名字 / 成就 存档读回（store = localStorage，所以重进还在） */
+G.diffMode = Math.max(0, DIFFS.findIndex((d) => d.id === String(store.get("sink.diff", "normal") || "normal")));
+if (!(G.diffMode >= 0)) G.diffMode = 1;
+G.myName = String(store.get("sink.name", "") || "").slice(0, 10);
+G.ach = String(store.get("sink.ach", "") || "").split(",").filter(Boolean);
+
 function drawTitle() {
   ctx.save();
   ctx.globalAlpha = 0.92;
@@ -6236,6 +6356,8 @@ function drawTitle() {
   }
   const pulse = 0.6 + 0.4 * Math.abs(Math.sin(G.t * 2.4));
   ctx.globalAlpha = pulse;
+  if (hasAch("abyss")) text("★ 深渊征服者", W0 / 2, 312, 13, "rgba(255,150,180,0.95)", "center", 700);
+  drawDiffPicker();
   /* 触屏把「最佳深度」并进这一行，给下面那条皮肤留出 44 屏幕像素的高度（手指按得着） */
   text(TOUCH ? "点击开始下潜 · 最佳 " + G.best + " m" : "点击 / 按空格  开始下潜",
     W0 / 2, 448, TOUCH ? clamp(cssPx(20), 19, 46) : 24, "#bfeaff", "center", 700);
@@ -6247,6 +6369,57 @@ function drawTitle() {
   }
   /* 皮肤条画在标题面板下方 */
   drawSkinPicker();
+}
+
+/* 通关（2026-09-26 玩家口径「到达 5000 米后召唤 Boss，击败后通关」）：
+   唯一带 final:true 的霸主被打死时进这里。深渊模式（×2）通关 → 成就「深渊征服者」。 */
+function runClear() {
+  if (G.state === "clear") return;
+  G.state = "clear";
+  G.cleared = true;
+  const depth = Math.floor(G.depth), d = diffNow();
+  const achNew = d.id === "abyss" ? giveAch("abyss") : false;
+  G.lastRun = { depth: depth, bonus: Math.round(G.bonus), clear: true, df: d.id, achNew: achNew,
+                sec: Math.max(0, G.t - (G.runT0 || 0)) };
+  G.newBest = depth > G.best;
+  if (G.newBest) { G.best = depth; store.set("sink.best", String(depth)); }
+  G.popups.length = 0;
+  burst(p.x, p.y, 44, "150,255,220");
+  fxRing(p.x, p.y, 30, 560, "150,255,220", 1.1, "ring");
+  G.flash = 0.5; G.shakeT = 0.5; G.shakeMag = 10; G.oceanT = 0;
+  SFX.level(); SFX.droneOff();
+}
+function drawClear() {
+  const L = G.lastRun || {}, d = DIFF_MAP[L.df] || diffNow();
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  panel(W0 / 2 - 300, 96, 600, 404);
+  ctx.restore();
+  ctx.save();
+  ctx.shadowColor = "rgba(150,255,225,0.6)"; ctx.shadowBlur = 28;
+  text("通  关", W0 / 2, 158, 46, "#eaffe9", "center", 700);
+  ctx.restore();
+  text("你打穿了这片海", W0 / 2, 188, 14, "rgba(160,235,215,0.9)", "center", 600);
+  text((L.depth || 0) + " m", W0 / 2, 252, 54, "#eafaff", "center", 700);
+  text("难度 " + (d.k === 1 ? d.n : d.n + " ×" + d.k) + "　·　用时 " + Math.round(L.sec || 0) + "s　·　得分 " + (L.bonus || 0),
+    W0 / 2, 292, 14, "rgba(" + d.col.join(",") + ",0.95)", "center", 600);
+  if (L.achNew) {
+    ctx.save(); ctx.shadowColor = "rgba(255,140,175,0.6)"; ctx.shadowBlur = 18;
+    text("★ 成就解锁 · 深渊征服者", W0 / 2, 342, 20, "#ffb3c8", "center", 700);
+    ctx.restore();
+  } else if (L.df === "abyss" && hasAch("abyss")) {
+    text("★ 深渊征服者（已拥有）", W0 / 2, 342, 16, "rgba(255,150,180,0.9)", "center", 600);
+  } else {
+    text("深渊模式（×2）通关还能拿「深渊征服者」", W0 / 2, 342, 13, "rgba(160,180,205,0.75)", "center", 500);
+  }
+  const r = homeBtnRect(), hot = homeBtnHit(G.input.ax, G.input.ay);
+  ctx.save();
+  rrRect(r.x, r.y, r.w, r.h, r.h / 2);
+  ctx.fillStyle = hot ? "rgba(30,74,110,0.95)" : "rgba(10,30,48,0.85)"; ctx.fill();
+  ctx.strokeStyle = "rgba(150,255,225,0.8)"; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.restore();
+  text("回到标题", r.x + r.w / 2, r.y + r.h * 0.72, 13.5, "#dfffe9", "center", 700);
+  text("点画面任意处也可以", W0 / 2, 520, 12, "rgba(140,190,220,0.65)", "center", 500);
 }
 
 function drawOver() {
@@ -6502,8 +6675,10 @@ function render() {
       drawHUD();
       ctx.restore();
     }
+    syncNameBox();
     if (G.state === "title") drawTitle();
     else if (G.state === "over") drawOver();
+    else if (G.state === "clear") drawClear();
     else if (G.state === "pause") drawPause();
     else if (G.state === "levelup") drawLevelUp();
   }
@@ -6576,10 +6751,13 @@ canvas.addEventListener("pointerdown", (ev) => {
   else { G.input.mouseDown = true; G.input.aimActive = true; G.input.ax = q.x; G.input.ay = q.y; }
   syncPointerBoost();
   if (G.state === "over" && homeBtnHit(q.x, q.y)) { G.state = "title"; return; }
+  if (G.state === "clear") { G.state = "title"; return; }        /* 通关页：点哪都回标题 */
   if (G.state === "title") {                       // 标题页先认规则弹层 → 联机 → 皮肤条 → 「开始下潜」
     if (G.helpOpen) { G.helpOpen = false; ev.preventDefault(); return; }   // 弹层开着：点哪都是关
     if (helpBtnHit(q.x, q.y)) { G.helpOpen = true; ev.preventDefault(); return; }
     if (netBtnHit(q.x, q.y)) { netPanelToggle(); ev.preventDefault(); return; }   // 联机（实时同屏合作）
+    const di = diffHit(q.x, q.y);
+    if (di >= 0) { setDiff(di); ev.preventDefault(); return; }
     const si = skinHit(q.x, q.y);
     if (si >= 0) { setSkin(si); ev.preventDefault(); return; }
   }
@@ -6823,6 +7001,8 @@ window.__SINK__ = {
   OCEANS, OCEAN_SPAN, stepOcean, applyOcean, ocGain, ocDrain, ocSpeed, ocMobHp, ocDmgOut, ocTaken, ocLight, cdRate,
   /* 第四期：深度 Boss */
   BOSSES, BOSS_MAP, stepBoss, bossStart, bossEnd, bossAI, bossShot, bossNow,
+  /* 2026-09-26：难度模式 / 取名 / 成就 / 通关 —— 探针走真函数 */
+  DIFFS, DIFF_MAP, diffNow, modeK, diffTag, setDiff, diffChipRect, diffHit, hasAch, giveAch, runClear, nameOf, syncNameBox, mobHP,
   oceanIds: () => OCEANS.map((o) => o.id), ocNow: () => (OCNOW ? OCNOW.id : null), decoN: () => (G.deco ? G.deco.p.length : 0),
   setDepth: (d) => { G.depth = d; },
   artOn, artOff, artMine, artLv, addZone, stepZones, zoneAt, aoeHit, chainBoom, spawnShards, stepShards, beamChain, stackGain, stackRamBonus, stackCutK, flareCenter, flareInside, spawnShards2: spawnShards,
@@ -7008,5 +7188,9 @@ function init() {
 }
 init();
 </script>
+<input id="nm" maxlength="10" autocomplete="off" spellcheck="false" placeholder="输入名字（联机可见）"
+       style="position:fixed;display:none;z-index:9;box-sizing:border-box;padding:0 8px;border-radius:9px;
+       border:1px solid rgba(140,215,255,0.55);background:rgba(8,24,38,0.94);color:#cfeeff;
+       font:600 14px/1.4 system-ui,sans-serif;text-align:center;outline:none">
 </body>
 </html>
