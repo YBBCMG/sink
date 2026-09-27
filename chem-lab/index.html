@@ -80,35 +80,36 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 .empty { position: relative; z-index: 3; color: var(--dim); padding: 96px 30px; text-align: center; }
 
 .appcard, .toolcard { position: absolute; bottom: 0; background: var(--panel2); border: 1px solid var(--line);
-  border-radius: 10px; padding: 7px; cursor: pointer; }
+  border-radius: 10px; padding: 6px; cursor: pointer; }
 .appcard { width: 168px; z-index: 2; }
 .toolcard { width: 104px; padding: 5px; z-index: 1; background: linear-gradient(180deg, #231b12, #1a140d); border-color: #4a3a22; }
 .appcard.sel { border-color: var(--acc); box-shadow: 0 0 0 1px #4fd1c555, 0 6px 20px #0008; }
 .appcard.onrig { border-color: #ffab4a; box-shadow: 0 0 0 1px #ffab4a44, 0 8px 22px #000a; }
+.appcard.rigtight { box-shadow: 0 0 0 1px #ffab4a33, 0 -6px 18px #ffab4a22; }   /* 窗口太矮、抬升被压缩时的视觉提示 */
 .toolcard.lit { border-color: #ff8a3d; box-shadow: 0 0 16px #ff7a2a55; }
 .toolcard.over { outline: 2px dashed #ffb35c; outline-offset: 3px; }
 .dragbar { cursor: grab; touch-action: none; }
 .dragging { opacity: .85; z-index: 44 !important; }
 .tutlift { z-index: 45 !important; }
-.apphead, .toolhead { display: flex; align-items: center; gap: 5px; font-size: 12px; margin-bottom: 4px; }
+.apphead, .toolhead { display: flex; align-items: center; gap: 5px; font-size: 12px; margin-bottom: 3px; }
 .toolhead { font-size: 11px; }
 .apphead .uid, .apphead .cap, .toolhead .uid { color: var(--dim); font-size: 10px; }
 .apphead .uid, .toolhead .uid { margin-left: auto; }
-.vessel { width: 100%; height: 110px; border-radius: 8px; display: block; background: #0a1116; }
-.toolcv { width: 100%; height: 92px; display: block; background: transparent; }
-.toolmeta { color: var(--dim); font-size: 9.5px; text-align: center; margin-top: 3px; line-height: 1.25; }
+.vessel { width: 100%; height: 86px; border-radius: 8px; display: block; background: #0a1116; }
+.toolcv { width: 100%; height: 58px; display: block; background: transparent; }
+.toolmeta { color: var(--dim); font-size: 9.5px; text-align: center; margin-top: 2px; line-height: 1.2; }
 .toolcard .ops { justify-content: center; }
-.toolcard .ops button { padding: 2px 5px; font-size: 10px; }
-.readouts { margin: 6px 0; font-size: 11px; }
+.toolcard .ops button { padding: 2px 4px; font-size: 10px; }
+.readouts { margin: 4px 0; font-size: 10.5px; }
 .ro { display: flex; gap: 6px; align-items: center; }
 .ro b.hot { color: var(--warm); }
-.contents { color: var(--dim); font-size: 10.5px; word-break: break-all; }
+.contents { color: var(--dim); font-size: 10px; word-break: break-all; }
 .contents.gas { color: #9fd8ff; }
-.warn { color: var(--bad); font-size: 11px; }
-.ops { display: flex; flex-wrap: wrap; gap: 4px; }
-.ops button { padding: 3px 6px; font-size: 11px; }
-.ops2, .ops3 { margin-top: 4px; }
-.heatrow { display: flex; flex-direction: column; gap: 1px; margin-top: 5px; }
+.warn { color: var(--bad); font-size: 10.5px; }
+.ops { display: flex; flex-wrap: wrap; gap: 3px; }
+.ops button { padding: 2px 5px; font-size: 10.5px; }
+.ops2, .ops3 { margin-top: 3px; }
+.heatrow { display: flex; flex-direction: column; gap: 1px; margin-top: 3px; }
 .heatrow .lbl { color: var(--dim); font-size: 10.5px; }
 .heatrow .lbl.hot { color: #ffb35c; }
 .heatrow i { color: var(--dim); font-size: 10px; font-style: normal; }
@@ -134,6 +135,7 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 #modal label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 12px; }
 #modal input, #modal select { width: 130px; }
 #modal .row { display: flex; gap: 8px; margin-top: 12px; }
+.ghint { background: #12303a; border: 1px solid #2f7d8c; color: #bff5ea; border-radius: 8px; padding: 6px 8px; font-size: 11.5px; margin-bottom: 6px; }
 #modal .row button { flex: 1; }
 #toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px); background: #16323c; border: 1px solid var(--acc); color: #d8fffa; padding: 8px 16px; border-radius: 20px; opacity: 0; transition: .2s; pointer-events: none; z-index: 60; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -2426,7 +2428,8 @@ function buildPtable() {
   g.innerHTML = '';
   ELEMENTS.forEach((e) => {
     const d = mk('button', 'el', '<b>' + e.sym + '</b><i>' + e.z + '</i>');
-    d.dataset.z = e.z; d.title = e.cn + ' ' + e.sym + '｜' + e.catName;
+    d.dataset.z = e.z; d.dataset.sym = e.sym;      // 手把手引导要靠它找到"该点哪个元素"（单质只在周期表上，试剂架里没有）
+    d.title = e.cn + ' ' + e.sym + '｜' + e.catName;
     d.style.gridColumn = e.group; d.style.gridRow = e.period <= 7 ? e.period : e.period === 8 ? 9 : 10;
     d.style.borderColor = e.color; d.style.background = 'color-mix(in srgb, ' + e.color + ' 16%, transparent)';
     d.addEventListener('click', () => showElement(e));
@@ -2435,6 +2438,7 @@ function buildPtable() {
 }
 function showElement(e) {
   const box = $('#elemInfo');
+  box.dataset.sym = e.sym;                          // 记住"现在摊开的是哪个元素"，引导靠它判断该点格子还是该点「取用」
   box.innerHTML = '<h4>' + e.z + ' 号 · ' + e.cn + ' <span class="sym">' + e.sym + '</span></h4>'
     + '<div class="kv"><span>类别</span><b>' + e.catName + '</b></div>'
     + '<div class="kv"><span>原子量</span><b>' + e.mass + ' g/mol</b></div>'
@@ -2493,9 +2497,12 @@ function buildShelf() {
 /* ------------------------------- 取用量弹窗 ------------------------------- */
 function askAmount(formula, def, cb, unit) {
   const s = subOf(formula);
+  const g = guideAmountFor(formula, def, unit);     // 手把手：这一步正好要加它 → 用量按步骤填好（默认 50 mL 过不了要 80 mL 的步骤）
+  def = g.v; unit = g.u;
   const isLiq = unit === 'mL' || s.st === 'l' || s.st === 'aq' || formula === 'H2O';
   const m = $('#modal');
   m.innerHTML = '<div class="card"><h4>' + s.name + '（' + formula + '）</h4>'
+    + (g.used ? '<div class="ghint">🎓 这一步需要 ' + def + ' ' + (isLiq ? 'mL' : 'g') + ' —— 已按步骤填好，直接点「加入」</div>' : '')
     + '<div class="kv"><span>摩尔质量</span><b>' + s.M + ' g/mol</b></div>'
     + '<div class="kv"><span>溶解度</span><b>' + solText(s) + '</b></div>'
     + (s.dHf ? '<div class="kv"><span>ΔfH°</span><b>' + s.dHf.v + ' kJ/mol' + (s.dHf.est ? '（估算）' : '') + '</b></div>' : '')
@@ -2539,8 +2546,31 @@ function renderBench(force) {
   assignZ();
   Lab.tools.forEach((t) => { bench.appendChild(mkToolCard(t)); });     // 器材在下层，容器在上层
   Lab.apps.forEach((app) => { bench.appendChild(mkAppCard(app)); });
+  layoutRig();                                                     // 架上去的容器：按器材"真实"高度抬升 + 不让它被顶出台面
   if (Lab.scrollEnd) { Lab.scrollEnd = false; ensureVisible(); }   // 只有"刚摆上来"才滚到新卡片，别跟引导抢滚动
   updateHeatStatus();
+}
+
+/** 架上去的容器该抬多高 —— 量器材卡片的**实际**高度（写死常数会算错，卡片会压住器材的火焰和标题）。
+ *  两条约束：
+ *    ① 抬升量不许把容器的顶推出台面（矮窗口里宁可视觉上重叠一点，也不能看不见、点不到）
+ *    ② 抬升量要留着器材自己的按钮行露在下面（否则「点燃 / 架上来 / 收走」被容器盖住） */
+function layoutRig() {
+  const bench = benchEl(); if (!bench) return;
+  const bh = bench.clientHeight || 0;
+  Lab.apps.forEach((app) => {
+    const card = bench.querySelector('.appcard[data-uid="' + app.uid + '"]'); if (!card) return;
+    const t = standOf(app);
+    if (!t) { card.style.bottom = (app.y || 0) + 'px'; return; }
+    const tc = bench.querySelector('.toolcard[data-uid="' + t.uid + '"]');
+    const th = (tc && tc.offsetHeight) || TOOL_TOP;
+    const ah = card.offsetHeight || 0;
+    const want = th - 4;
+    let lift = want;
+    if (bh && ah) lift = Math.max(0, Math.min(lift, bh - ah - 6));      // ① 顶不出台面
+    card.style.bottom = (lift + (app.y || 0)) + 'px';
+    card.classList.toggle('rigtight', lift < want - 2);                 // 保底压缩了 → 标一下，样式上给个暗示
+  });
 }
 
 /** 台面比窗口宽时，把最右边（刚摆的）那张卡片滚进视野 */
@@ -2600,7 +2630,8 @@ function mkToolCard(t) {
     + '<div class="ops"><button data-op="light"' + (t.on ? ' class="on"' : '') + '>' + (t.on ? '💨 熄灭' : '🔥 点燃') + '</button>'
     + '<button data-op="mount">⬆ 架上来</button>'
     + '<button data-op="deltool">✕ 收走</button></div>'
-    + '<div class="toolmeta">' + t.def.icon + ' ' + t.def.name + ' · ' + t.def.power + 'W · 最高 ' + K2C(t.def.flameT) + '°C · ' + t.def.fuel + '</div>';
+    + '<div class="toolmeta" title="' + t.def.name + '：' + t.def.power + ' W，火焰最高 ' + K2C(t.def.flameT) + ' °C，燃料 ' + t.def.fuel + '">'
+    + t.def.icon + ' ' + t.def.power + ' W · ≤' + K2C(t.def.flameT) + ' °C</div>';   // 元信息压到一行，卡片矮一截，架上去才不顶出台面
   card.querySelectorAll('.ops button').forEach((b) => b.addEventListener('click', (ev) => {
     ev.stopPropagation();
     if (b.dataset.op === 'light') { lightTool(t.uid, !t.on); renderBench(true); updateReadouts(); }
@@ -2874,13 +2905,15 @@ function toast(msg) {
 }
 
 /* ------------------------------- 主循环 -------------------------------- */
+/** 时间倍率：物理一点没改，只是把同一段时间快点过完（蒸发/结晶这类真实验要等几分钟的步骤，调到 ×60 就能几秒看完） */
+const SPEEDS = [1, 5, 20, 60];
 let lastT = 0, acc = 0;
 function frame(now) {
   const dtReal = Math.min(0.05, (now - lastT) / 1000 || 0.016);
   lastT = now;
   acc += dtReal;
   const step = 1 / 60;
-  const sp = Math.max(1, Math.min(20, Lab.speed || 1));   // 时间倍率：真实物理，只是把同一段时间快点过完
+  const sp = Math.max(1, Math.min(SPEEDS[SPEEDS.length - 1], Lab.speed || 1));
   let guard = 0;
   while (acc >= step && guard++ < 4) { for (let k = 0; k < sp; k++) labStep(step); acc -= step; }
   Lab.apps.forEach((app) => { initViewState(app); if (app.canvas) renderApparatus(app.canvas, app, dtReal); });
@@ -2917,7 +2950,6 @@ function boot() {
     Lab.guideOn = !Lab.guideOn; renderTasks(); save();
     toast(Lab.guideOn ? '引导已打开' : '引导已关闭（纯沙盒）');
   });
-  const SPEEDS = [1, 5, 20];
   $('#speedBtn').addEventListener('click', () => {
     Lab.speed = SPEEDS[(SPEEDS.indexOf(Lab.speed || 1) + 1) % SPEEDS.length];
     $('#speedBtn').textContent = '⏩ 时间 ×' + Lab.speed;
@@ -3012,7 +3044,7 @@ const TUT = [
       mkStep('加 2 g 木炭到氧气里，点燃，看它剧烈燃烧',
         '试剂架搜「碳」→ 加入锥形瓶 → 点「⚡ 点燃」（氧气助燃，燃烧比在空气里剧烈得多）',
         () => gasHere('CO2', 1e-4),
-        () => { addReagent(tutUid(1), 'C', 0.1, 'g'); ignite(tutUid(1)); }),
+        () => { addReagent(tutUid(1), 'C', 2, 'g'); ignite(tutUid(1)); }),
     ],
     see: '紫黑色固体受热后变墨绿；试管口冒出气泡（氧气）；木炭在氧气里剧烈燃烧、发白光、放热。',
     eq: ['2KMnO₄ --加热--> K₂MnO₄ + MnO₂ + O₂↑', 'C + O₂ --点燃--> CO₂'],
@@ -3423,7 +3455,7 @@ function tutStart(id, restart) {
     delete Lab.tut.expDone[id];
     Lab.tut.pos[id] = 0;
   }
-  Lab.apps.length = 0; Lab.selected = null;
+  Lab.apps.length = 0; Lab.tools.length = 0; Lab.selected = null;   // 器材也要清：上个实验点着的酒精灯留在台面上，引导就会指着"一盏已经亮着的灯"让你去点燃，一点反而熄灭
   Lab.tut.uids = [];
   exp.bench.forEach((k) => { const a = addApparatus(k); Lab.tut.uids.push(a ? a.uid : ''); });
   Lab.tut.id = id;
@@ -3659,6 +3691,46 @@ function guidePlan(exp, idx) {
   return Lab.tut.pcache[key];
 }
 
+/** 手把手：这一步的计划里正好要加这种试剂 → 取用量弹窗直接按步骤填好。
+ *  （默认 50 mL 过不了要 80 mL 的步骤；中和滴定那类"多一滴就过头"的步骤更不能拿默认值去撞） */
+function guideAmountFor(formula, dflt, unit) {
+  const r = { v: dflt, u: unit, used: false };
+  try {
+    const exp = tutExp();
+    if (!exp || !guideOn()) return r;
+    const plan = guidePlan(exp, Lab.tut.step);
+    const it = plan[guidePlanNext(plan)];
+    if (it && it.k === 'addReagent' && it.f === formula && Number(it.v) > 0) {
+      r.v = it.v; if (it.u) r.u = it.u; r.used = true;
+    }
+  } catch (e) { }
+  return r;
+}
+
+/** 计划里"想要的实物状态已经成立"的项 —— 玩家自己先点着了灯 / 先架上去了，就别再指着让点第二遍
+ *  （否则引导会说"点🔥点燃"，而那盏灯正亮着，一点就变成熄灭，还判你点错） */
+function guideSatisfied(w) {
+  if (!w) return false;
+  if (w.k === 'addTool') return Lab.tools.some((t) => t.hid === w.hid);
+  if (w.k === 'lightTool') { const t = Lab.tools.find((x) => x.hid === w.hid); return !!t && !!t.on === !!w.lit; }
+  if (w.k === 'placeOn') {
+    const a = appByUid(w.uid); if (!a || !a.standOn) return false;
+    const t = toolByUid(a.standOn); return !!t && (!w.toolHid || t.hid === w.toolHid);
+  }
+  if (w.k === 'setPower') { const a = appByUid(w.uid); return !!a && !!a.elec === !!w.on; }
+  if (w.k === 'setHeater') { const a = appByUid(w.uid); return !!a && !!a.heater && !!a.heater.on === !!w.on; }
+  return false;        // 加料 / 搅拌 / 测量 / 倾倒 / 过滤 / 导气 / 点燃 / 清空 / 摆仪器：只能真做，不能跳过
+}
+
+/** 把计划的指针推过"已完成 + 已经满足"的项，返回下一个真正要让玩家做的项 */
+function guideAdvance(plan) {
+  const d = (Lab.tut.pdone || (Lab.tut.pdone = {}));
+  let pi = Lab.tut.pi || 0;
+  while (pi < plan.length && (d[pi] || guideSatisfied(plan[pi]))) { d[pi] = true; pi++; }
+  Lab.tut.pi = pi;
+  return pi;
+}
+
 /** 覆盖率自检：49 步里有多少步能指出"点哪个控件"（用各实验自己的台面、按顺序推进状态再推导，状态相关的 auto 才准） */
 function guideCoverage() {
   const keep = { id: Lab.tut.id, open: Lab.tut.open, step: Lab.tut.step, done: Object.assign({}, Lab.tut.done), pos: Object.assign({}, Lab.tut.pos), expDone: Object.assign({}, Lab.tut.expDone) };
@@ -3696,16 +3768,40 @@ function guideTarget() {
   const speedBtn = document.querySelector('#speedBtn');
   if (!st) return { key: 'alldone', el: speedBtn, label: '🎉 这个实验做完了 —— 点「📖 全览」写实验报告', kind: 'done' };
   const plan = guidePlan(exp, Lab.tut.step);
-  const a = plan[Lab.tut.pi];
+  const a = plan[guideAdvance(plan)];
   const mAmt = document.querySelector('#modal.show #amtOk');
   const mTgt = document.querySelector('#modal.show .tgt');
   // 有对话框挡着，但它不是这一步要用的 → 先让玩家关掉
-  if (!a) return { key: 'wait' + (Lab.speed || 1), el: (Lab.speed || 1) < 20 ? speedBtn : null, label: (Lab.speed || 1) < 20 ? '这一步会自动发生 —— 想快点就点「⏩ 时间」' : '已经在 ×20 最快速度了 —— 看着它发生就行', kind: 'wait' };
+  if (!a) {
+    const sp = Lab.speed || 1, top = (typeof SPEEDS !== 'undefined') ? SPEEDS[SPEEDS.length - 1] : 20;
+    return {
+      key: 'wait' + sp, el: sp < top ? speedBtn : null, kind: 'wait',
+      label: sp < top
+        ? '这一步自己会进行 —— 点「⏩ 时间」调到 ×' + top + '，几秒就能看完'
+        : '已经在 ×' + top + ' 最快了 —— 真实实验要等几分钟，看着它发生就行',
+    };
+  }
   if (a.k !== 'addReagent' && mAmt) return { key: 'closex', el: document.querySelector('#amtCancel'), label: '这一步不需要加入药品 → 先点「取消」', kind: 'close' };
   if (a.k === 'addReagent') {
-    if (mAmt) return { key: 'amt', el: mAmt, label: '用量用默认值就行 → 点「加入 ' + gAppName(a.uid) + '」', kind: 'modal' };
+    if (mAmt) {
+      const inp = document.querySelector('#modal #amtVal'), un = document.querySelector('#modal #amtUnit');
+      const wv = Number(a.v), wu = a.u || 'g';
+      const isOk = !!inp && Math.abs(Number(inp.value) - wv) < 1e-6 && (!un || un.value === wu);
+      if (isOk) return { key: 'amtok', el: mAmt, label: '用量 ' + wv + ' ' + wu + ' 就是这一步要的 → 点「加入 ' + gAppName(a.uid) + '」', kind: 'modal' };
+      return { key: 'amtfix', el: inp || mAmt, want: { v: wv, u: wu }, label: '把用量改成 ' + wv + ' ' + wu + '（这一步不能多也不能少）→ 再点「加入 ' + gAppName(a.uid) + '」', kind: 'amount' };
+    }
     if (Lab.selected !== a.uid && gCard(a.uid)) return { key: 'sel:' + a.uid, el: gCard(a.uid), label: '先点一下「' + gAppName(a.uid) + '」卡片，把它选中', kind: 'select' };
     const s = subOf(a.f) || {};
+    // 单质（Fe / Mg / Cu / C / S…）根本不在试剂架里 —— 只在左边元素周期表上，引导必须指对地方
+    if (s.isElem) {
+      const el = (typeof ELEM_BY_SYM !== 'undefined' && ELEM_BY_SYM.get) ? ELEM_BY_SYM.get(a.f) : null;
+      const sym = el ? el.sym : a.f;
+      const info = document.querySelector('#elemInfo');
+      const tb = document.querySelector('#takeElem');
+      if (tb && info && info.dataset.sym === sym) return { key: 'take:' + sym, el: tb, label: '点「取用 5 g ' + (el ? el.cn : sym) + '」→ 弹窗里点「加入 ' + gAppName(a.uid) + '」', kind: 'element' };
+      const cell = document.querySelector('#ptable [data-sym="' + sym + '"]');
+      if (cell) return { key: 'el:' + sym, el: cell, label: '左边「元素周期表」→ 点「' + sym + ' ' + (el ? el.cn : '') + '」（单质不在试剂架上，得从周期表取）', kind: 'element' };
+    }
     const chip = document.querySelector('#shelf [data-sub="' + a.f + '"]');
     if (chip) return { key: 'chip:' + a.f, el: chip, label: '右边试剂架 → 点「' + a.f + ' ' + (s.name || '') + '」', kind: 'reagent' };
     return { key: 'search:' + a.f, el: document.querySelector('#shelfSearch'), label: '右边试剂架搜索框里搜「' + (s.name || a.f) + '」', kind: 'search' };
@@ -3718,7 +3814,13 @@ function guideTarget() {
   if (a.k === 'placeOn') {
     const t = Lab.tools.find((x) => x.hid === a.toolHid) || Lab.tools[0] || null;
     const mb = t ? gToolBtn(t.uid, 'mount') : null;
-    if (mb) return { key: 'mount:' + t.uid, el: mb, label: '点「' + t.def.name + '」卡片上的「⬆ 架上来」，把' + gAppName(a.uid) + '架到它上面（也可以直接把容器拖到灯上）', kind: 'place' };
+    if (mb) {
+      // 「⬆ 架上来」架的是**当前选中的**那个容器 —— 选错了就会把别的器皿架上灯，玩家照着点也做不完
+      if (a.uid && Lab.selected !== a.uid && gCard(a.uid)) {
+        return { key: 'sel:' + a.uid, el: gCard(a.uid), label: '先点一下「' + gAppName(a.uid) + '」卡片把它选中 —— 「⬆ 架上来」架的是选中的那一个（现在选的是「' + gAppName(Lab.selected) + '」）', kind: 'select' };
+      }
+      return { key: 'mount:' + t.uid, el: mb, label: '点「' + t.def.name + '」卡片上的「⬆ 架上来」，把' + gAppName(a.uid) + '架到它上面（也可以直接把容器拖到灯上）', kind: 'place' };
+    }
     const ab = document.querySelector('#addTools button[data-hid="' + (a.toolHid || 'lamp') + '"]');
     if (ab) return { key: 'addtool:' + (a.toolHid || 'lamp'), el: ab, label: '先在「器材」行点一件加热器材摆上台面', kind: 'tool' };
   }
@@ -3816,10 +3918,13 @@ function guideTick(dtReal) {
       gActs.forEach((act) => {
         Lab.tut.idle = 0; gHint = 0;
         if (act.step !== Lab.tut.step) return;                          // 上一步的动作，别拿这一步的清单去评判
-        if (act.k === 'stir') return;                                   // 搅拌无害，不评判
         let hit = -1;                                                   // 同一步里的动作顺序可以不同：命中任意未完成项都算对
-        for (let i = 0; i < plan.length; i++) { if (!d[i] && guideMatch(act, plan[i])) { hit = i; break; } }
-        if (hit >= 0) { d[hit] = true; Lab.tut.pi = guidePlanNext(plan); Lab.tut.nudge = null; return; }
+        for (let i = 0; i < plan.length; i++) {
+          if (d[i] && !guideSatisfied(plan[i])) continue;               // 已经做过的项不再重复接受（但"刚做完就自然满足"的项要收下，别把玩家自己的正确操作判成多余）
+          if (guideMatch(act, plan[i])) { hit = i; break; }
+        }
+        if (hit >= 0) { d[hit] = true; guideAdvance(plan); Lab.tut.nudge = null; return; }
+        if (act.k === 'stir') return;                                   // 搅拌无害：这一步用不上它，也不判玩家错
         if (!Lab.tut.nudge || (Lab.time - Lab.tut.nudgeAt) > 6) {        // 同一类错别刷屏
           Lab.tut.nudge = '⚠ 刚才那步不是必需的：' + gVerb(act) + ' —— 这一步要做的是「' + cur.t + '」';
           Lab.tut.nudgeAt = Lab.time;
@@ -3827,6 +3932,7 @@ function guideTick(dtReal) {
           Lab.log.push({ k: 'warn', at: Lab.time, text: '🎓 引导：' + Lab.tut.nudge });
         }
       });
+      guideAdvance(plan);          // 玩家没做、但实物状态本来就成立的项 → 直接跳过，别指着让点第二遍
       gActs = [];
     }
   }
@@ -3868,9 +3974,11 @@ function guideArrow(el, label) {
   if (!vis) { ar.classList.remove('show'); return; }
   ar.textContent = '👆 ' + (label || '点这里');
   ar.classList.add('show');
-  const above = r.top > 96;
-  ar.style.left = Math.max(8, Math.min(window.innerWidth - 260, r.left + r.width / 2 - 90)) + 'px';
-  ar.style.top = (above ? r.top - 30 : r.bottom + 6) + 'px';
+  // 弹窗里的目标（「加入」按钮）一律把气泡放到下面 —— 放上面会盖住「用量 / 单位」那两行，玩家正要看它们
+  const inModal = !!(el.closest && el.closest('#modal'));
+  const above = !inModal && r.top > 96;
+  ar.style.left = Math.max(8, Math.min(window.innerWidth - 300, r.left + r.width / 2 - 90)) + 'px';
+  ar.style.top = (above ? Math.max(58, r.top - 30) : r.bottom + 6) + 'px';
 }
 
 function guidePaint(t) {
@@ -4016,7 +4124,7 @@ Object.assign(window.CHEM, {
       steps: exp ? exp.steps.length : 0, pi: Lab.tut.pi, wrong: Lab.tut.wrong || 0, demoN: Lab.tut.demoN || 0,
       hint: gHint, idle: Math.round((Lab.tut.idle || 0) * 10) / 10, nudge: Lab.tut.nudge || null,
       plan: exp ? guidePlan(exp, Lab.tut.step) : [],
-      target: t ? { key: t.key, label: t.label, kind: t.kind, tag: t.el ? (t.el.tagName + (t.el.dataset ? JSON.stringify(t.el.dataset) : '')) : null,
+      target: t ? { key: t.key, label: t.label, kind: t.kind, want: t.want || null, tag: t.el ? (t.el.tagName + (t.el.dataset ? JSON.stringify(t.el.dataset) : '')) : null,
         visible: !!(t.el && t.el.getBoundingClientRect().width > 0) } : null,
     };
   },
