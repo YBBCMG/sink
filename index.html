@@ -1023,8 +1023,17 @@ const SFX = (() => {
       build: (c, o, t0) => buildSample(c, o, t0, "wilhelm") }
   ];
   const pickOf = (list, id) => list.find((s) => s.id === id) || list[1] || list[0];
-  let hurtId = store.get("sink.sfxHurt", "steve");      /* 默认 = 新加的（玩家要的就是这两段）；原版一键切回 */
-  let deathId = store.get("sink.sfxDeath", "wilhelm");
+  /* 玩家口径③（2026-09-27）：「音效默认原版」——
+     出厂就是原版那两段；新加的（史蒂夫 / 威廉尖叫）留在面板里一键切。
+     老存档里点过芯片的一并归位：靠 sink.sfxVer 做**一次性**迁移，
+     而不是每次启动都覆盖玩家自己选的那段（那会变成"选了也白选"）。 */
+  const SFX_DEF_VER = "2";
+  if (store.get("sink.sfxVer", "") !== SFX_DEF_VER) {
+    store.set("sink.sfxVer", SFX_DEF_VER);
+    store.set("sink.sfxHurt", "orig"); store.set("sink.sfxDeath", "orig");
+  }
+  let hurtId = store.get("sink.sfxHurt", "orig");
+  let deathId = store.get("sink.sfxDeath", "orig");
   const hurtDef = () => pickOf(HURTS, hurtId), deathDef = () => pickOf(DEATHS, deathId);
   function play(def, kind) {
     const c = ensure(); if (!c || (muted && !forced)) return false;
@@ -5025,6 +5034,17 @@ function drawHUD() {
   ctx.fillStyle = "rgba(140,225,255,0.75)"; ctx.fill();
   text("1000m", pbx - 6, pby - 6, 11, "rgba(140,200,230,0.55)", "right", 600);
   if (TOUCH && G.input.touches > 0) text("双指 = 加速（也可以按住左下「加速」）", W0 / 2, BOOST_BTN.y - BOOST_BTN.r - 12, 12, "rgba(140,200,230,0.6)", "center", 600);
+  /* 静音牌子（2026-09-27 玩家口径③）：按 M 之后**整个游戏静音，屏幕上原本一点反馈都没有** ——
+     玩家会以为「游戏内没有触发音效」，然后在黑屏里找 bug。
+     位置挑过：右上角是「最佳 / 压力 / 技能芯片」，左上角是触屏的暂停键，正下方中间是触屏的加速键 ——
+     都会撞。氧气条底下这一条（左下角）两头都空着，而且氧气条本来就是玩家一直盯的地方。
+     第一版挂在右上角，跟「最佳 0 m」叠成一团（截图当场抓到的）。 */
+  if (SFX.muted) {
+    ctx.save();
+    ctx.shadowColor = "rgba(255,170,90,0.45)" ; ctx.shadowBlur = 10;
+    text(TOUCH ? "静音中（没声音）" : "静音中 · 按 M 开启音效", 24, H0 - 14, 12, "rgba(255,190,120,0.95)", "left", 700);
+    ctx.restore();
+  }
   drawActives();
   drawTouchCtl();
 }
@@ -6574,10 +6594,13 @@ function drawSfxPanel() {
   ctx.strokeStyle = "rgba(140,215,255,0.6)"; ctx.lineWidth = 1.4; ctx.stroke(); ctx.restore();
   text(TOUCH ? "▶ 连放一遍" : "▶ 连放一遍：受击 → 死亡", W0 / 2, pr.y + pr.h * 0.7,
     TOUCH ? clamp(cssPx(12), 12, 24) : 13.5, "#cfeeff", "center", 700);
-  /* 页脚：手机上不写「M 键」（手机没这个键），也把句子砍短 —— 26 个字的提示在 0.4 倍画布上会冲出面板 */
-  text(TOUCH ? "当前「" + SFX.shortName("hurt") + "」+「" + SFX.shortName("death") + "」"
-             : "当前「" + SFX.hurtName() + "」+「" + SFX.deathName() + "」· M 键静音 · 点别处关闭",
-    W0 / 2, pr.y + pr.h + 20, TOUCH ? clamp(cssPx(10), 10, 22) : 11.5, "rgba(140,190,220,0.72)", "center", 500);
+  /* 页脚：手机上不写「M 键」（手机没这个键），也把句子砍短 —— 26 个字的提示在 0.4 倍画布上会冲出面板。
+     静音时补一句：试听照放、游戏里没声 —— 不写明的话这条会被当成「游戏内没有触发音效」报上来。 */
+  text((TOUCH ? "当前「" + SFX.shortName("hurt") + "」+「" + SFX.shortName("death") + "」"
+              : "当前「" + SFX.hurtName() + "」+「" + SFX.deathName() + "」· M 键静音 · 点别处关闭")
+       + (SFX.muted ? (TOUCH ? "　·　静音中" : "　·　静音中（试听照放，游戏内无声）") : ""),
+    W0 / 2, pr.y + pr.h + 20, TOUCH ? clamp(cssPx(10), 10, 22) : 11.5,
+    SFX.muted ? "rgba(255,190,140,0.85)" : "rgba(140,190,220,0.72)", "center", 500);
 }
 /* ============ 难度模式 · 取名 · 成就（2026-09-26 玩家口径）====================
    四个模式只乘「怪物血量 + 怪物打你的伤害」，和联机 coopMul（双人 ×2）**叠乘**：
