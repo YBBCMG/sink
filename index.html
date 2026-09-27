@@ -4082,7 +4082,7 @@ const SKINS = [
     }
   },
   {
-    id: "fatfish", name: "蓝色大肥鱼", desc: "我本人",
+    id: "fatfish", name: "蓝色大肥鱼", desc: "",   /* 2026-09-26 玩家口径：把「我本人」那行小字删了，只留名字 */
     /* 2026-09-25 v3（玩家口径）：换成真立绘 —— 右边镜像补全的 chibi，抠了背景、边缘羽化。
        画法：图心对齐鱼心，跟着摆尾轻轻摇一点；碰撞箱（CFG.playerR=13）一个字没动。 */
     paint(c, t, s, wig) {
@@ -4259,7 +4259,7 @@ function drawSkinPicker() {
     if (TOUCH) text(SKINS[i].name, r.x + r.w / 2, r.y + r.h * 0.8, fs, on ? "#eafaff" : "rgba(205,232,250,0.88)", "center", on ? 700 : 500);
     else {
       text(SKINS[i].name, r.x + 44, r.y + 15, 12.5, on ? "#eafaff" : "rgba(205,232,250,0.88)", "left", on ? 700 : 500);
-      text(SKINS[i].desc, r.x + 44, r.y + 28, 10.5, on ? "rgba(170,225,250,0.9)" : "rgba(140,190,215,0.7)", "left", 500);
+      if (SKINS[i].desc) text(SKINS[i].desc, r.x + 44, r.y + 28, 10.5, on ? "rgba(170,225,250,0.9)" : "rgba(140,190,215,0.7)", "left", 500);
     }
   }
   text(TOUCH ? "点一下换一条鱼 · 当前「" + skin().name + "」" : "皮肤：点一下换一条鱼 · S 键循环 · 当前「" + skin().name + "」",
