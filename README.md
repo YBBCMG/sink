@@ -800,12 +800,14 @@ test/probe-coop5.mjs          联机白屏复现 + 验收（两个真页面真 W
 
 **逐字节原件**，没转码没重采样；内嵌由 `node tools/embed-sfx.mjs` 生成（幂等，只替换 `SFX-B64-START/END` 之间那块）。`index.html` 因此从 508 KB 长到 **636 KB**。
 
-**一条实测踩出来的坑**：oof 原件**前面挂着 0.537s 静音、尾巴 0.619s 静音**（整段 1.51s）。原样播 = 挨咬半秒之后才哼 —— 所以播放时只取有声那段：`off 0.537 / len 0.40`。威廉首尾贴边，取 `0 … 1.53s`。两段各自给过增益（`g 0.24 / 0.18`），落回本作其它音的响度带（不是把原文件直接怼进喇叭）：
+**一条实测踩出来的坑**：oof 原件**前面挂着 0.537s 静音、尾巴 0.619s 静音**（整段 1.51s）。原样播 = 挨咬半秒之后才哼 —— 所以播放时只取有声那段：`off 0.537 / len 0.40`。威廉首尾贴边，取 `0 … 1.53s`。两段各自给过增益（`g 0.40 / 0.18`）—— 不是把原文件直接怼进喇叭；受击那一档是玩家听完后要求「声音放大一点」抬上去的（0.24 → **0.40**，RMS 0.019 → 0.030）。
 
 | 音 | 现场实测（离线渲染） | 原版对照 |
 |---|---|---|
-| oof 实录 | 峰 0.117 · RMS 0.018 · **头部静音 3ms** · 可闻 0.32s | 峰 0.166 · RMS 0.020 |
-| 尖叫实录 | 峰 0.131 · RMS 0.032 · 可闻 1.05s | 峰 0.189 · RMS 0.031 |
+| oof 实录 | 峰 **0.195** · RMS **0.030** · **头部静音 3ms** · 可闻 0.33s | 峰 0.163 · RMS 0.019 |
+| 尖叫实录 | 峰 0.131 · RMS 0.032 · 可闻 1.05s | 峰 0.179 · RMS 0.031 |
+
+芯片名字只留职业名（**史蒂夫** / **威廉尖叫**）—— 「（远古 MC）」这种括号后缀玩家点名不要，真原件 / 兜底由角标「录 / 合」说。
 
 **合成那两段降级成兜底**（`SAMPLES[*].synth`）：解码失败 / 还没解完就挨打 → 放合成版，**绝不哑火**。芯片角上的「录」= 真原件已解码、「合」= 退回合成兜底 —— 长眼睛的诚实标记。ogg 是 Vorbis，Chromium / Firefox 解得开，老 Safari 解不开，这时就靠这条兜底。
 
@@ -817,9 +819,9 @@ test/probe-coop5.mjs          联机白屏复现 + 验收（两个真页面真 W
 **只给自己的鱼响**：单机 / 房主 = `p`，房员 = 二号位（`myFish()`）—— 队友挨咬不该在你耳朵里哼一声。房员那条鱼是房主模拟的，所以走 `netFxToGuest("hurt" / "down")` 补一条，两边各自出声；全灭那一下由 `gameOver()` 收尾，`killPlayer` 不再叠一声。
 
 **探针**：`node test/probe-sfx.mjs`（**36 条**，音效包 API / 面板 / 触屏 / 离线波形）。
-第二轮的硬证据在 **`node test/probe-sfx-real.mjs`（19 条）**：① 内嵌 base64 与 `assets/sfx/` 原件 **sha256 逐字节对拍**；② 页面持有的那份再对一次；③ `preload()` 真解码 + 解码参数（48kHz/2ch/1.5093s、48kHz/1ch/1.6235s）；④ 真挨一下 / 倒下 → `stats().hurtSrc === "sample"`（不是兜底）；⑤ **波形对拍：离线渲染 == 原件 0.537~0.937s 那一段 × 0.24，最大偏差 0**；⑥ 响度落回原版同档；⑦ 把内嵌字节挖空的副本 → 走合成兜底且**仍有声**（Safari 那条路）。
+第二轮的硬证据在 **`node test/probe-sfx-real.mjs`（20 条）**：① 内嵌 base64 与 `assets/sfx/` 原件 **sha256 逐字节对拍**；② 页面持有的那份再对一次；③ `preload()` 真解码 + 解码参数（48kHz/2ch/1.5093s、48kHz/1ch/1.6235s）；④ 真挨一下 / 倒下 → `stats().hurtSrc === "sample"`（不是兜底）；⑤ **波形对拍：离线渲染 == 原件 0.537~0.937s 那一段 × 增益，最大偏差 0**；⑥ 响度（受击已抬高到 RMS 0.030 > 原版 0.019，仍 ≤ 0.5 峰值）；⑦ 把内嵌字节挖空的副本 → 走合成兜底且**仍有声**（Safari 那条路）。
 浏览器无人值守放不出声，所以判据走**离线渲染**：`SFX.renderOffline()` 把**同一张图纸**丢进 `OfflineAudioContext`，量峰值 / RMS / 可闻时长 / 谱心 / 音高轮廓，并画成频谱图 `shots/sfx-spectrogram.png`（四段并排 —— 真录音一眼可辨：宽带噪声 + 密集谐波 + 竖条纹，跟原版那两条干净的扫频完全两路）。
-红基线：`PAGE=test/_index.bef-sfx.html node test/probe-sfx.mjs` → **0 PASS / 28 FAIL**（那时连 SFX API 都没有）；`PAGE=test/_index.bef-realsfx.html node test/probe-sfx-real.mjs` → **0 PASS / 17 FAIL**。
+红基线：`PAGE=test/_index.bef-sfx.html node test/probe-sfx.mjs` → **0 PASS / 28 FAIL**（那时连 SFX API 都没有）；`PAGE=test/_index.bef-realsfx.html node test/probe-sfx-real.mjs` → **0 PASS / 18 FAIL**。
 截图：`shots/sfx-title-btn.png`（标题页那三颗圆按钮）· `shots/sfx-panel.png`（面板）· `shots/sfx-real-panel-after-crop.png` + `sfx-real-diff.png`（与上一版逐像素对照，`node test/_shots-sfx-real.mjs`）。
 
 > **两处凭据要说清楚，别当成没发生**：
