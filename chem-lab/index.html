@@ -3058,7 +3058,7 @@ function drawSmallTool(ctx, tool, w, h, cx, baseY, on, flick) {
       ctx.fillStyle = '#8b939c'; ctx.fillRect(lx - tw / 2 - 2, ly - bh - 5, tw + 4, 6);
       ctx.strokeStyle = '#cdbb9c'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(lx, ly - bh - 4); ctx.lineTo(lx, ly - bh - 9); ctx.stroke();
       if (lamp.on) flame(ctx, lx, ly - bh - 8, h * 0.30 * flick, w * 0.13, [255, 235, 170], [255, 150, 40]);
-      lbl(lx, Math.min(baseY - 1, slotTop + slotH + 9), '下格 · ' + (lamp.on ? '已点燃' : '酒精灯'), lamp.on ? '#ffab4a' : '#9fd0ff');
+      lbl(lx, slotTop + 10, '下格 · ' + (lamp.on ? '已点燃' : '酒精灯'), lamp.on ? '#ffab4a' : '#9fd0ff');   // 灯在格子里：标签写在格子上沿，别压在底座上
     } else lbl(cx - w * 0.04, slotTop + slotH / 2 + 3, '下格 · 空', '#7d8894');
   } else if (tool.hid === 'gauze') {                     // 石棉网
     const gw = w * 0.70, gh = h * 0.30, gy = baseY - gh - 4;
