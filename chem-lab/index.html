@@ -109,6 +109,11 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 .pane h3 { margin: 0 0 6px; font-size: 13px; color: var(--dim); font-weight: 500; }
 
+/* 炸裂的容器 */
+.appcard.broken { border-color: #ff6b6b; background: rgba(60, 18, 22, 0.55); }
+.appcard.broken .vessel { filter: saturate(0.6); }
+.readouts .warn.big { color: #ff9a9a; font-weight: 600; line-height: 1.5; }
+
 </style>
 </head>
 <body>
@@ -755,7 +760,7 @@ const RX_WARN = [];
 
 /** 条件 DSL：i 点燃 / T:1173 需温度K / cat:X 催化剂 / h 光照 / dis 放电 / conc|dil 浓稀 / sol 需溶液 */
 function parseCond(txt) {
-  const c = { temp: 0, ignite: false, cat: null, light: false, discharge: false, conc: null, sol: false };
+  const c = { temp: 0, ignite: false, cat: null, light: false, discharge: false, conc: null, sol: false, elec: false };
   (txt || '').split('|').filter(Boolean).forEach((t) => {
     if (t === 'i') c.ignite = true;
     else if (t === 'sol') c.sol = true;
@@ -763,6 +768,7 @@ function parseCond(txt) {
     else if (t === 'dil') c.conc = 'dil';
     else if (t === 'h') c.light = true;
     else if (t === 'dis') c.discharge = true;
+    else if (t === 'el') c.elec = true;
     else if (t.startsWith('T:')) c.temp = Number(t.slice(2));
     else if (t.startsWith('cat:')) c.cat = t.slice(4);
   });
@@ -855,6 +861,7 @@ const RX_DEFS = [
   ['分解', 'KClO3', 'KCl,O2', 'T:673|cat:MnO2', 7, '迅速放出氧气', '氯酸钾受热制氧（二氧化锰催化）'],
   ['分解', 'H2O2', 'H2O,O2', 'cat:MnO2', 8, '剧烈气泡、放热', '过氧化氢在二氧化锰催化下分解'],
   ['分解', 'H2O2', 'H2O,O2', '', 1, '缓慢冒出小气泡', '过氧化氢自然分解（很慢）'],
+  ['分解', 'H2O', 'H2,O2', 'el', 0.6, '两极均冒气泡，氢氧体积比约 2:1', '通电分解水（负极出氢气、正极出氧气）'],
   ['分解', 'H2CO3', 'H2O,CO2', '', 4, '冒气泡', '碳酸不稳定，很快分解'],
   ['分解', 'HgO', 'Hg,O2', 'T:773', 3, '红色变银白色', '氧化汞受热分解'],
   ['分解', 'Ag2O', 'Ag,O2', 'T:473', 4, '棕黑色变银白', '氧化银受热分解'],
@@ -936,6 +943,7 @@ buildReactions();
 function condMet(rx, env) {
   const c = rx.cond;
   if (c.ignite && !env.ignite) return false;
+  if (c.elec && !env.elec) return false;
   if (c.discharge && !env.discharge) return false;
   if (c.light && !env.light) return false;
   if (c.temp && env.temp + 1e-6 < c.temp) return false;
@@ -1020,6 +1028,60 @@ const waterMol = (app) => app.contents.filter((c) => c.formula === 'H2O' && c.ph
   .reduce((a, c) => a + c.mol, 0);
 /** 水溶液体积 L */
 const waterVolume = (app) => waterMol(app) * 18.015 / 1000;
+/** 玻璃器皿炸裂：内容物洒掉、热源/电源断开、留下碎玻璃 —— 真实实验室最常见的翻车 */
+function breakVessel(app, why) {
+  if (app.broken) return;
+  app.broken = true;
+  app.brokenWhy = why;
+  app.contents = [];
+  app.heater = null;
+  app.elec = false;
+  app.ignited = false;
+  app.bubbleRate = 0; app.pptRate = 0; app.flash = 0; app.flame = 0; app.smoke = 0;
+  app.temp = PHYS.T0 + 15;
+  for (let i = 0; i < 16; i++) {
+    app.shards.push({
+      x: (Math.random() - 0.5) * 1.05, y: Math.random() * 0.35,
+      r: 2 + Math.random() * 4.5, rot: Math.random() * 6.283,
+    });
+  }
+  Lab.log.push({ k: 'warn', text: '❌ ' + app.def.name + ' 炸裂：' + why + '　内容物全部洒掉，容器报废（点「✕ 移除」清理）', at: Lab.time });
+  Lab.lastMsg = app.def.name + ' 炸裂了！' + why;
+  Lab.brokenCount = (Lab.brokenCount || 0) + 1;
+}
+
+/** 骤冷判定：往滚烫的玻璃器皿里加室温物料 → 热应力炸裂 */
+function shockCheck(app, addMassG) {
+  if (app.broken || app.def.mat !== 'glass') return false;
+  if (!(app.temp > 430) || !(addMassG > 1)) return false;
+  const C0 = heatCapacity(app), C1 = addMassG * 4.18;
+  const mixed = (C0 * app.temp + C1 * PHYS.T0) / Math.max(1e-6, C0 + C1);
+  if (app.temp - mixed > 130) {
+    breakVessel(app, '骤冷：' + Math.round(app.temp - 273.15) + '°C 的器皿直接加入室温物料，热应力炸裂');
+    return true;
+  }
+  return false;
+}
+
+/** 容器里气相空间能装多少 mol 气体（1 atm 理想气体，气体受热膨胀后装得更少） */
+function headspaceMol(app) {
+  const ml = Math.max(0, app.def.cap - waterVolume(app));
+  return (ml / 1000) / 24.5 * (298.15 / Math.max(200, app.temp));
+}
+const gasInApp = (app, formula) => app.contents
+  .filter((c) => c.phase === 'g' && (!formula || c.formula === formula))
+  .reduce((a, c) => a + c.mol, 0);
+/** 把气体放进容器气相：装不下的部分冒泡逸出；两种情况都计入「放出过这种气体」 */
+function putGas(app, formula, mol) {
+  const room = Math.max(0, headspaceMol(app) - gasInApp(app));
+  const keep = Math.min(mol, room);
+  if (keep > 1e-12) addContent(app, formula, keep, 'g', false);
+  const out = mol - keep;
+  if (out > 1e-12) app.gasBubbles.push({ f: formula, mol: out });
+  app.gasVented += Math.max(0, out);
+  app.gasOut[formula] = (app.gasOut[formula] || 0) + mol;
+  return keep;
+}
 /** 溶质总物质的量（已溶解、非水） */
 const soluteMol = (app) => app.contents.filter((c) => c.dissolved && c.formula !== 'H2O')
   .reduce((a, c) => a + c.mol, 0);
@@ -1156,6 +1218,10 @@ function stepThermal(app, dt) {
   }
   // ---- 干烧保护：容器耐温上限 ----
   if (app.temp > app.maxTemp) { app.temp = app.maxTemp; app.dryWarn = true; }
+  // 玻璃器皿受热超过承受极限 → 炸裂（陶瓷的 breakT 比 maxTemp 高，所以永远不会触发）
+  if (app.def.breakT && !app.broken && app.temp >= app.def.breakT) {
+    breakVessel(app, '受热到 ' + Math.round(app.temp) + ' K（' + Math.round(app.temp - 273.15) + '°C），超过玻璃承受极限；干烧/不均匀受热必然炸裂');
+  }
   if (waterMol(app) < 1e-9 && app.heater && app.heater.on) app.dryWarn = true;
   else if (waterMol(app) > 1e-9) app.dryWarn = false;
   // ---- 辐射散热让温度不会无限涨（大温差时冷却更快，已是线性近似） ----
@@ -1186,18 +1252,19 @@ function stepChemistry(app, dt, env) {
     r.produce.forEach(({ formula, mol }) => {
       const s = subOf(formula);
       if (s.st === 'g') {
-        // 可溶气体先溶（NH3/HCl/SO2/CO2 会真的溶进水里），其余直接冒泡逸出
+        // 可溶气体先溶进水里（NH3/HCl/CO2…），剩下的进容器气相，装不下才冒泡逸出
         const sol = s.solubility;
         const w = waterMol(app);
+        let rest = mol;
         if (w > 0 && sol !== null && sol !== -1 && sol > 0.05) {
           const csat = (sol * 10) / s.M;
           const V = waterVolume(app);
-          const c = app.contents.filter((x) => x.formula === formula && x.dissolved).reduce((a, x) => a + x.mol, 0) / V;
-          const canDis = Math.max(0, (csat - c) * V);
-          const dis = Math.min(mol, canDis);
+          const cur = app.contents.filter((x) => x.formula === formula && x.dissolved).reduce((a, x) => a + x.mol, 0) / V;
+          const dis = Math.min(mol, Math.max(0, (csat - cur) * V));
           if (dis > 1e-12) addContent(app, formula, dis, 'aq', true);
-          if (mol - dis > 1e-12) { app.gasBubbles.push({ f: formula, mol: mol - dis }); app.gasVented += mol - dis; }
-        } else { app.gasBubbles.push({ f: formula, mol }); app.gasVented += mol; }
+          rest = mol - dis;
+        }
+        if (rest > 1e-12) putGas(app, formula, rest);
       } else {
         // 在溶液里生成的可溶物应当直接溶在水里，而不是凭空变成一堆固体颗粒
         const w = waterMol(app);
@@ -1214,7 +1281,7 @@ function stepChemistry(app, dt, env) {
     if (r.rx.gases.length) app.bubbleRate = Math.min(80, app.bubbleRate + 40 * r.extent * 20);
     if (r.rx.ppts.length) {
       app.pptRate = Math.min(60, app.pptRate + 40 * r.extent * 20);
-      r.rx.ppts.forEach((f) => { const p = r.produce.find((x) => x.formula === f); if (p) app.pptMade += p.mol; });
+      r.rx.ppts.forEach((f) => { const p = r.produce.find((x) => x.formula === f); if (p) { app.pptMade += p.mol; app.pptBy[f] = (app.pptBy[f] || 0) + p.mol; } });
     }
     if (r.rx.phen.includes('白烟') || r.rx.phen.includes('大量白烟')) app.smoke = Math.min(1.5, app.smoke + 0.6);
     if (r.rx.phen.some((p) => p.includes('火焰') || p.includes('白光') || p.includes('火星'))) app.flame = Math.min(1.6, app.flame + 0.8);
@@ -1277,7 +1344,8 @@ function makeApparatus(def) {
     glassMass: def.glassMass, kCool: def.kCool, maxTemp: def.maxTemp,
     heatBuffer: 0, heater: null, events: [], gasBubbles: [], steamAccum: 0, iceMol: 0,
     bubbleRate: 0, pptRate: 0, flash: 0, flame: 0, smoke: 0, dryWarn: false,
-    gasVented: 0, pptMade: 0,
+    gasVented: 0, pptMade: 0, gasOut: {}, pptBy: {}, elec: false,
+    broken: false, brokenWhy: null, shards: [],
     stir: 0, ignited: false, stirrerOn: false, catalysts: new Set(),
     dirty: true, bubbles: [], ppts: [], steam: [], C: 0, gasMol: 0,
   };
@@ -1291,11 +1359,11 @@ function makeApparatus(def) {
 
 /** 容器定义：cap 容积 mL；direct = 能否直火加热；maxTemp 耐温上限 K */
 const APPARATUS = [
-  { id: 'tube', name: '试管', cap: 25, glassMass: 16, maxTemp: 800, kCool: 0.45, direct: true, shape: 'tube' },
-  { id: 'beaker', name: '烧杯', cap: 250, glassMass: 110, maxTemp: 750, kCool: 0.70, direct: false, shape: 'beaker' },
-  { id: 'flask', name: '锥形瓶', cap: 150, glassMass: 95, maxTemp: 750, kCool: 0.55, direct: false, shape: 'flask' },
-  { id: 'dish', name: '蒸发皿', cap: 60, glassMass: 55, maxTemp: 900, kCool: 0.80, direct: true, shape: 'dish' },
-  { id: 'crucible', name: '坩埚', cap: 40, glassMass: 78, maxTemp: 1800, kCool: 0.60, direct: true, shape: 'crucible' },
+  { id: 'tube', name: '试管', cap: 25, glassMass: 16, maxTemp: 800, kCool: 0.45, direct: true, shape: 'tube', mat: 'glass', breakT: 720 },
+  { id: 'beaker', name: '烧杯', cap: 250, glassMass: 110, maxTemp: 750, kCool: 0.70, direct: false, shape: 'beaker', mat: 'glass', breakT: 700 },
+  { id: 'flask', name: '锥形瓶', cap: 150, glassMass: 95, maxTemp: 750, kCool: 0.55, direct: false, shape: 'flask', mat: 'glass', breakT: 700 },
+  { id: 'dish', name: '蒸发皿', cap: 60, glassMass: 55, maxTemp: 900, kCool: 0.80, direct: true, shape: 'dish', mat: 'ceramic', breakT: 1350 },
+  { id: 'crucible', name: '坩埚', cap: 40, glassMass: 78, maxTemp: 1800, kCool: 0.60, direct: true, shape: 'crucible', mat: 'ceramic', breakT: 1750 },
 ];
 
 /** 热源：power W、flameT 最高火焰温度 K、eff 传热效率（都有真实量级） */
@@ -1355,18 +1423,22 @@ function addReagent(uid, formula, value, unit) {
   const s = subOf(formula); if (!s) return { ok: false, why: '库里没有这种物质' };
   const mol = amountToMol(formula, value, unit || 'g');
   if (!Number.isFinite(mol) || !(mol > 0)) return { ok: false, why: '取用量无效（' + value + ' ' + (unit || 'g') + '）' };
+  if (app.broken) return { ok: false, why: app.def.name + ' 已经炸裂了，先点「✕ 移除」再换一个' };
+  if (s.st !== 'g' && shockCheck(app, mol * s.M)) return { ok: false, why: app.def.name + ' 在加料时骤冷炸裂了！' };
   const after = waterMol(app) + (formula === 'H2O' ? mol : 0);
   if (after * 18.015 > app.def.cap) return { ok: false, why: app.def.name + ' 装不下（容积 ' + app.def.cap + ' mL）' };
-  // 气体：只有能溶的先溶，其余作为气泡逸出（通气）
-  if (s.st === 'g' && s.solubility !== null && s.solubility > 0.05 && waterMol(app) > 0) {
-    const V = waterVolume(app);
-    const csat = (s.solubility * 10) / s.M;
-    const cur = app.contents.filter((c) => c.formula === formula && c.dissolved).reduce((a, c) => a + c.mol, 0);
-    const dis = Math.min(mol, Math.max(0, csat * V - cur));
-    if (dis > 1e-12) addContent(app, formula, dis, 'aq', true);
-    if (mol - dis > 1e-12) app.gasBubbles.push({ f: formula, mol: mol - dis });
-  } else if (s.st === 'g') {
-    app.gasBubbles.push({ f: formula, mol });
+  // 气体：能溶的先溶，其余进容器气相（装不下才逸出）——「通入 CO₂」就是这条路
+  if (s.st === 'g') {
+    let rest = mol;
+    if (s.solubility !== null && s.solubility > 0.05 && waterMol(app) > 0) {
+      const V = waterVolume(app);
+      const csat = (s.solubility * 10) / s.M;
+      const cur = app.contents.filter((c) => c.formula === formula && c.dissolved).reduce((a, c) => a + c.mol, 0);
+      const dis = Math.min(mol, Math.max(0, csat * V - cur));
+      if (dis > 1e-12) addContent(app, formula, dis, 'aq', true);
+      rest = mol - dis;
+    }
+    if (rest > 1e-12) putGas(app, formula, rest);
   } else if (formula === 'H2O' || s.st === 'l' || s.st === 'aq' || !app.contents.some((c) => c.formula === 'H2O')) {
     // 溶剂/液体/溶液，或干容器里直接投料：液体成相，固体先当未溶固体
     const liquid = (formula === 'H2O' || s.st === 'l' || s.st === 'aq') && !CATALYSTS.has(formula);
@@ -1390,6 +1462,7 @@ const round = (v, n = 2) => { const p = Math.pow(10, n); return Math.round(v * p
 /* --------------------------------- 操作 ---------------------------------- */
 function setHeater(uid, heaterId, on) {
   const app = appByUid(uid); if (!app) return;
+  if (app.broken) { pushMsg(app.def.name + ' 已经炸裂了，不能再加热'); return; }
   if (!on) { if (app.heater) app.heater.on = false; app.heater = null; return; }
   const h = HEATERS.find((x) => x.id === heaterId); if (!h) return;
   app.heater = { ...h, on: true };
@@ -1419,10 +1492,13 @@ function clearApp(uid) {
 function pour(fromUid, toUid) {
   const a = appByUid(fromUid), b = appByUid(toUid);
   if (!a || !b || a === b) return { ok: false, why: '无效的倾倒' };
+  if (a.broken) return { ok: false, why: a.def.name + ' 已经炸裂了，里面的东西全洒了' };
+  if (b.broken) return { ok: false, why: b.def.name + ' 已经炸裂了，装不了东西' };
   const liquid = a.contents.filter((c) => c.dissolved || c.phase === 'l' || c.phase === 'aq');
   const wMol = liquid.filter((c) => c.formula === 'H2O').reduce((s, c) => s + c.mol, 0);
   if (wMol <= 1e-9) return { ok: false, why: a.def.name + ' 里没有可倒的液体' };
   if ((waterMol(b) + wMol) * 18.015 > b.def.cap) return { ok: false, why: b.def.name + ' 装不下这些液体' };
+  if (shockCheck(b, wMol * 18.015)) return { ok: false, why: b.def.name + ' 被倒进来的液体骤冷激裂了！' };
   liquid.forEach((c) => {
     addContent(b, c.formula, c.mol, c.phase === 'l' ? 'l' : 'aq', c.phase !== 'l');
     c.mol = 0;
@@ -1430,6 +1506,41 @@ function pour(fromUid, toUid) {
   a.contents = a.contents.filter((c) => c.mol > 1e-9);
   Lab.log.push({ k: 'pour', text: '把 ' + a.def.name + ' 中的液体倒入 ' + b.def.name, at: Lab.time });
   return { ok: true };
+}
+
+/* 过滤：把液相滤到另一个容器，未溶固体留在原容器（初中「粗盐提纯」核心操作） */
+function filterApp(fromUid, toUid) {
+  const a = appByUid(fromUid), b = appByUid(toUid);
+  if (!a || !b || a === b) return { ok: false, why: '无效的过滤目标' };
+  if (a.broken || b.broken) return { ok: false, why: '炸裂的容器不能用来过滤' };
+  const liquid = a.contents.filter((c) => c.phase !== 'g' && (c.dissolved || c.phase === 'l'));
+  const wMol = liquid.filter((c) => c.formula === 'H2O').reduce((s, c) => s + c.mol, 0);
+  if (wMol <= 1e-9) return { ok: false, why: a.def.name + ' 里没有可滤的液体' };
+  if ((waterMol(b) + wMol) * 18.015 > b.def.cap) return { ok: false, why: b.def.name + ' 装不下这些滤液' };
+  liquid.forEach((c) => { addContent(b, c.formula, c.mol, c.phase === 'l' ? 'l' : 'aq', c.phase !== 'l'); c.mol = 0; });
+  a.contents = a.contents.filter((c) => c.mol > 1e-9);
+  const kept = a.contents.filter((c) => !c.dissolved && c.phase !== 'g');
+  Lab.log.push({
+    k: 'pour', at: Lab.time,
+    text: '过滤：' + a.def.name + ' 里的液体滤进 ' + b.def.name + '，滤纸上留下 '
+      + (kept.length ? kept.map((c) => c.formula).join('、') : '少量不溶物'),
+  });
+  return { ok: true, kept: kept.map((c) => c.formula) };
+}
+
+/** 通电（电解）：需要容器里有水/电解质溶液 */
+function setPower(uid, on) {
+  const app = appByUid(uid); if (!app) return { ok: false, why: '没有这个容器' };
+  if (app.broken) return { ok: false, why: app.def.name + ' 已经炸裂了，不能通电' };
+  if (on && waterMol(app) <= 1e-9) return { ok: false, why: app.def.name + ' 里没有液体，通不了电（电解需要水溶液）' };
+  app.elec = !!on;
+  if (app.elec) {
+    Lab.log.push({ k: 'ignite', text: '给 ' + app.def.name + ' 通电：两根惰性电极插入液体', at: Lab.time });
+    pushMsg('⚡ 通电中：两极冒气泡（负极氢气、正极氧气，体积比约 2:1）。真实实验会加少量硫酸钠增强导电');
+  } else {
+    Lab.log.push({ k: 'ignite', text: '切断 ' + app.def.name + ' 的电源', at: Lab.time });
+  }
+  return { ok: true, on: app.elec };
 }
 
 function pushMsg(text) { Lab.lastMsg = text; Lab.log.push({ k: 'warn', text, at: Lab.time }); if (Lab.log.length > 200) Lab.log.shift(); }
@@ -1442,7 +1553,7 @@ function envOf(app) {
     catalysts: cats,
     ignite: !!app.ignited && (app.igniteUntil || 0) > Lab.time,
     conc: app.acidConc === 'conc' ? 'conc' : 'dil',
-    light: false, discharge: !!app.discharge,
+    light: false, discharge: !!app.discharge, elec: !!app.elec,
   };
 }
 
@@ -1667,6 +1778,47 @@ function drawFlame(ctx, app, g, h) {
   else { ctx.fillStyle = '#26333f'; ctx.fillRect(cx - 4, base, 8, h * 0.07); ctx.fillRect(cx - g.w * 0.3, h * 0.97, g.w * 0.6, 4); }
 }
 
+function drawBroken(ctx, g, app, w, h) {
+  ctx.save();
+  // 只剩半截的器壁 + 锯齿缺口
+  ctx.strokeStyle = 'rgba(150,205,225,0.7)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(g.x0, g.top + (g.bot - g.top) * 0.34);
+  ctx.lineTo(g.x0, g.bot - 8);
+  ctx.quadraticCurveTo(g.cx, g.bot + 8, g.x1, g.bot - 8);
+  ctx.lineTo(g.x1, g.top + (g.bot - g.top) * 0.42);
+  ctx.stroke();
+  // 裂纹
+  ctx.strokeStyle = 'rgba(225,245,255,0.5)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const x = g.x0 + (g.x1 - g.x0) * (0.18 + i * 0.21);
+    ctx.beginPath();
+    ctx.moveTo(x, g.bot - 10);
+    ctx.lineTo(x + (i % 2 ? 7 : -7), g.top + (g.bot - g.top) * (0.45 + i * 0.05));
+    ctx.stroke();
+  }
+  // 台面上的碎玻璃
+  (app.shards || []).forEach((s) => {
+    const sx = g.cx + s.x * (g.x1 - g.x0) * 1.15;
+    const sy = Math.min(h - 6, g.bot + 8 + s.y * 34);
+    ctx.save();
+    ctx.translate(sx, sy); ctx.rotate(s.rot);
+    ctx.beginPath();
+    ctx.moveTo(-s.r * 0.6, s.r * 0.5); ctx.lineTo(s.r * 0.7, s.r * 0.3); ctx.lineTo(-s.r * 0.1, -s.r * 0.7);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(170,220,240,0.55)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(230,250,255,0.7)'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.restore();
+  });
+  ctx.fillStyle = 'rgba(255,120,120,0.92)';
+  ctx.font = 'bold 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('❌ 已炸裂', g.cx, g.top + 14);
+  ctx.restore();
+}
+
 function renderApparatus(canvas, app, dt) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -1678,6 +1830,7 @@ function renderApparatus(canvas, app, dt) {
   drawBench(ctx, w, h);
   const g = vesselGeom(app.def.shape, w, h);
   app._geo = g;
+  if (app.broken) { drawBroken(ctx, g, app, w, h); return; }
 
   // 液面高度
   const fr = Math.max(0, Math.min(1, fillRatio(app)));
@@ -2003,7 +2156,15 @@ function updateReadouts() {
           + liq.filter((c) => c.formula !== 'H2O').map((c) => esc(c.formula) + ' ' + cTxt(c.mol) + ' mol').join('，') + '</div>' : '')
       + (solid.length ? '<div class="contents"><i>固体：</i>' + solid.map((c) => esc(c.formula) + ' ' + round(massOf(c), 2) + ' g').join('，') + '</div>' : '')
       + (gas.length ? '<div class="contents gas"><i>气体：</i>' + gas.map((g) => esc(g.f || g.formula)).join('，') + '</div>' : '')
-      + (app.dryWarn ? '<div class="warn">⚠ 干烧！容器里没有液体了</div>' : '');
+      + (app.dryWarn && !app.broken ? '<div class="warn">⚠ 干烧！容器里没有液体了</div>' : '');
+    if (app.broken) {
+      card.classList.add('broken');
+      const bh = '<div class="warn big">❌ 已炸裂：' + esc(app.brokenWhy || '受热/骤冷超过玻璃承受极限') + '</div>'
+        + '<div class="contents"><i>提示：</i>内容物已洒掉。玻璃器皿不能干烧，也不能趁热倒冷水 —— 点「✕ 移除」清理碎片</div>';
+      if (ro._sig !== bh) { ro.innerHTML = bh; ro._sig = bh; }
+      return;
+    }
+    card.classList.remove('broken');
     if (ro._sig !== html) { ro.innerHTML = html; ro._sig = html; }
     card.querySelectorAll('.ops button').forEach((b) => {
       if (b.dataset.op === 'stir') b.classList.toggle('on', !!app.stirrerOn);
@@ -2053,7 +2214,7 @@ function save() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       guideOn: Lab.guideOn, taskDone: Lab.taskDone, discovered: [...Lab.discovered],
-      apps: Lab.apps.map((a) => ({ def: a.def.id, contents: a.contents.map((c) => ({ f: c.formula, m: c.mol, d: c.dissolved })) })),
+      apps: Lab.apps.map((a) => ({ def: a.def.id, b: a.broken ? 1 : 0, contents: a.contents.map((c) => ({ f: c.formula, m: c.mol, d: c.dissolved })) })),
     }));
   } catch (e) { /* file:// 下 localStorage 可能不可用，静默降级 */ }
 }
@@ -2066,6 +2227,7 @@ function load() {
     (s.discovered || []).forEach((k) => Lab.discovered.add(k));
     (s.apps || []).slice(0, 3).forEach((a) => {
       const app = addApparatus(a.def); if (!app) return;
+      if (a.b) breakVessel(app, '上次实验里炸裂的容器');
       (a.contents || []).forEach((c) => { if (subOf(c.f)) addContent(app, c.f, c.m, null, c.d); });
     });
     return true;
@@ -2132,6 +2294,7 @@ window.CHEM = {
   Lab, ELEMENTS, ELEM_BY_SYM, SUBSTANCES, SUB, RXNS, RX_WARN, PARSE: parseFormula,
   ELEM_REAGENT, molarMass, balanceReaction, verifyBalance, matchReactions, computePH, atomTally,
   addApparatus, addReagent, setHeater, ignite, stir, clearApp, pour, measure, worldStep, labStep,
+  setPower, filterApp, gasInApp, headspaceMol,
   waterMol, waterVolume, totalMass, boilingPoint, heatCapacity, subOf, PHYS, APPARATUS, HEATERS,
   TASKS, save, load, envOf, rxFound,
 };
