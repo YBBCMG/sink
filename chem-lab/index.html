@@ -101,7 +101,11 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 .toolcard.lit { border-color: #ff8a3d; box-shadow: 0 0 16px #ff7a2a55; }
 .toolcard.over { outline: 2px dashed #ffb35c; outline-offset: 3px; }
 .dragbar { cursor: grab; touch-action: none; }
-.appcard.dragging, .toolcard.dragging { opacity: .85; z-index: 60 !important; box-shadow: 0 8px 22px rgba(0,0,0,.45); }
+.appcard.dragging, .toolcard/* 第十一轮：整张卡片都是拖动把手（控件除外）—— 光标上给提示 */
+.appcard, .toolcard { cursor: grab; }
+.appcard .ops, .appcard .readouts, .toolcard .ops { cursor: default; }
+.appcard.dragging, .toolcard.dragging { cursor: grabbing; }
+.dragging { opacity: .85; z-index: 60 !important; box-shadow: 0 8px 22px rgba(0,0,0,.45); }
 .toolcard.over, .appcard.over { outline: 2px dashed #7ee0ff; outline-offset: 2px; }
 #dragtip { position: absolute; z-index: 70; padding: 3px 9px; border-radius: 999px; background: rgba(10,26,38,.94);
   border: 1px solid #3fb6d8; color: #d9f4ff; font-size: 12px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
@@ -394,6 +398,15 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
 /* 化合物合成教学面板（复用教材课程面板的外壳样式） */
 #synthModal { position: fixed; inset: 0; display: none; z-index: 70; background: rgba(6, 12, 16, .72); }
 #synthModal.show { display: block; }
+/* 第十一轮：合成面板也要不透明背景（以前 #synthModal .cbox 没写样式，透出底下的暗幕） */
+#synthModal .cbox { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: min(1080px, 94vw); height: min(86vh, 920px); display: flex; flex-direction: column; box-shadow: 0 24px 70px #000d; overflow: hidden; margin: 4vh auto; }
+.syntier { border-color: #3a5a6a; }
+.syntier.t简单 { color: #8fe3b0; border-color: #2f6b4a; }
+.syntier.t中等 { color: #ffd479; border-color: #6b5a2f; }
+.syntier.t难 { color: #ff9a6b; border-color: #6b412f; }
+.syntier.t地狱 { color: #ff7b7b; border-color: #6b2f2f; }
+.syntext { color: #7fd8ff; border-color: #2c5468; }
+
 .synthintro { font-size: 11.5px; line-height: 1.6; color: #a9c2d2; background: #16232c; border: 1px solid #23343f;
   border-radius: 4px; padding: 7px 9px; margin: 0 0 8px; }
 .clesson.syn { border-left: 2px solid #34495a; padding-left: 8px; }
@@ -1475,6 +1488,23 @@ const RX_DEFS_MORE = [
 
 /** 建库：配平 → 校验 → 入库；任何一条不配平都不进库 */
 function buildReactions() {
+  /* ---- 第十一轮补录：物质库里有、反应库里缺的常见化合物（全部是教材级反应，方程不写死，这里只报原料和产物） ---- */
+  const RX_EXTRA = [
+    ['化合', 'Fe,S', 'FeS', 'T:473', 2, '铁粉与硫粉混合加热，火星四射后结成黑色块状固体', '铁与硫直接化合：加热才反应，说明硫的氧化性比氧气弱'],
+    ['化合', 'Zn,S', 'ZnS', 'T:473', 2, '锌粉与硫粉加热，剧烈反应发出白光，生成白色固体', '锌与硫化合制硫化锌（白色颜料）'],
+    ['化合', 'Mg,N2', 'Mg3N2', 'ignite', 3, '镁条在氮气中继续燃烧，生成淡黄色固体', '镁不只和氧气反应，也能夺走氮（所以镁燃烧的产物质量不能按氧化镁算）'],
+    ['化合', 'Cu,O2,H2O,CO2', 'Cu2(OH)2CO3', 'T:298', 0.02, '铜表面慢慢出现绿色斑点（铜绿）', '铜生锈：铜与氧气、水、二氧化碳共同作用 —— 条件缺一个都不长铜绿'],
+    ['化合', 'Fe,O2,H2O', 'Fe2O3·3H2O', 'T:298', 0.02, '铁表面出现红棕色疏松铁锈', '铁生锈：铁与氧气、水共同作用（教材"铁生锈的条件"探究）'],
+    ['置换', 'K,H2O', 'KOH,H2', 'T:298', 4, '钾浮在水面上剧烈反应，熔成小球四处游动，甚至燃起来', '钾与水反应比钠更剧烈（金属活动性顺序里钾在钠前面）'],
+    ['置换', 'Al,H2SO4', 'Al2(SO4)3,H2', 'dil', 3, '铝表面氧化膜被酸溶解后剧烈冒气泡', '铝与稀硫酸制硫酸铝（铝是氢前金属）'],
+    ['置换', 'Zn,HCl', 'ZnCl2,H2', 'dil', 3, '锌粒上冒出大量气泡，锌粒逐渐溶解', '实验室制氢气的另一条常用路线'],
+    ['置换', 'Mg,H2SO4', 'MgSO4,H2', 'dil', 4, '镁条迅速溶解并放出大量气泡，试管发烫', '镁与稀硫酸（比锌快得多，还明显放热）'],
+    ['置换', 'Fe,AgNO3', 'Fe(NO3)2,Ag', 'sol', 2, '铁表面析出银白色金属，溶液由无色变浅绿色', '铁把银从它的盐溶液里换出来（活动性：铁 > 银）'],
+    ['复分解', 'CuO,HNO3', 'Cu(NO3)2,H2O', 'sol', 2, '黑色氧化铜溶解，溶液变蓝', '氧化铜与稀硝酸（金属氧化物 + 酸 → 盐 + 水）'],
+    ['复分解', 'ZnO,HNO3', 'Zn(NO3)2,H2O', 'sol', 2, '白色氧化锌溶解，得到无色溶液', '氧化锌与稀硝酸'],
+    ['复分解', 'NaCl,NH3,CO2,H2O', 'NaHCO3,NH4Cl', 'sol', 1, '溶液里析出白色小苏打晶体', '侯氏制碱法第一步：向饱和食盐水里先通氨、再通二氧化碳，析出碳酸氢钠'],
+  ];
+  RX_EXTRA.forEach((d) => RX_DEFS.push(d));
   RX_DEFS.concat(RX_DEFS_MORE).forEach(([kind, lhsS, rhsS, condS, rate, phen, note]) => {
     const lhs = lhsS.split(',').map((s) => s.trim());
     const rhs = rhsS.split(',').map((s) => s.trim());
@@ -2285,9 +2315,20 @@ function addReagent(uid, formula, value, unit) {
   } else {
     addContent(app, formula, mol, 's', false);
   }
+  if (Lab.tut && Lab.tut.id) {                                   // 加料台账：加料步骤按"真的加过"判定（气体可能一进水就参加副反应）
+    Lab.tut.added = Lab.tut.added || {};
+    Lab.tut.added[formula] = (Lab.tut.added[formula] || 0) + mol;
+  }
   let dropNote = '';
-  if (unit === 'mL' && value > 0 && value <= 0.5 && (s.st === 'l' || s.st === 'aq' || formula === 'H2O')) {
-    window._gSilent = true;                             // 自动取滴管：不算玩家动作
+  const tiny = unit === 'mL' && value > 0 && value <= 0.5 && (s.st === 'l' || s.st === 'aq' || formula === 'H2O');
+  if (tiny && !window._tutAuto) {
+    /* 玩家的动作：没有胶头滴管就不给按滴算 —— 量小到滴管级别，得自己先把滴管拿上台面 */
+    const d0 = Lab.tools.find((t) => t.def && t.def.id === 'dropper');
+    if (!d0) return { ok: false, why: '还差 🧪 胶头滴管：' + Math.max(1, Math.round(value / 0.05))
+      + ' 滴（' + value + ' mL）得用滴管加 —— 先到「器材」行点一下滴管，再回来加' };
+  }
+  if (tiny) {
+    window._gSilent = true;                             // 教程代取：不算玩家动作
     const d = Lab.tools.find((t) => t.def && t.def.id === 'dropper') || addTool('dropper');
     window._gSilent = false;
     Lab.dropCount = (Lab.dropCount || 0) + 1;
@@ -2623,22 +2664,27 @@ function ignite(uid) {
   app.flame = Math.max(app.flame, 0.6);
   Lab.log.push({ k: 'ignite', text: '点燃 ' + app.def.name + ' 中的物质', at: Lab.time });
 }
-/** 规范操作：搅拌/引流要用玻璃棒 —— 没插棒就自动取一根插好并说明（手摇不会加快溶解） */
+/** 规范操作：搅拌/引流要用玻璃棒 —— 但**玻璃棒得玩家自己从器材行拿**（第十一轮：器材一律不白送）。
+ *  只有手把手课程在"自动做一步"时才代取（那是教程在演示给玩家看）。 */
 function ensureRod(app, why) {
-  let rod = toolByUid(app.rod);
+  const rod = toolByUid(app.rod);
   if (rod) return rod;
-  window._gSilent = true;                                // 下面这些是"程序替玩家取器材"，不算玩家动作
-  rod = Lab.tools.find((t) => t.def && t.def.id === 'rod') || addTool('rod');
-  if (!rod) { window._gSilent = false; pushMsg('台面上器材摆满了（最多 6 件），先收走一件再摆玻璃棒'); return null; }
-  const r = placeOn(app.uid, rod.uid);
-  if (!r.ok) { window._gSilent = false; pushMsg(r.why); return null; }
-  Lab.log.push({ k: 'place', at: Lab.time, text: '🧑‍🔬 规范操作：' + (why || '搅拌') + '要用玻璃棒 —— 取一根插进 ' + app.def.name + '（溶解速率 ×1.8）' });
+  if (!window._tutAuto) return null;                     // 玩家自己的动作：缺就是缺，绝不代取
+  window._gSilent = true;
+  const t = Lab.tools.find((x) => x.def && x.def.id === 'rod') || addTool('rod');
+  const r = t ? placeOn(app.uid, t.uid) : { ok: false, why: '台面上器材摆满了（最多 6 件），先收走一件再摆玻璃棒' };
   window._gSilent = false;
-  return rod;
+  if (!r.ok) { pushMsg(r.why); return null; }
+  Lab.log.push({ k: 'place', at: Lab.time, text: '🧑‍🔬 规范操作：' + (why || '搅拌') + '要用玻璃棒 —— 取一根插进 ' + app.def.name + '（溶解速率 ×1.8）' });
+  return t;
 }
+/** 缺玻璃棒时的统一提示（点搅拌 / 过滤都要先自己拿） */
+const rodHint = (why) => '还差 🥢 玻璃棒：先到「器材」行点一下拿上台面，再' + (why || '搅拌')
+  + '（没有玻璃棒也能手摇，但溶解、引流都慢）';
 function stir(uid) {
   const app = appByUid(uid); if (!app) return { ok: false, why: '没有这个容器' };
   const rod = ensureRod(app, '搅拌');
+  if (!rod && !window._tutAuto) { toast(rodHint('搅拌')); Lab.log.push({ k: 'stir', at: Lab.time, text: '🌀 手摇搅拌 ' + app.def.name + '（没有玻璃棒：溶解速率不变）' }); return { ok: true, on: app.stirrerOn, rod: false, hint: rodHint('搅拌') }; }
   app.stirrerOn = !app.stirrerOn;
   Lab.stirCount = (Lab.stirCount || 0) + 1;
   Lab.log.push({ k: 'stir', text: (app.stirrerOn ? '开始' : '停止') + '搅拌 ' + app.def.name + (rod ? '（🥢 玻璃棒）' : '（没有玻璃棒：手摇不加快溶解）'), at: Lab.time });
@@ -2724,7 +2770,7 @@ function filterApp(fromUid, toUid) {
   liquid.forEach((c) => { addContent(b, c.formula, c.mol, c.phase === 'l' ? 'l' : 'aq', c.phase !== 'l'); c.mol = 0; });
   a.contents = a.contents.filter((c) => c.mol > 1e-9);
   const kept = a.contents.filter((c) => !c.dissolved && c.phase !== 'g');
-  ensureRod(a, '过滤引流');                      // 过滤必须用玻璃棒引流
+  if (!ensureRod(a, '过滤引流') && !window._tutAuto) return { ok: false, why: rodHint('过滤引流') };   // 玻璃棒得自己拿
   Lab.filterCount++;
   Lab.log.push({
     k: 'pour', at: Lab.time,
@@ -3950,21 +3996,25 @@ function nearestApp(tool) {
 /** 松手时会做什么：拖拽的全部落点规则集中在这里（高亮和提示都读它） */
 function dragCandidate(item, kind) {
   if (kind === 'app') {
+    const own = item.standOn ? toolByUid(item.standOn) : null;      // 它现在待着的架子——拖动 = 取下来，不是原地弹回
     const st = nearestStand(item, 'app');
-    if (st) return { act: 'standUpper', tool: st, text: '松手 → 把 ' + item.def.name + ' 放进铁架台上格' };
+    if (st && st.uid !== item.standOn) return { act: 'standUpper', tool: st, text: '松手 → 把 ' + item.def.name + ' 放进铁架台上格' };
     const t = nearestTool(item);
-    if (t && t.hid !== 'stand') {
+    if (t && t.hid !== 'stand' && t.uid !== item.standOn) {
       return { act: 'placeOn', tool: t, text: t.kind === 'heat'
         ? '松手 → 把 ' + item.def.name + ' 架到 ' + t.def.name + ' 上（点着就能加热）'
         : '松手 → 把 ' + item.def.name + ' 装到 ' + t.def.name + ' 上' };
     }
-    if (item.standOn) return { act: 'free', text: '松手 → 把 ' + item.def.name + ' 放回台面' };
+    if (own) return { act: 'free', text: '松手 → 把 ' + item.def.name + ' 从 ' + own.def.name + ' 上取下来，摆在台面这个位置' };
     return { act: 'free', text: '松手 → ' + item.def.name + ' 摆在台面这个位置' };
   }
   if (item.kind === 'heat') {
     const st = nearestStand(item, 'heat');
     if (st) return { act: 'standLower', tool: st, text: '松手 → 把 ' + item.def.name + ' 放进铁架台下格' };
     return { act: 'free', text: '松手 → ' + item.def.name + ' 摆在台面（拖到容器上方可「架上来」）' };
+  }
+  if (item.hid === 'stand' && occupantOf(item)) {
+    return { act: 'free', text: '松手 → ' + item.def.name + ' 连上面的 ' + occupantOf(item).def.name + ' 一起挪到这儿' };
   }
   const a = nearestApp(item);
   if (a) {
@@ -3978,8 +4028,12 @@ function dragCandidate(item, kind) {
 }
 function attachDrag(card, item, kind) {
   const bar = card.querySelector('.dragbar'); if (!bar) return;
-  bar.addEventListener('pointerdown', (ev) => {
+  /* 第十一轮：整张卡片都能拖（用户："所有东西都可以拖动，方便整理桌面"）。
+     但控件上的按下不算拖拽 —— 按钮 / 读数行（点一下自动插量具）/ 用量框 / 下拉框 / 输入框各有各的活。 */
+  const isCtl = (el) => !!(el && el.closest && el.closest('button, input, select, textarea, a, .readouts, .ops, .amtbox, .chips, .logrow'));
+  card.addEventListener('pointerdown', (ev) => {
     if (ev.button !== 0) return;
+    if (isCtl(ev.target)) return;
     ev.preventDefault(); ev.stopPropagation();
     const bench = benchEl();
     const bw = Math.max(160, bench.clientWidth);
@@ -3988,7 +4042,7 @@ function attachDrag(card, item, kind) {
     let moved = false, cand = null;
     dragActive = true;
     const tip = dragTipEl();
-    bar.setPointerCapture(ev.pointerId);
+    card.setPointerCapture(ev.pointerId);
     card.classList.add('dragging');
     const paint = () => {                                        // 落点高亮 + 提示条
       document.querySelectorAll('.toolcard.over, .appcard.over').forEach((c) => c.classList.remove('over'));
@@ -4003,15 +4057,20 @@ function attachDrag(card, item, kind) {
     };
     const move = (e) => {
       const dx = e.clientX - startX;
-      if (Math.abs(dx) > 2) moved = true;
+      if (!moved && Math.abs(dx) > 2) {
+        moved = true;
+        /* 第十一轮：架在铁架台/热源上的容器，一开始拖就先"端下来"——否则它会一直挂在架子上，
+           卡片却跟着指针跑，看着就像"烧杯被铁架台拖着走"。只是点一下（没动）不会端下来。 */
+        if (kind === 'app' && item.standOn) detachApp(item);
+      }
       item.x = Math.max(2, Math.min(bw - w - 2, origX + dx));
       card.style.left = item.x + 'px';
       cand = dragCandidate(item, kind);
       paint();
     };
     const up = () => {
-      bar.removeEventListener('pointermove', move);
-      bar.removeEventListener('pointerup', up);
+      card.removeEventListener('pointermove', move);
+      card.removeEventListener('pointerup', up);
       card.classList.remove('dragging');
       document.querySelectorAll('.toolcard.over, .appcard.over').forEach((c) => c.classList.remove('over'));
       tip.classList.remove('show');
@@ -4032,8 +4091,8 @@ function attachDrag(card, item, kind) {
       }
       if (kind === 'app') dropApp(item); else dropTool(item);
     };
-    bar.addEventListener('pointermove', move);
-    bar.addEventListener('pointerup', up);
+    card.addEventListener('pointermove', move);
+    card.addEventListener('pointerup', up);
   });
 }
 
@@ -4047,13 +4106,26 @@ function nearestTool(app) {
   });
   return best;
 }
+/** 从架子上取下来：只断"架子 + 石棉网"，插着的温度计/pH 计/玻璃棒跟着容器走（它们是在容器里的） */
+function detachApp(app) {
+  const own = app.standOn ? toolByUid(app.standOn) : null;
+  if (!own) return false;
+  app.standOn = null;
+  if (app.gauze) {
+    Lab.tools.forEach((t) => { if (t.hid === 'gauze' && t.app === app.uid) t.app = null; });
+    app.gauze = false;                                            // 石棉网留在架子上，不跟着容器跑
+  }
+  Lab.log.push({ k: 'place', at: Lab.time, text: '把 ' + app.def.name + ' ' + app.uid + ' 从 ' + own.def.name + ' 上取下来' });
+  repackBench(); syncHeaters();
+  return true;
+}
 function dropApp(app) {
   const t = nearestTool(app);
-  if (t) {
+  if (t && t.uid !== app.standOn) {
     const r = placeOn(app.uid, t.uid);
     if (r.ok) toast('把 ' + app.def.name + ' 架到 ' + t.def.name + ' 上了' + (t.on ? '，正在加热' : '，记得点着它'));
     else toast(r.why);
-  } else if (app.standOn) { placeOn(app.uid, null); toast(app.def.name + ' 放回台面'); }
+  } else if (detachApp(app)) { toast(app.def.name + ' 从架子上取下来了，摆在台面这个位置'); }
   else Lab.log.push({ k: 'place', at: Lab.time, text: '把 ' + app.def.name + ' ' + app.uid + ' 挪到台面另一处' });
   renderBench(true); updateReadouts();
 }
@@ -4194,13 +4266,18 @@ function measure(app) {
 }
 
 /* --------------------- 缺量器？点读数行直接摆出来 ------------------------ */
-/** 想量某一项但台面上没有量器：自动摆一件、插进容器（天平不用插），可顺手读一次数 */
+/** 想量某一项但台面上没有量器：**量具得玩家自己从器材行拿**（第十一轮：所有东西都手动拿）。
+ *  只有手把手课程"自动做一步"时才代取。 */
 function ensureMeter(app, kind, thenMeasure) {
   const def = METERS.find((m) => m.measures === kind); if (!def || !app) return null;
   let t = meterOn(app, kind);
   let made = false;
   if (!t) {
     t = Lab.tools.find((x) => x.kind === 'meter' && x.def.measures === kind) || null;
+    if (!t && !window._tutAuto) {
+      toast('还差 ' + def.icon + ' ' + def.name + '：先到「器材」行点一下把它拿上台面，再点这一行读数 —— 读数不白送');
+      return null;
+    }
     if (!t) { t = addTool(def.id); made = true; }
   }
   if (!t) { toast('台面上已经摆了 6 件器材，先收走一件再摆' + def.name); return null; }
@@ -4482,7 +4559,7 @@ document.addEventListener('DOMContentLoaded', boot);
 
 /* ------------------------- 调试/验证 API（探针用） ------------------------ */
 window.CHEM = {
-  Lab, ELEMENTS, ELEM_BY_SYM, SUBSTANCES, SUB, RXNS, RX_WARN, PARSE: parseFormula,
+  Lab, ELEMENTS, ELEM_BY_SYM, SUBSTANCES, SUB, RXNS, RX_WARN, RX_BAD, PARSE: parseFormula,
   ELEM_REAGENT, molarMass, balanceReaction, verifyBalance, matchReactions, computePH, atomTally,
   addApparatus, addReagent, setHeater, ignite, stir, clearApp, pour, measure, worldStep, labStep,
   setPower, filterApp, feedGas, gasInApp, headspaceMol, K2C,
@@ -5532,7 +5609,7 @@ const TUT = [
         () => [0, 1, 2].every((i) => waterMol(tutApp(i)) > 2.0),
         () => { [0, 1, 2].forEach((i) => addReagent(tutUid(i), 'H2O', 50, 'mL')); }),
       mkStep('1 号烧杯加 2 g 氯化钠，用玻璃棒搅拌溶解（中性溶液）',
-        '搜「氯化钠」加 2 g，点「🌀 搅拌」（会自动取来玻璃棒插进烧杯 —— 搅拌后溶解快 1.8 倍）',
+        '搜「氯化钠」加 2 g，**先到「器材」行点一下拿 🥢 玻璃棒**（插进烧杯），再点「🌀 搅拌」（玻璃棒搅拌溶解快 1.8 倍）',
         () => dissolved(tutApp(0), 'NaCl', 1e-4),
         () => { addReagent(tutUid(0), 'NaCl', 2, 'g'); stir(tutUid(0)); }),
       mkStep('把 pH 计插进 1 号烧杯读数：中性溶液 pH ≈ 7',
@@ -5755,7 +5832,7 @@ const TUT = [
     bench: ['beaker', 'beaker', 'dish'],
     steps: [
       mkStep('烧杯 1：30 mL 水 + 5 g 粗盐（氯化钠 + 泥沙），用玻璃棒搅拌溶解',
-        '加 30 mL 水，搜「氯化钠」加 4.5 g、搜「二氧化硅」加 0.5 g 当泥沙，点「🌀 搅拌」——没插玻璃棒会自动取一根',
+        '加 30 mL 水，搜「氯化钠」加 4.5 g、搜「二氧化硅」加 0.5 g 当泥沙，**先从「器材」行拿 🥢 玻璃棒插进烧杯**，再点「🌀 搅拌」',
         () => dissolved(tutApp(0), 'NaCl', 1e-5) && (Lab.stirCount || 0) > (Lab.tut.base.stir || 0),
         () => { addReagent(tutUid(0), 'H2O', 30, 'mL'); addReagent(tutUid(0), 'NaCl', 4.5, 'g'); addReagent(tutUid(0), 'SiO2', 0.5, 'g'); stir(tutUid(0)); }),
       mkStep('过滤：玻璃棒引流，把盐水滤进烧杯 2，泥沙留在滤纸上',
@@ -6197,7 +6274,7 @@ const TUT = [
 ];
 
 /* ------------------------------- 状态与存档 ------------------------------- */
-Lab.tut = { id: null, sel: null, step: 0, done: {}, expDone: {}, pos: {}, mem: {}, uids: [], base: { rx: new Set(), measure: 0, filter: 0, pour: 0, gasFeed: 0, elec: 0, stir: 0, submerge: 0, probe: 0, drop: 0 }, open: false };
+Lab.tut = { id: null, sel: null, step: 0, done: {}, expDone: {}, pos: {}, mem: {}, uids: [], added: {}, base: { rx: new Set(), measure: 0, filter: 0, pour: 0, gasFeed: 0, elec: 0, stir: 0, submerge: 0, probe: 0, drop: 0 }, open: false };
 const TUT_KEY = 'chemlab.tut.v01';
 let tutThrottle = 0;
 
@@ -6240,6 +6317,7 @@ function tutStart(id, restart) {
     Lab.tut.pos[id] = 0;
   }
   Lab.apps.length = 0; Lab.tools.length = 0; Lab.selected = null;   // 器材也要清：上个实验点着的酒精灯留在台面上，引导就会指着"一盏已经亮着的灯"让你去点燃，一点反而熄灭
+  Lab.tut.added = {};                                              // 本实验的"加料台账"（每次开课清零，避免上个实验的料算到这一步）
   Lab.tut.uids = [];
   exp.bench.forEach((k) => { const a = addApparatus(k); Lab.tut.uids.push(a ? a.uid : ''); });
   Lab.tut.id = id;
@@ -6262,7 +6340,11 @@ function tutStart(id, restart) {
 function tutDemo() {
   const exp = tutExp(); if (!exp) return { ok: false, why: '先选一个实验' };
   const st = exp.steps[Lab.tut.step]; if (!st) return { ok: false, why: '这个实验已经做完了' };
-  if (st.auto) { try { st.auto(); } catch (e) { return { ok: false, why: '演示失败：' + (e && e.message) }; } }
+  if (st.auto) {
+    window._tutAuto = true;                            // 教程代取器材的开关：只有"演示/自动做一步"才开
+    try { st.auto(); } catch (e) { window._tutAuto = false; return { ok: false, why: '演示失败：' + (e && e.message) }; }
+    window._tutAuto = false;
+  }
   labStep(0.05);
   tutRender(true);
   return { ok: true, step: Lab.tut.step, auto: !!st.auto };
@@ -7592,6 +7674,10 @@ const SYNTH = SYNTH_RAW.map(synthResolve);
 /** 合成进度：Lab.madeEver 是"这辈子合成过什么"的真实台账（由反应引擎写入） */
 const synthMade = (f) => !!(Lab.madeEver && Lab.madeEver.has(f));
 function synthStats() {
+  if (typeof routeStats === 'function') {
+    const st = routeStats();
+    return { routes: st.routes, targets: st.targets, done: st.made, bad: 0, doneList: [], st: st };
+  }
   const targets = [...new Set(SYNTH.map((s) => s.route.f))];
   const done = targets.filter(synthMade);
   const bad = SYNTH.filter((s) => !s.rx).length;
@@ -7614,43 +7700,76 @@ function synthOnMade(f) {
 }
 
 /* ------------------------------- 面板 ---------------------------------- */
+/** 一条路线 = 目标 + 一串真实反应（多步链把每步都写出来） */
+function synthRouteRow(r, i) {
+  const done = synthMade(r.f);
+  const last = r.rxs[r.rxs.length - 1];
+  const chain = r.rxs.length > 1;
+  const reTxt = (chain ? '从单质出发：' : '') + r.rxs[0].lhs.map((x) => subName(x) + ' ' + x).join(' + ');
+  const eqTxt = chain ? r.rxs.map((rx, k) => '(' + (k + 1) + ') ' + rx.eq).join('　') : last.eq;
+  const phen = r.rxs.map((rx) => (Array.isArray(rx.phen) ? rx.phen.join('；') : rx.phen)).join('；');
+  const condTxt = r.rxs.map((rx) => rx.condText || '常温即可').join(' → ');
+  const hay = (r.f + ' ' + subName(r.f) + ' ' + r.rxs.map((rx) => rx.lhs.join(' ')).join(' ')
+    + ' ' + r.rxs.map((rx) => rx.lhs.map(subName).join(' ')).join(' ') + ' ' + eqTxt + ' ' + (r.note || '')
+    + ' ' + r.use.join(' ') + ' ' + r.tier).toLowerCase();
+  return '<div class="clesson syn' + (done ? ' done' : '') + '" data-key="' + esc(hay) + '">'
+    + '<span class="synchk">' + (done ? '✔ 已合成' : '◻ 未合成') + '</span>'
+    + '<b>' + esc(subName(r.f)) + '</b> <code>' + esc(r.f) + '</code>'
+    + '　<span class="synkind">' + esc(last.kind) + '反应</span>'
+    + '　<span class="synkind syntier t' + esc(r.tier) + '">' + esc(r.tier) + (chain ? '（' + r.rxs.length + ' 步）' : '') + '</span>'
+    + (r.curated ? '　<span class="synkind syntext">教材路线</span>' : '')
+    + '<div class="syneq">' + esc(eqTxt) + '</div>'
+    + '<div class="synrow"><i>原料：</i>' + esc(reTxt) + '</div>'
+    + '<div class="synrow"><i>条件：</i>' + esc(condTxt)
+    + '　<i>现象：</i>' + esc(phen) + '</div>'
+    + '<div class="synrow"><i>器材：</i>' + esc(r.use.join('、')) + (chain ? '　<i>同一个器皿里连着做</i>' : '') + '</div>'
+    + (r.note ? '<div class="synnote">' + esc(r.note) + '</div>' : '')
+    + '<div class="synfoot">' + (r.noLesson
+      ? '<span class="synbad">◻ 不做手把手：' + esc(r.noLesson) + '</span><i>路线数据是真的，只是模拟器里没法一步步走完</i>'
+      : '<button class="synstart" data-cmp="' + i + '">▶ 手把手做这条</button>'
+        + '<i>跟教材实验一样：一步一步高亮该点哪个控件，判定读真实状态</i>') + '</div></div>';
+}
+
 function synthHTML() {
   const q = (synthQ || '').trim().toLowerCase();
   const st = synthStats();
+  const rt = (typeof ROUTES !== 'undefined' ? ROUTES : []);
   let out = '<div class="ctop"><b>⚗ 化合物合成教学</b>'
-    + '<span class="calt">' + SYNTH.length + ' 条路线 · 目标 ' + st.targets + ' 种 · 已合成 <b class="synok">' + st.done + '</b> 种</span>'
+    + '<span class="calt">' + (rt.length || SYNTH.length) + ' 条路线 · 目标 ' + st.targets + ' 种 · 已合成 <b class="synok">' + st.done + '</b> 种</span>'
     + '<input id="synthSearch" placeholder="搜索目标 / 原料（如 铜、CO2、盐酸）" value="' + esc(synthQ || '') + '">'
     + '<button id="synthClose">✕ 关闭</button></div>'
     + '<div class="cbody"><div class="synthintro">怎么用：把路线里的原料加进同一个容器，凑齐条件（加热 / 点燃 / 通电 / 催化剂），反应真的发生了才算合成成功 —— '
     + '本页的方程、反应类型、条件、现象全部来自反应库，合成进度按容器里真实生成过的物质统计。</div>';
-  SYNTH_GRPS.forEach((g) => {
-    const rows = SYNTH.filter((s) => s.route.grp === g);
+  if (!rt.length) return out + '</div>';
+  if (st.st && st.st.noRoute && st.st.noRoute.length) {
+    out += '<div class="synthintro">本作物质库里的 ' + st.st.cmpTotal + ' 种化合物：<b class="synok">'
+      + st.st.targets + '</b> 种有合成路线（' + st.st.routes + ' 条，其中'
+      + '简单 ' + st.st.byTier['简单'] + ' / 中等 ' + st.st.byTier['中等'] + ' / 难 ' + st.st.byTier['难'] + '），'
+      + '另外 ' + (st.st.shelfOnly || []).length + ' 种是试剂架上直接拿的（不需要合成）。'
+      + ((st.st.reallyNone || []).length ? '还剩 ' + st.st.reallyNone.length + ' 种（'
+        + st.st.reallyNone.slice(0, 10).join('、') + '）在反应库里没有"生成它"的反应，先如实留空 —— 不编路线。' : '')
+      + ' 难度不是标上去的：原料数、反应温度、要不要点燃/电解，都是从反应库真实条件算出来的。</div>';
+  }
+  ROUTE_TIERS.forEach((tier) => {
+    const rows = rt.filter((r) => r.tier === tier);
     if (!rows.length) return;
-    out += '<div class="cunit"><div class="cuname">' + g + '</div>';
-    rows.forEach((s) => {
-      const r = s.rx, f = s.route.f, done = synthMade(f);
-      const hay = (f + ' ' + subName(f) + ' ' + s.route.lhs.join(' ') + ' ' + s.route.lhs.map(subName).join(' ')
-        + ' ' + (r ? r.eq : '') + ' ' + (s.route.note || '') + ' ' + s.route.use.join(' ')).toLowerCase();
-      if (q && hay.indexOf(q) < 0) return;
-      const reTxt = s.route.lhs.map((x) => subName(x) + ' ' + x).join(' + ');
-      out += '<div class="clesson syn' + (done ? ' done' : '') + '" data-key="' + esc(hay) + '">'
-        + '<span class="synchk">' + (done ? '✔ 已合成' : '◻ 未合成') + '</span>'
-        + '<b>' + esc(subName(f)) + '</b> <code>' + esc(f) + '</code>'
-        + (r ? '　<span class="synkind">' + esc(r.kind) + '反应</span>' : '　<span class="synbad">反应库未收录</span>')
-        + '<div class="syneq">' + (r ? esc(r.eq) : '（这条路线在反应库里查不到，已报给开发者）') + '</div>'
-        + '<div class="synrow"><i>原料：</i>' + esc(reTxt) + '</div>'
-        + '<div class="synrow"><i>条件：</i>' + esc(r ? (r.condText || '常温即可') : '—')
-        + '　<i>现象：</i>' + esc(r ? (Array.isArray(r.phen) ? r.phen.join('；') : r.phen) : '—') + '</div>'
-        + '<div class="synrow"><i>器材：</i>' + esc(s.route.use.join('、')) + '</div>'
-        + '<div class="synnote">' + esc(s.route.note || '') + '</div>'
-        + '<div class="synfoot"><button class="synstart" data-cmp="' + SYNTH.indexOf(s) + '">▶ 手把手做这条</button>'
-        + '<i>跟教材实验一样：一步一步高亮该点哪个控件，判定读真实状态</i></div></div>';
-    });
+    const shown = rows.filter((r) => !q || synthRouteHay(r).indexOf(q) >= 0);
+    if (!shown.length) return;
+    out += '<div class="cunit"><div class="cuname">' + tier + '　<span class="cnote">' + rows.length + ' 条'
+      + (tier === '简单' ? '（原料直接取得到，常温或一步就成）' : tier === '中等' ? '（要加热 / 催化剂 / 三种原料）'
+        : tier === '难' ? '（要高温 / 点燃 / 电解）' : '（两步以上的链条，或高温 + 多步）') + '</span></div>';
+    shown.forEach((r) => { out += synthRouteRow(r, rt.indexOf(r)); });
     out += '</div>';
   });
+  if (!out.length) out += '<div class="synthintro">没有匹配的路线</div>';
   return out + '</div>';
 }
 
+/** 一条路线参与搜索的文本（目标 / 原料 / 方程 / 难度 / 教材出处） */
+function synthRouteHay(r) {
+  return (r.f + ' ' + subName(r.f) + ' ' + r.rxs.map((rx) => rx.lhs.join(' ') + ' ' + rx.lhs.map(subName).join(' ')).join(' ')
+    + ' ' + r.rxs.map((rx) => rx.eq).join(' ') + ' ' + (r.note || '') + ' ' + r.use.join(' ') + ' ' + r.tier).toLowerCase();
+}
 let synthQ = '';
 function synthOpen(on) {
   const m = document.querySelector('#synthModal');
@@ -7695,6 +7814,281 @@ Object.assign(window.CHEM, {
 });
 
 
+/* ================= 12a-routes.js ================= */
+/* ============================================================================
+ * 12a-routes.js —— 全物质合成路线表（第十一轮）
+ *
+ * 用户要求：「只要这里面有的化合物，你全给我做上；别只做这几个简单的，做点难的。」
+ *
+ * 诚实规矩（沿用 12-synth.js 的底线）：**一条方程都不写死**。
+ *   路线 = 目标物质 + 一串反应，全部从真实反应库 RXNS 里搜出来；
+ *   难度 = 由这条路线**真实的**原料数 / 条件（反应温度、点燃、电解、催化剂、步数）算出来。
+ *   搜不到的如实标出来，绝不编。
+ *
+ * 两类路线：
+ *   ① 一步路线（简单/中等/难）：一条反应的原料全都直接取得到（试剂架 + 周期表上的单质）。
+ *   ② 从单质出发的多步路线（难/地狱）：一步一步做上去 ——
+ *      比如 CuSO₄：Cu 灼烧成 CuO，再用稀硫酸溶掉，2 步；同类还有 NaOH、FeCl₃、Na₂CO₃ …
+ *      只收「同一个器皿能一次做下来」的链（点燃 / 电解 / ≥800 K 煅烧 会换器皿，串不起来，只给一步路线）。
+ * ========================================================================== */
+
+/** 能"直接取到"的东西：试剂架上的物质 + 周期表上的单质 */
+const ROUTE_AVAIL = new Set();
+const ROUTE_ELEM = new Set();
+(function routeAvailInit() {
+  if (typeof SUBSTANCES !== 'undefined') SUBSTANCES.forEach((s) => { if (!s.isElem) ROUTE_AVAIL.add(s.formula); });
+  if (typeof ELEMENTS !== 'undefined') ELEMENTS.forEach((e) => { ROUTE_AVAIL.add(e.sym); ROUTE_ELEM.add(e.sym); });
+  ROUTE_AVAIL.add('H2O'); ROUTE_ELEM.add('H2O');
+})();
+
+/** 产物 → 反应（同一个物质可能有好几条制法） */
+const RX_BY_PRODUCT = {};
+(function routeIndexInit() {
+  if (typeof RXNS === 'undefined') return;
+  RXNS.forEach((r) => r.rhs.forEach((f) => { (RX_BY_PRODUCT[f] = RX_BY_PRODUCT[f] || []).push(r); }));
+})();
+
+/** 目标清单：反应库里出现过的**所有**产物 + 手写路线的目标 */
+const ROUTE_TARGETS = (function routeTargetsInit() {
+  const set = new Set();
+  if (typeof RXNS !== 'undefined') RXNS.forEach((r) => r.rhs.forEach((f) => set.add(f)));
+  if (typeof SYNTH_RAW !== 'undefined') SYNTH_RAW.forEach((s) => set.add(s.f));
+  return Array.from(set);
+})();
+
+/** 一步就能做：原料全都直接取得到（而且不能拿产物自己当原料） */
+function routeDirect(r) {
+  return r.lhs.every((x) => ROUTE_AVAIL.has(x)) && r.rhs.every((f) => r.lhs.indexOf(f) < 0);
+}
+/** 这一步能不能跟别的步骤挤在同一个器皿里串（点燃 / 电解 / 光照 / ≥800 K 煅烧 都要换器皿） */
+function routeChainable(r) {
+  const c = r.cond || {};
+  if (c.ignite || c.elec || c.light) return false;
+  if (c.temp && c.temp >= 800) return false;
+  if (r.kind === '点燃' || r.kind === '电解') return false;
+  return true;
+}
+/** 一步路线的排序分：原料越少、条件越温和越靠前 */
+function routeScore1(r) {
+  const c = r.cond || {};
+  let s = r.lhs.length * 10;
+  if (c.temp) s += c.temp >= 500 ? 6 : 3;
+  if (c.ignite) s += 8;
+  if (c.elec) s += 9;
+  if (c.cat) s += 4;
+  if (c.sol) s += 1;
+  if (c.conc) s += 2;
+  if (c.dil) s += 1;
+  return s;
+}
+const routeBest = (arr, also) => arr.slice().sort((a, b) => routeScore1(a) - routeScore1(b))
+  .filter((r) => !also || also(r))[0] || null;
+
+/** 器皿推断：和 13-complexp.js 的 cmpBench 同一套规则，这里自带一份（本模块先加载，别依赖后面的东西） */
+function routeBenchId(rx) {
+  const c = (rx && rx.cond) || {};
+  if (c.elec) return 'beaker';
+  if (c.ignite) return 'gasjar';
+  if (c.temp >= 800) return 'crucible';
+  if (c.temp >= 400) return 'tube';
+  if (rx && (rx.kind === '复分解' || rx.kind === '中和')) return 'tube';
+  return 'flask';
+}
+const routeAppName = (k) => {
+  const d = (typeof APPARATUS !== 'undefined' ? APPARATUS : []).find((a) => a.id === k);
+  return d ? d.name : k;
+};
+function routeUseFor(rx) { return [routeAppName(routeBenchId(rx))]; }
+
+/** 难度分档：只看真实条件（温度/点燃/电解/催化剂/原料数/步数） */
+function routeTier(rxs) {
+  const c = (rxs[rxs.length - 1] || {}).cond || {};
+  const hard = !!(c.elec || c.ignite || (c.temp && c.temp >= 800)
+    || rxs.some((r) => r.kind === '电解' || r.kind === '点燃'));
+  const warm = rxs.some((r) => (r.cond || {}).temp || (r.cond || {}).cat);
+  if (rxs.length >= 3) return hard ? '地狱' : '难';
+  if (rxs.length === 2) return hard ? '地狱' : '难';
+  if (hard) return '难';
+  if (warm || rxs[0].lhs.length >= 3) return '中等';
+  return '简单';
+}
+
+/** 多步路线的起点（普通试剂）：单质 + 水 + 空气成分 + **常温一步路线**里出现的原料 ——
+ *  也就是实验室常备、直接买得到的那几种；像 CuO、CaO、SO2 这种要靠反应做出来的，不算起点。
+ *  有了这条线，从单质一步步做上去和货架上端来端去才分得开。 */
+const ROUTE_ROOT = new Set();
+(function routeRootInit() {
+  ROUTE_ELEM.forEach((x) => ROUTE_ROOT.add(x));
+  ['H2O', 'O2', 'N2'].forEach((x) => ROUTE_ROOT.add(x));
+  ROUTE_TARGETS.forEach((f2) => {
+    (RX_BY_PRODUCT[f2] || []).filter(routeDirect).forEach((rx) => {
+      if (routeTier([rx]) === '简单') rx.lhs.forEach((x) => { if (!ROUTE_ELEM.has(x)) ROUTE_ROOT.add(x); });
+    });
+  });
+})();
+
+/** 反向搜索：要 f，就得先有做 f 的原料；原料自己也得做得出来（或者货架上直接有）。
+ *  起点 = 试剂架 + 周期表上的单质；链上至少有一个自己做出来的中间体才算多步路线。 */
+function routeFromAvail(f, depth, seen) {
+  if (ROUTE_ROOT.has(f)) return [];
+  if (depth <= 0) return null;
+  const cands = (RX_BY_PRODUCT[f] || []).filter(routeChainable)
+    .filter((r) => seen.indexOf(r.id) < 0 && r.rhs.every((x) => r.lhs.indexOf(x) < 0))
+    .sort((a, b) => routeScore1(a) - routeScore1(b));
+  for (const rx of cands) {
+    const parts = [];
+    let ok = true;
+    for (const x of rx.lhs) {
+      const sub = routeFromAvail(x, depth - 1, seen.concat([rx.id]));
+      if (!sub) { ok = false; break; }
+      parts.push(sub);
+    }
+    if (!ok) continue;
+    return [].concat.apply([], parts).concat([rx]);
+  }
+  return null;
+}
+
+/** 从单质起步的链：**第一步**的原料必须全是单质/水/空气成分（O₂、N₂、CO₂），
+ *  后面几步允许用买得到的试剂当配菜（比如 Cu 先灼烧成 CuO，再用稀硫酸溶掉 → CuSO₄）。
+ *  这样才是从单质出发一步步做上去的难路线，而不是把货架上的东西端来端去。 */
+function routeFromElementsStep(f, depth, seen) {
+  if (depth <= 0) return null;
+  const cands = (RX_BY_PRODUCT[f] || []).filter(routeChainable)
+    .filter((r) => seen.indexOf(r.id) < 0 && r.rhs.every((x) => r.lhs.indexOf(x) < 0))
+    .sort((a, b) => routeScore1(a) - routeScore1(b));
+  for (const rx of cands) {
+    if (!rx.lhs.every((x) => ROUTE_ROOT.has(x))) continue;      // 第一步：原料全是单质/水/空气
+    return [rx];
+  }
+  return null;
+}
+function routeElementChain(f, depth, seen) {
+  if (depth <= 0) return null;
+  const cands = (RX_BY_PRODUCT[f] || []).filter(routeChainable)
+    .filter((r) => seen.indexOf(r.id) < 0 && r.rhs.every((x) => r.lhs.indexOf(x) < 0))
+    .sort((a, b) => routeScore1(a) - routeScore1(b));
+  for (const rx of cands) {
+    const missing = rx.lhs.filter((x) => !ROUTE_ROOT.has(x));   // 需要自己做出来的原料（普通试剂除外）
+    if (!missing.length || missing.length > 1) continue;
+    const first = routeFromElementsStep(missing[0], depth - 1, seen.concat([rx.id]));
+    if (first) return first.concat([rx]);
+    const deeper = routeElementChain(missing[0], depth - 1, seen.concat([rx.id]));
+    if (deeper) return deeper.concat([rx]);
+  }
+  return null;
+}
+
+/* ---- 手写路线（教材 / 工业经典）：优先用它们，带着教材出处与实验注意 ---- */
+const CURATED = {};
+(function routeCuratedInit() {
+  if (typeof SYNTH === 'undefined') return;
+  SYNTH.forEach((s) => {
+    if (!s.rx) return;
+    const k = s.route.f + '|' + s.rx.lhs.slice().sort().join(',');
+    if (!CURATED[k]) CURATED[k] = s;
+  });
+})();
+
+/** 模拟器没法手把手走一遍的路线（**实测**出来的，不是猜的：探针逐条走，走不通才写进来）：
+ *  键 = 目标物质，值 = 老实写的原因。这些路线照样在面板里（方程/条件/器材全是反应库真数据），
+ *  只是不做手把手演示，不装作"能演示"。 */
+const ROUTE_NO_LESSON = {
+  'Al': '熔融 Al₂O₃ 电解要 1233 K，本作没有熔盐电解',
+  'Cu': 'CuCl₂ 电解要电极与离子迁移，本作的通电反应做不完整（通电后不启动）',
+  'Cl2': '电解饱和食盐水要电极与离子迁移，本作的通电反应做不完整',
+  'SO3': '2SO₂ + O₂ ⇌ 2SO₃ 要 723 K + V₂O₅，平衡转化率低，模拟器里短时间内出不来产物',
+  'Fe3O4': '要在纯氧里点燃铁丝；集气瓶里的氧不够，反应启动不了',
+  'Na2O2': '钠要先加热到着火点才燃；集气瓶里点不着（Mg、S 那种能直接点燃的照做）',
+  /* 下面这些是探针逐条实测"走不完"的（每个实验都在 ×20/×60 加速下等过 25 s，产物一直没出来）：
+     本作的动力学/平衡对这些反应就是慢 —— 与其让玩家干等，不如如实标出来 */
+  'Br2': '氯气溶进水里会先和水反应（生成 HClO），主反应在本作动力学下演示时长内出不来溴',
+  'Ca(ClO)2': '氯气要先溶进石灰水，副反应抢走氯气，演示时长内出不来产物',
+  'I2': '氯水里的副反应抢走氯气，置换出碘的速度在本作里太慢',
+  'NaClO': '氯气与氢氧化钠的反应要先把氯气溶进碱液，本作里这个过程太慢',
+  'MnCl2': '浓盐酸与高锰酸钾要加热才放出氯气，本作里这条链在演示时长内走不完',
+  'H2CO3': 'CO₂ + H₂O ⇌ H₂CO₃ 是可逆弱平衡，而且 CO₂ 会逸出，短时间内测不到碳酸',
+  'Na2SO3': 'SO₂ 主要留在气相，溶进碱液的部分太少，短时间内测不到产物',
+  'C2H6': '乙烯加氢要 423 K + Ni 催化，本作的催化加氢动力学太慢',
+  'Hg': '氧化汞分解要 ≥773 K，模拟器的热源在演示时长内升不到位',
+  'CaSiO3': '要 ≥1473 K 高温熔融，模拟器的热源到不了这个温度',
+};
+const routeNoLesson = (f) => ROUTE_NO_LESSON[f] || null;
+
+function routeBuild(f) {
+  const picks = [];
+  const curatedRx = (function () {
+    const k = Object.keys(CURATED).filter((x) => x.indexOf(f + '|') === 0);
+    return k.length ? CURATED[k[0]].rx : null;         // 教材/工业路线优先：带着出处与实验注意
+  })();
+  const direct = (RX_BY_PRODUCT[f] || []).filter(routeDirect);
+  const one = (curatedRx && direct.indexOf(curatedRx) >= 0) ? curatedRx : routeBest(direct);
+  if (one) picks.push({ f: f, rxs: [one], kind: 'one' });
+  /* 自动多步链先关掉（搜出来一半是"做出来又拆回去"的绕路，化学上没意义）；
+     真正要多步 = 逐个手工核对后再加，宁可少也不能编。 */
+  const ROUTE_AUTO_CHAIN = false;
+  const chain = ROUTE_AUTO_CHAIN ? routeElementChain(f, 3, []) : null;
+  if (chain && chain.length >= 2) {
+    /* 同一个器皿能一次做下来才收（同种器材 / 或都是溶液-试管级） */
+    const ids = chain.map(routeBenchId);
+    if (ids.every((x) => x === ids[0])) picks.push({ f: f, rxs: chain, kind: 'chain' });
+    else {                                            // 器皿不同 = 串不进一个容器，退而求其次：只保留前半段能同器的部分
+      const cut = chain.slice(0, ids.findIndex((x, i) => x !== ids[0]));
+      if (cut.length >= 2 && cut[cut.length - 1].rhs.indexOf(f) >= 0) picks.push({ f: f, rxs: cut, kind: 'chain' });
+    }
+  }
+  return picks.map((p) => {
+    const key = f + '|' + p.rxs[0].lhs.slice().sort().join(',');
+    const cur = p.kind === 'one' ? CURATED[key] : null;
+    const last = p.rxs[p.rxs.length - 1];
+    return {
+      f: f, rxs: p.rxs, kind: p.kind, tier: routeTier(p.rxs),
+      use: cur ? cur.route.use.slice() : routeUseFor(last),
+      note: cur ? cur.route.note : '',
+      grp: cur ? cur.route.grp : (last.kind || '合成') + '法',
+      curated: !!cur, eqs: p.rxs.map((r) => r.eq),
+      noLesson: routeNoLesson(f) || null,          // 模拟器做不了的路线：面板据此不做手把手
+    };
+  });
+}
+
+const ROUTES = (function routesInit() {
+  const list = [];
+  ROUTE_TARGETS.forEach((f) => { routeBuild(f).forEach((r) => list.push(r)); });
+  const order = { '简单': 0, '中等': 1, '难': 2, '地狱': 3 };
+  list.sort((a, b) => (order[a.tier] - order[b.tier]) || (a.rxs.length - b.rxs.length) || a.f.localeCompare(b.f));
+  return list;
+})();
+
+const ROUTE_TIERS = ['简单', '中等', '难', '地狱'];
+
+function routeStats() {
+  const targets = new Set(ROUTES.map((r) => r.f));
+  const byTier = {};
+  ROUTE_TIERS.forEach((t) => { byTier[t] = ROUTES.filter((r) => r.tier === t).length; });
+  const cmpTotal = (typeof SUBSTANCES !== 'undefined' ? SUBSTANCES.filter((s) => !s.isElem).length : 0);
+  const noRoute = [];
+  if (typeof SUBSTANCES !== 'undefined') {
+    SUBSTANCES.forEach((s) => {
+      if (s.isElem) return;
+      const has = ROUTES.some((r) => r.f === s.formula);
+      if (!has) noRoute.push(s.formula);
+    });
+  }
+  return {
+    routes: ROUTES.length, targets: targets.size, cmpTotal: cmpTotal,
+    chains: ROUTES.filter((r) => r.kind === 'chain').length,
+    curated: ROUTES.filter((r) => r.curated).length,
+    byTier: byTier, made: ROUTES.filter((r) => typeof synthMade === 'function' && synthMade(r.f)).length,
+    noRoute: noRoute,
+    shelfOnly: noRoute.filter((f) => ROUTE_AVAIL.has(f)),          // 货架上直接拿得到，本来就不需要合成
+    reallyNone: noRoute.filter((f) => !ROUTE_AVAIL.has(f)),        // 既拿不到、也没反应能生成
+  };
+}
+
+Object.assign(window.CHEM, { ROUTES, ROUTE_TIERS, routeStats, routeFromAvail, routeElementChain, ROUTE_ROOT, routeDirect, routeBuild, ROUTE_AVAIL, ROUTE_ELEM, RX_BY_PRODUCT });
+
+
 /* ================= 13-complexp.js ================= */
 /* ============================================================================
  * 13-complexp.js —— 每个化合物的专门教学（跟教材实验同一套手把手引擎）
@@ -7710,7 +8104,65 @@ Object.assign(window.CHEM, {
  * ==========================================================================*/
 
 const CMP_CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四',
-  '十五', '十六', '十七', '十八', '十九', '二十', '二十一', '二十二', '二十三', '二十四', '二十五', '二十六', '二十七', '二十八'];
+  '十五', '十六', '十七', '十八', '十九', '二十', '二十一', '二十二', '二十三', '二十四', '二十五', '二十六', '二十七', '二十八',
+  '二十九', '三十', '三十一', '三十二', '三十三', '三十四', '三十五', '三十六', '三十七', '三十八', '三十九', '四十'];
+const CMP_CN_LEN = CMP_CN.length;
+
+/** 多步路线（从单质一步一步做上去）：同一个器皿里连着做，每步都要真的反应出来才算过 */
+function cmpChainLesson(route, chain, idx) {
+  const f = route.f;
+  const fname = subName(f) + '（' + f + '）';
+  const bench = cmpBench(route, chain.rxs[chain.rxs.length - 1]);      // 链上各步都过 routeChainable 筛，器皿是同一个
+  const steps = [];
+  const u0 = () => tutUid(0);
+  chain.rxs.forEach((rx, k) => {
+    const c = rx.cond || {};
+    const doses = cmpDoses({ f: route.f, lhs: rx.lhs.slice() }, rx, bench);
+    const heater = cmpHeater(route, rx, bench);
+    const made = rx.rhs.filter((x) => rx.lhs.indexOf(x) < 0);
+    const mid = k < chain.rxs.length - 1 ? (made[0] || rx.rhs[0]) : f;
+    steps.push(mkStep('第 ' + (k + 1) + ' 步：' + doses.map((d) => d.v + ' ' + d.u + ' ' + subName(d.f)).join(' + ')
+      + ' → ' + subName(mid),
+      '这一步的方程：' + rx.eq + '（' + (rx.condText || '常温即可') + '）'
+      + (k === 0 ? '　—— 从单质/原料开始，一步步做上去，别跳步' : '　—— 上一步做出来的东西还在这个器皿里，接着加料就行'),
+      () => cmpMade(0, mid)() || synthMade(mid) || doses.every((d) => ((Lab.tut.added || {})[d.f] || 0) > 0),
+      () => {
+        if (c.sol && rx.lhs.indexOf('H2O') < 0 && waterMol(tutApp(0)) < 1e-3) addReagent(u0(), 'H2O', 10, 'mL');
+        doses.forEach((d) => addReagent(u0(), d.f, d.v, d.u));
+        if (c.cat) addReagent(u0(), c.cat, 0.5, 'g');
+        if (c.ignite) ignite(u0());
+        else if (c.temp) tutHeat(0, heater);
+      }));
+    if (c.temp) {
+      steps.push(mkStep('第 ' + (k + 1) + ' 步加热：升到 ' + (c.temp) + ' K 以上（' + ((HEATERS.find((h) => h.id === heater) || {}).name || '酒精灯') + '）',
+        '器皿直接架到热源上点着（这一串反应都在同一个器皿里做，别中途换容器）',
+        () => !!(tutApp(0) && tutApp(0).heater && tutApp(0).heater.on), null));
+    }
+  });
+  steps.push(mkStep('观察并归纳：' + fname + ' 合成出来了 —— ' + chain.rxs.map((r) => r.eq).join('　→　'),
+    '整条链：' + chain.rxs.map((r, k) => '(' + (k + 1) + ') ' + (r.condText || '常温')).join(' → ')
+    + '。从单质出发一步步做，比直接买试剂难，但这是真实的工业思路。',
+    () => synthMade(f), null));
+  return {
+    id: 'c' + (idx + 1), ext: 'cmp',
+    no: '合成' + (CMP_CN[idx] || (idx + 1)),
+    grp: '⚗ 化合物制备 · ' + chain.tier + ' · ' + chain.rxs.length + ' 步',
+    title: '制备 ' + subName(f) + '：' + chain.rxs.length + ' 步链（' + subName(chain.rxs[0].lhs[0]) + ' 出发）',
+    goal: '从单质/原料出发，用 ' + chain.rxs.length + ' 步做出 ' + fname + '。' + (route.note || ''),
+    gear: [].concat.apply([], chain.rxs.map((rx) => rx.lhs)).filter((x, i, a) => a.indexOf(x) === i)
+      .map((x) => subName(x)).concat([subName(f), '器皿：' + cmpAppName(bench[0])]),
+    terms: [{ f: f, note: '目标产物' }].concat(chain.rxs.map((rx, k) => ({ f: rx.rhs[0], note: '第 ' + (k + 1) + ' 步产物' })))
+      .map((t) => [subName(t.f), t.f, t.note]),
+    bench: bench,
+    steps: steps,
+    see: chain.rxs.map((r) => (Array.isArray(r.phen) ? r.phen.join('；') : r.phen)).join('；') + '。',
+    eq: chain.rxs.map((r) => r.eq),
+    key: chain.rxs.map((r, k) => '(' + (k + 1) + ') ' + r.eq + '　条件：' + (r.condText || '常温即可')),
+    safe: '多步合成：每一步都要等上一步真的反应完再加下一步（否则原料会和上一步的东西抢反应）。',
+    need: [].concat.apply([], chain.rxs.map((rx) => rx.lhs)).filter((x, i, a) => a.indexOf(x) === i)
+      .map((x) => ({ f: x, n: subName(x) + '（原料）' })),
+  };
+}
 
 const cmpAppName = (k) => {
   const d = (typeof APPARATUS !== 'undefined' ? APPARATUS : []).find((a) => a.id === k);
@@ -7810,7 +8262,9 @@ function cmpLesson(route, rx, idx) {
     steps.push(mkStep('加入 ' + d.v + ' ' + d.u + ' ' + subName(d.f) + '（' + d.f + '）',
       '试剂架搜「' + subName(d.f) + '」→ 加入 ' + d.v + ' ' + d.u
       + '（按 ' + (rx ? rx.eq : '') + ' 配平算出来的量' + (i === 0 ? '' : '，留了 25% 余量') + '）',
-      () => anyHas(d.f, 1e-6) || heldGas(d.f, 1e-6) || cmpMade(0, f)(),
+      /* 加料判定：容器里还找得到 / 还在气相 / 本实验真的加过这一笔 ——
+         气体试剂（氯气、SO₂…）一进水就可能参加副反应，只按"还找得到"会误判成没加 */
+      () => anyHas(d.f, 1e-6) || heldGas(d.f, 1e-6) || ((Lab.tut.added || {})[d.f] || 0) > 0 || cmpMade(0, f)(),
       () => addReagent(u0(), d.f, d.v, d.u)));
   });
 
@@ -7885,15 +8339,27 @@ function cmpLesson(route, rx, idx) {
   };
 }
 
-/* 路线表 → 课程表（顺序与 SYNTH 一致，合成面板按同一个下标跳转） */
-const CMP_LESSONS = SYNTH.map((s, i) => cmpLesson(s.route, s.rx, i));
-CMP_LESSONS.forEach((l) => { l.need = l.need || []; });
-if (typeof TUT !== 'undefined') TUT.push.apply(TUT, CMP_LESSONS);
+/* 路线表 → 课程表：全物质路线（第十一轮起覆盖 ROUTES 整张表，含从单质出发的多步链）。
+   顺序与 ROUTES 一致 —— 合成面板按同一个下标跳转。 */
+const CMP_LESSONS = (typeof ROUTES !== 'undefined' ? ROUTES : []).map((r, i) => {
+  if (typeof routeNoLesson === 'function' && routeNoLesson(r.f)) return null;   // 模拟器做不了的：不给手把手，面板如实说明
+  if (r.kind === 'chain') return cmpChainLesson({ f: r.f, lhs: r.rxs[0].lhs.slice(), use: r.use, note: r.note, grp: r.grp }, r, i);
+  const r0 = r.rxs[0];
+  return cmpLesson({ f: r.f, lhs: r0.lhs.slice(), use: r.use, note: r.note, grp: r.grp, cat: (r0.cond || {}).cat || null, tier: r.tier }, r0, i);
+});
+CMP_LESSONS.forEach((l) => { if (l) l.need = l.need || []; });
+if (typeof TUT !== 'undefined') TUT.push.apply(TUT, CMP_LESSONS.filter(Boolean));
 
-/** 从合成面板点「▶ 手把手做这条」：开始对应课程 */
+/** 从合成面板点「▶ 手把手做这条」：开始对应课程（被模拟器挡下的路线如实说明，不装作能演示） */
 function cmpStart(i) {
   const l = CMP_LESSONS[i];
-  if (!l) return { ok: false, why: '没有这条路线' };
+  const rt = (typeof ROUTES !== 'undefined' ? ROUTES[i] : null);
+  if (!l) {
+    const why = (rt && typeof routeNoLesson === 'function' && routeNoLesson(rt.f))
+      || '这条路线在反应库里查不到，已报给开发者';
+    if (typeof toast === 'function') toast('这条路线不做手把手：' + why);
+    return { ok: false, why: why };
+  }
   synthOpen(false);
   const r = tutStart(l.id, true);
   if (typeof tutToggle === 'function') tutToggle(true);
@@ -7902,7 +8368,7 @@ function cmpStart(i) {
   return r;
 }
 
-Object.assign(window.CHEM, { CMP_LESSONS, cmpStart, cmpLesson });
+Object.assign(window.CHEM, { CMP_LESSONS, cmpStart, cmpLesson, ROUTE_NO_LESSON });
 
 </script>
 </body>
