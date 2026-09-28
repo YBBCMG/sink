@@ -2324,7 +2324,7 @@ function addReagent(uid, formula, value, unit) {
   }
   let dropNote = '';
   const tiny = unit === 'mL' && value > 0 && value <= 0.5 && (s.st === 'l' || s.st === 'aq' || formula === 'H2O');
-  if (tiny && !window._tutAuto) {
+  if (tiny && !allowAutoTool()) {
     /* 玩家的动作：没有胶头滴管就不给按滴算 —— 量小到滴管级别，得自己先把滴管拿上台面 */
     const d0 = Lab.tools.find((t) => t.def && t.def.id === 'dropper');
     if (!d0) return { ok: false, why: '还差 🧪 胶头滴管：' + Math.max(1, Math.round(value / 0.05))
@@ -2669,10 +2669,13 @@ function ignite(uid) {
 }
 /** 规范操作：搅拌/引流要用玻璃棒 —— 但**玻璃棒得玩家自己从器材行拿**（第十一轮：器材一律不白送）。
  *  只有手把手课程在"自动做一步"时才代取（那是教程在演示给玩家看）。 */
+/** 程序代取器材的许可：手把手课程在演示这一步（_tutAuto），或者玩家点的正是引导高亮的那个控件（_gGuided）
+ *  —— 自由玩的时候一律自己拿，缺就是缺。 */
+const allowAutoTool = () => !!(window._tutAuto || window._gGuided);
 function ensureRod(app, why) {
   const rod = toolByUid(app.rod);
   if (rod) return rod;
-  if (!window._tutAuto) return null;                     // 玩家自己的动作：缺就是缺，绝不代取
+  if (!allowAutoTool()) return null;                     // 玩家自己的动作：缺就是缺，绝不代取
   window._gSilent = true;
   const t = Lab.tools.find((x) => x.def && x.def.id === 'rod') || addTool('rod');
   const r = t ? placeOn(app.uid, t.uid) : { ok: false, why: '台面上器材摆满了（最多 6 件），先收走一件再摆玻璃棒' };
@@ -2687,7 +2690,7 @@ const rodHint = (why) => '还差 🥢 玻璃棒：先到「器材」行点一下
 function stir(uid) {
   const app = appByUid(uid); if (!app) return { ok: false, why: '没有这个容器' };
   const rod = ensureRod(app, '搅拌');
-  if (!rod && !window._tutAuto) { toast(rodHint('搅拌')); Lab.log.push({ k: 'stir', at: Lab.time, text: '🌀 手摇搅拌 ' + app.def.name + '（没有玻璃棒：溶解速率不变）' }); return { ok: true, on: app.stirrerOn, rod: false, hint: rodHint('搅拌') }; }
+  if (!rod && !allowAutoTool()) { toast(rodHint('搅拌')); Lab.log.push({ k: 'stir', at: Lab.time, text: '🌀 手摇搅拌 ' + app.def.name + '（没有玻璃棒：溶解速率不变）' }); return { ok: true, on: app.stirrerOn, rod: false, hint: rodHint('搅拌') }; }
   app.stirrerOn = !app.stirrerOn;
   Lab.stirCount = (Lab.stirCount || 0) + 1;
   Lab.log.push({ k: 'stir', text: (app.stirrerOn ? '开始' : '停止') + '搅拌 ' + app.def.name + (rod ? '（🥢 玻璃棒）' : '（没有玻璃棒：手摇不加快溶解）'), at: Lab.time });
@@ -2773,7 +2776,7 @@ function filterApp(fromUid, toUid) {
   liquid.forEach((c) => { addContent(b, c.formula, c.mol, c.phase === 'l' ? 'l' : 'aq', c.phase !== 'l'); c.mol = 0; });
   a.contents = a.contents.filter((c) => c.mol > 1e-9);
   const kept = a.contents.filter((c) => !c.dissolved && c.phase !== 'g');
-  if (!ensureRod(a, '过滤引流') && !window._tutAuto) return { ok: false, why: rodHint('过滤引流') };   // 玻璃棒得自己拿
+  if (!ensureRod(a, '过滤引流') && !allowAutoTool()) return { ok: false, why: rodHint('过滤引流') };   // 玻璃棒得自己拿
   Lab.filterCount++;
   Lab.log.push({
     k: 'pour', at: Lab.time,
@@ -4277,7 +4280,7 @@ function ensureMeter(app, kind, thenMeasure) {
   let made = false;
   if (!t) {
     t = Lab.tools.find((x) => x.kind === 'meter' && x.def.measures === kind) || null;
-    if (!t && !window._tutAuto) {
+    if (!t && !(window._tutAuto || window._gGuided)) {
       toast('还差 ' + def.icon + ' ' + def.name + '：先到「器材」行点一下把它拿上台面，再点这一行读数 —— 读数不白送');
       return null;
     }
@@ -6588,6 +6591,16 @@ let gInstalled = false;
 function guideInstall() {
   if (gInstalled) return;
   gInstalled = true;
+  /* 点的是引导高亮的那个控件 = 玩家在照着手把手做 —— 此时缺的器材允许程序代取；
+     自由玩（没有高亮）一律自己拿（第十一轮用户要求：所有东西必须让玩家手动拿）。 */
+  if (!window._gGuidedHook) {
+    window._gGuidedHook = true;
+    document.addEventListener('click', (ev) => {
+      const g = ev.target && ev.target.closest ? ev.target.closest('.tutglow') : null;
+      window._gGuided = !!g;
+      setTimeout(() => { window._gGuided = false; }, 0);
+    }, true);
+  }
   GUIDE_KINDS.forEach((k) => {
     const f = window[k];
     if (typeof f !== 'function') return;
@@ -8078,7 +8091,11 @@ function routeStats() {
       if (!has) noRoute.push(s.formula);
     });
   }
+  /* 化合物口径：ROUTES 的目标里含单质（Al/Cu/C…），账要按化合物算才守恒 */
+  const isElemSub = (f) => { const x = (typeof subOf === 'function' ? subOf(f) : null); return !!(x && x.isElem); };
+  const cmpTargets = Array.from(targets).filter((f) => !isElemSub(f)).length;
   return {
+    cmpTargets: cmpTargets,
     routes: ROUTES.length, targets: targets.size, cmpTotal: cmpTotal,
     chains: ROUTES.filter((r) => r.kind === 'chain').length,
     curated: ROUTES.filter((r) => r.curated).length,
