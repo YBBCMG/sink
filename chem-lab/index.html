@@ -5009,7 +5009,7 @@ const TUT = [
         () => { addReagent(tutUid(0), 'Mg', 0.5, 'g'); addReagent(tutUid(1), 'Zn', 2, 'g'); addReagent(tutUid(2), 'Cu', 1, 'g'); }),
       mkStep('每支试管各加 10 mL 稀盐酸',
         '搜「盐酸」，分别加入三支试管',
-        () => [0, 1, 2].every((i) => appHas(tutApp(i), 'HCl', 0.001)),
+        () => [0, 1, 2].every((i) => appHas(tutApp(i), 'HCl', 0.001)) || ((Lab.tut.added || {})['HCl'] || 0) >= 0.25,
         () => { [0, 1, 2].forEach((i) => addReagent(tutUid(i), 'HCl', 10, 'mL')); }),
       mkStep('观察：镁剧烈冒气泡、锌冒气泡、铜没有明显现象',
         '铜不与稀盐酸反应（不产生气泡）——这说明铜的活动性排在氢后面',
@@ -5717,7 +5717,7 @@ const TUT = [
         '点集气瓶的「🔥 点燃」—— 燃烧用的是空气里的氧气（开口容器有空气）',
         () => appHas(tutApp(0), 'P4O10', 1e-6) || appHas(tutApp(0), 'H3PO4', 1e-6),
         () => ignite(tutUid(0))),
-      mkStep('用水吸收白烟：五氧化二磷溶于水生成磷酸，pH 显酸性',
+      mkStep('观察：用水吸收白烟 —— 五氧化二磷溶于水生成磷酸，pH 显酸性',
         '摆「🖊 pH 计」插进集气瓶 → 点「🖊pH」那一行读数，应小于 7',
         () => !!(tutApp(0) && tutApp(0).meas && tutApp(0).meas.ph && tutApp(0).meas.ph.v < 7),
         () => { ensureMeter(tutApp(0), 'ph', true); }),
@@ -8337,7 +8337,8 @@ function cmpLesson(route, rx, idx) {
     title: '制备 ' + subName(f) + '：' + names,
     goal: (route.note || '') + '　目标物质：' + fname + '。',
     gear: route.use.map((x) => x).concat(doses.map((d) => subName(d.f) + ' ' + d.v + d.u)).concat(route.cat ? [subName(route.cat) + ' 0.5 g'] : []),
-    terms: [{ f: f, note: route.note || '' }].concat(route.lhs.map((x) => ({ f: x, note: '原料：' + subName(x) })))
+    terms: [{ f: f, note: route.note || ('目标物质：' + subName(f) + '（' + (rx ? rx.kind + '反应' : '合成') + '的产物）') }]
+      .concat(route.lhs.map((x) => ({ f: x, note: '原料：' + subName(x) })))
       .concat(route.cat ? [{ f: route.cat, note: '催化剂：只改速率，不改产量' }] : [])
       .map((t) => [subName(t.f), t.f, t.note]),
     bench: bench,
