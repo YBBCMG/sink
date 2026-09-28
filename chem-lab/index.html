@@ -6598,7 +6598,7 @@ function guideInstall() {
     document.addEventListener('click', (ev) => {
       const g = ev.target && ev.target.closest ? ev.target.closest('.tutglow') : null;
       window._gGuided = !!g;
-      setTimeout(() => { window._gGuided = false; }, 0);
+      setTimeout(() => { window._gGuided = false; }, 400);   // 点击处理可能是异步的，留个窗口
     }, true);
   }
   GUIDE_KINDS.forEach((k) => {
@@ -8016,6 +8016,7 @@ const ROUTE_NO_LESSON = {
   'SO3': '2SO₂ + O₂ ⇌ 2SO₃ 要 723 K + V₂O₅，平衡转化率低，模拟器里短时间内出不来产物',
   'Fe3O4': '要在纯氧里点燃铁丝；集气瓶里的氧不够，反应启动不了',
   'Na2O2': '钠要先加热到着火点才燃；集气瓶里点不着（Mg、S 那种能直接点燃的照做）',
+  'C': 'Mg 在 CO₂ 里燃烧：本作的点燃判定要求体系里有氧气，这条点不着（化学上确实能烧）',
   /* 下面这些是探针逐条实测"走不完"的（每个实验都在 ×20/×60 加速下等过 25 s，产物一直没出来）：
      本作的动力学/平衡对这些反应就是慢 —— 与其让玩家干等，不如如实标出来 */
   'Br2': '氯气溶进水里会先和水反应（生成 HClO），主反应在本作动力学下演示时长内出不来溴',
