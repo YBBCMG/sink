@@ -101,6 +101,12 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 .toolcard.lit { border-color: #ff8a3d; box-shadow: 0 0 16px #ff7a2a55; }
 .toolcard.over { outline: 2px dashed #ffb35c; outline-offset: 3px; }
 .dragbar { cursor: grab; touch-action: none; }
+.appcard.dragging, .toolcard.dragging { opacity: .85; z-index: 60 !important; box-shadow: 0 8px 22px rgba(0,0,0,.45); }
+.toolcard.over, .appcard.over { outline: 2px dashed #7ee0ff; outline-offset: 2px; }
+#dragtip { position: absolute; z-index: 70; padding: 3px 9px; border-radius: 999px; background: rgba(10,26,38,.94);
+  border: 1px solid #3fb6d8; color: #d9f4ff; font-size: 12px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+#dragtip.show { opacity: 1; }
+
 .dragging { opacity: .85; z-index: 44 !important; }
 .tutlift { z-index: 45 !important; }
 .apphead, .toolhead { display: flex; align-items: center; gap: 5px; font-size: 12px; margin-bottom: 3px; }
@@ -847,6 +853,8 @@ V2O5|五氧化二钒|s|oxide|#c8641e|~|-1550.60|接触法制硫酸的催化剂
 /* ------------------- 追加物质（扩充反应库/实验库时新增的试剂） ------------------ */
 const SUB_EXTRA_RAW = `
 NaBr|溴化钠|s|salt|#ffffff|90.5|-361.10|海水提溴的产品
+C17H35COONa|硬脂酸钠|s|salt|#ffffff|10.0|~-800.00|肥皂的主要成分（高级脂肪酸钠），水溶液因水解显碱性
+(C17H35COO)2Ca|硬脂酸钙|s|salt|#ffffff|-|~-1500.00|硬水遇上肥皂生成的白色浮渣，不溶于水 —— 硬水费肥皂的原因
 NaI|碘化钠|s|salt|#ffffff|184.0|~-295.30|易溶于水，见光易变黄
 NaF|氟化钠|s|salt|#ffffff|4.0|-573.60|剧毒，也用作防龋齿添加剂
 MgSO4|硫酸镁|s|salt|#ffffff|35.1|-1284.90|泻盐（Epsom salt）
@@ -1024,7 +1032,7 @@ ELEMENTS.forEach((e) => {
  *  est:true 表示该值取自手册近似值/同类外推，不是精确测量值。 */
 const DHF_AQ = {
   H2O: { v: -285.83 }, H2: { v: 0 }, O2: { v: 0 }, N2: { v: 0 }, Cl2: { v: -23.4, est: 1 },
-  CO2: { v: -413.8 }, SO2: { v: -322.0, est: 1 }, H2S: { v: -39.7, est: 1 }, NH3: { v: -80.29 }, 'NH3·H2O': { v: -80.29 },
+  CO2: { v: -413.8 }, SO2: { v: -322.0, est: 1 }, H2S: { v: -39.7, est: 1 }, NH3: { v: -80.29 }, 'NH3·H2O': { v: -366.10 },   // 挥发 ΔH≈+34 kJ/mol（吸热、不炸锅）
   HCl: { v: -167.16 }, H2SO4: { v: -909.27 }, HNO3: { v: -207.36 }, HF: { v: -335.0, est: 1 },
   H3PO4: { v: -1288.0, est: 1 }, CH3COOH: { v: -485.76 }, H2CO3: { v: -699.6, est: 1 },
   H2O2: { v: -191.2, est: 1 }, KMnO4: { v: -837.0, est: 1 },
@@ -1215,6 +1223,7 @@ function parseCond(txt) {
 }
 
 const RX_DEFS = [
+  ['复分解', 'C17H35COONa,CaCl2', '(C17H35COO)2Ca,NaCl', 'sol', 3, '泡沫少、出现白色浮渣', '硬水里的 Ca²⁺ 与肥皂反应生成不溶于水的硬脂酸钙（浮渣）—— 硬水洗衣服费肥皂'],
   // 类别, 左式, 右式, 条件, 速率, 现象, 说明
   ['化合', 'H2,O2', 'H2O', 'i', 10, '爆鸣、淡蓝色火焰', '氢气在氧气中燃烧生成水'],
   ['化合', 'Na,Cl2', 'NaCl', 'i', 9, '黄色火焰、白烟', '钠在氯气中剧烈燃烧'],
@@ -1643,8 +1652,15 @@ const _sub = (f) => subOf(f);
 /** 液态水物质的量 */
 const waterMol = (app) => app.contents.filter((c) => c.formula === 'H2O' && c.phase !== 'g')
   .reduce((a, c) => a + c.mol, 0);
-/** 水溶液体积 L */
-const waterVolume = (app) => waterMol(app) * 18.015 / 1000;
+/** 水溶液体积 L。全是"水溶液试剂"（氨水/盐酸/稀硫酸…）时没有自由水，按密度 1 kg/L 用溶质质量估体积 —— 
+ *  否则 computePH 一律 null（氨水读不出 pH）。只用于浓度类计算，不参与反应判定。 */
+const waterVolume = (app) => {
+  const V = waterMol(app) * 18.015 / 1000;
+  if (V > 1e-6) return V;
+  const aq = app.contents.filter((c) => c.mol > 0 && ((_sub(c.formula) || {}).st === 'aq'))
+    .reduce((a, c) => a + c.mol * (((_sub(c.formula) || {}).M) || 18.015), 0);
+  return aq / 1000;
+};
 /** 玻璃器皿炸裂：内容物洒掉、热源/电源断开、留下碎玻璃 —— 真实实验室最常见的翻车 */
 function breakVessel(app, why) {
   if (app.broken) return;
@@ -1897,6 +1913,20 @@ function stepThermal(app, dt) {
       if (dn2 > 0) { removeContent(app, 'H2O', dn2); app.steamAccum += dn2; app.events.push({ t: 'boil', mol: dn2 }); }
     }
   }
+  // ---- 挥发：氨水敞口放置，氨分子持续逸出（NH₃·H₂O → NH₃↑ + H₂O 的"走出去"那一半）----
+  // 为什么不写成反应：NH₃ + H₂O → NH₃·H₂O 与它正好互逆，反应引擎对互逆对只留"更强"的一条，
+  // 于是"溶解成氨水"那条会被踢掉 —— 水里永远建不起氨水，pH 也永远上不去（实验十五、三十都会假失败）。
+  // 挥发是单向往外走的物理过程，单独走一路最干净。
+  const nh3aq = app.contents.find((c) => c.formula === 'NH3·H2O' && c.mol > 1e-12);
+  if (nh3aq && app.temp > 278 && !app.broken) {
+    const leak = Math.min(nh3aq.mol, (0.0009 + (app.temp - 278) * 0.00025) * dt);   // 常温 ≈ 0.9 mmol/s
+    if (leak > 1e-12) {
+      removeContent(app, 'NH3·H2O', leak);
+      putGas(app, 'NH3', leak);                                                  // 只走气：再补自由水的话 NH₃ 会被溶回去，分子运动课就没气可导了
+      app.nh3Vented = (app.nh3Vented || 0) + leak;
+    }
+  }
+
   // ---- 凝固：水结冰（放热） ----
   const fp = freezingPoint(app);
   if (w > 1e-9 && app.temp < fp) {
@@ -2022,7 +2052,7 @@ function computePH(app) {
   const V = waterVolume(app);
   if (V < 1e-6) return null;
   let cH = 0, cOH = 0;
-  app.contents.filter((c) => c.dissolved).forEach((c) => {
+  app.contents.filter((c) => c.dissolved || c.phase === 'aq').forEach((c) => {   // aq = 水溶液试剂（氨水/盐酸）也算溶液
     const c0 = c.mol / V;
     const pKa = ACID_PKA[c.formula];
     if (pKa != null) {
@@ -2318,7 +2348,7 @@ const standAppOf = (t) => ((t && t.hid === 'stand') ? (Lab.apps.find((a) => a.st
 /** 铁架台下格里的酒精灯（没有 = null） */
 const standLampOf = (t) => ((t && t.lampUid) ? toolByUid(t.lampUid) : null);
 const lampInStand = (lamp) => ((lamp && lamp.lampStand) ? toolByUid(lamp.lampStand) : null);
-/** 下格放/取酒精灯（lampUid 传 null = 取出来） */
+/** 下格放/取热源（lampUid 传 null = 取出来）。第十轮：不再限定酒精灯 —— 本生灯、喷灯、电热板都能进下格 */
 function slotLamp(toolUid, lampUid) {
   const t = toolByUid(toolUid); if (!t || t.hid !== 'stand') return { ok: false, why: '这不是铁架台' };
   const old = standLampOf(t);
@@ -2328,9 +2358,8 @@ function slotLamp(toolUid, lampUid) {
     return { ok: true, off: true };
   }
   const lamp = toolByUid(lampUid);
-  if (!lamp || lamp.kind !== 'heat') return { ok: false, why: '下格只能放热源' };
-  if (lamp.hid !== 'lamp') return { ok: false, why: '下格放酒精灯最合适（本生灯太高，塞不进下格）' };
-  if (lamp.lampStand && lamp.lampStand !== t.uid) return { ok: false, why: '这盏酒精灯在别的铁架台里' };
+  if (!lamp || lamp.kind !== 'heat') return { ok: false, why: '下格只能放热源（酒精灯 / 本生灯 / 喷灯 / 电热板）' };
+  if (lamp.lampStand && lamp.lampStand !== t.uid) return { ok: false, why: '这件热源在别的铁架台里' };
   t.lampUid = lamp.uid; lamp.lampStand = t.uid;
   if (old !== lamp) { lamp.x = t.x; lamp.y = 0; }
   Lab.log.push({ k: 'place', at: Lab.time, text: '把 ' + lamp.def.name + ' ' + lamp.uid + ' 放进铁架台 ' + t.uid + ' 的下格' });
@@ -2501,7 +2530,7 @@ function syncHeaters() {
         if (h.wantedOn && app._blockWhy !== 'directFlame') {
           app._blockWhy = 'directFlame';
           pushMsg('⛔ ' + app.def.name + '不能直接架在' + h.name + '上（明火直烧玻璃，受热不均会炸）——'
-            + '先摆「🗼 铁架台」，把' + app.def.name + '放到上格铁圈，再把' + h.name + '塞进下格');
+            + '先摆「🗼 铁架台」，把' + app.def.name + '放到上格铁圈，再把热源塞进下格');
         }
       } else if (!mesh) {                                 // 上了铁架台但没垫石棉网
         h.blocked = 'noMesh'; h.on = false;
@@ -2521,22 +2550,27 @@ function syncHeaters() {
   return Lab.apps;
 }
 
-/** 手玩用的一键装配：选中的容器 + 这台酒精灯 → 铁架台（上格容器 / 下格灯）+ 石棉网，并点着。
- *  玻璃器皿上明火的唯一正路；省三次点击，不省规则。 */
+/** 「🗼 配铁架台」：把**台面上已有的**铁架台 + 石棉网 + 这件热源装成一套，并点着。
+ *  第十轮用户要求：缺器材只能**告诉他缺什么**，不许偷偷给他 —— 三件里少一件就停下来说清楚。 */
 function assembleRig(lampUid) {
   const lamp = toolByUid(lampUid);
-  if (!lamp || lamp.kind !== 'heat' || lamp.hid !== 'lamp') return { ok: false, why: '这不是酒精灯' };
+  if (!lamp || lamp.kind !== 'heat') return { ok: false, why: '这不是热源器材（酒精灯 / 本生灯 / 喷灯 / 电热板）' };
   const app = appByUid(Lab.selected) || null;
   if (!app) return { ok: false, why: '先点一下要加热的容器卡片（选中它），再点这里' };
   if (app.broken) return { ok: false, why: app.def.name + ' 已经炸裂了' };
-  if (app.def.direct) return { ok: false, why: app.def.name + ' 本来就能直火加热 —— 直接点「⬆ 架上来」把它架到灯上就行' };
+  if (app.def.direct) return { ok: false, why: app.def.name + ' 本来就能直火加热 —— 直接点「⬆ 架上来」把它架到' + lamp.def.name + '上就行' };
+  const g = Lab.tools.find((x) => x.hid === 'gauze');
+  const stand = Lab.tools.find((x) => x.hid === 'stand');
+  const miss = [];
+  if (!stand) miss.push('🗼 铁架台');
+  if (!g) miss.push('🕸 石棉网');
+  if (miss.length) {
+    const why = '还差 ' + miss.join(' 和 ') + ' —— 左侧「器材」里先摆上，再回来点「🗼 配铁架台」';
+    pushMsg('⛔ ' + why);
+    return { ok: false, why: why, miss: miss };
+  }
   const old = lampInStand(lamp);
   if (old && old.uid !== lamp.uid) slotLamp(old.uid, null);
-  let g = Lab.tools.find((x) => x.hid === 'gauze');
-  if (!g) g = addTool('gauze', app.x, true);
-  let stand = Lab.tools.find((x) => x.hid === 'stand');
-  if (!stand) stand = addTool('stand', app.x, true);
-  if (!stand) return { ok: false, why: '台面摆不下铁架台了' };
   if (g) { app.gauze = true; g.app = app.uid; }
   const occ = occupantOf(stand, app);
   if (occ) { occ.standOn = null; pushMsg('把 ' + occ.def.name + ' ' + occ.uid + ' 从上格取回台面'); }
@@ -2550,9 +2584,9 @@ function assembleRig(lampUid) {
   return { ok: true, app: app, stand: stand, lamp: lamp };
 }
 
-/** 脚本 API（老接口，教程/测试用）：等价于"摆器材 → 架好 → 点着"三步。
- *  ⚠️ 明火加热玻璃器皿（烧杯/锥形瓶/集气瓶）必须走「铁架台 + 石棉网 + 下格酒精灯」，
- *  这里会自动把这三件补齐 —— 手玩时请自己按这套摆（直接架灯上会被拒绝）。 */
+/** 脚本 API（教程/测试用）：只装配**台面上已有**的器材，缺了就说缺什么（不再白送）。
+ *  ⚠️ 明火加热玻璃器皿（烧杯/锥形瓶/集气瓶）必须走「铁架台 + 石棉网 + 下格热源」，
+ *  自动步骤用 tutHeat()（08-tutorial.js）显式摆器材，手玩请自己摆。 */
 function setHeater(uid, heaterId, on) {
   const app = appByUid(uid); if (!app) return { ok: false, why: '没有这个容器' };
   if (app.broken) { pushMsg(app.def.name + ' 已经炸裂了，不能再加热'); return { ok: false, why: '已炸裂' }; }
@@ -2560,27 +2594,24 @@ function setHeater(uid, heaterId, on) {
   const h = HEATERS.find((x) => x.id === heaterId); if (!h) return { ok: false, why: '没有这种热源' };
   const needRig = !!(h.needsDirect && !app.def.direct);
   if (needRig) {
-    if (h.id !== 'lamp') return { ok: false, why: app.def.name + ' 不能直火，须经铁架台加热；而铁架台下格只放得下酒精灯 —— ' + h.name + ' 只能加热试管/坩埚/蒸发皿' };
-    if (!app.gauze) {                                     // 石棉网
-      let g = Lab.tools.find((x) => x.hid === 'gauze');
-      if (!g) g = addTool('gauze', app.x, true);
-      if (g) { app.gauze = true; g.app = app.uid; }
-    }
-    let stand = Lab.tools.find((x) => x.hid === 'stand');
-    if (!stand) stand = addTool('stand', app.x, true);
-    if (!stand) return { ok: false, why: '台面摆不下铁架台了' };
-    let lamp = standLampOf(stand) || Lab.tools.find((x) => x.hid === 'lamp' && !lampInStand(x));
-    if (!lamp) lamp = addTool('lamp', stand.x, true);
-    if (!lamp) return { ok: false, why: '台面摆不下酒精灯了' };
-    slotLamp(stand.uid, lamp.uid);
+    const miss = [];
+    const g = Lab.tools.find((x) => x.hid === 'gauze');
+    const stand = Lab.tools.find((x) => x.hid === 'stand');
+    if (!stand) miss.push('🗼 铁架台');
+    if (!g) miss.push('🕸 石棉网');
+    if (miss.length) return { ok: false, why: '还差 ' + miss.join(' 和 ') + '（玻璃器皿上明火要三件齐：铁架台 + 石棉网 + 下格热源）', miss: miss };
+    if (g) { app.gauze = true; g.app = app.uid; }
+    let heat = standLampOf(stand) || Lab.tools.find((x) => x.hid === h.id && !lampInStand(x));
+    if (!heat) return { ok: false, why: '还差一件热源（' + h.name + '）—— 先在器材里摆上台面', miss: [h.name] };
+    slotLamp(stand.uid, heat.uid);
     const r0 = placeOn(app.uid, stand.uid); if (!r0.ok) return r0;
-    lightTool(lamp.uid, true);
+    lightTool(heat.uid, true);
     syncHeaters();
-    return { ok: true, tool: lamp, stand: stand, rig: true };
+    return { ok: true, tool: heat, stand: stand, rig: true };
   }
   let t = standOf(app);
-  if (!t || t.hid !== h.id) t = Lab.tools.find((x) => x.hid === h.id && !occupantOf(x)) || addTool(h.id, app.x, true);
-  if (!t) return { ok: false, why: '台面摆不下器材了' };
+  if (!t || t.hid !== h.id) t = Lab.tools.find((x) => x.hid === h.id && !occupantOf(x));
+  if (!t) return { ok: false, why: '台面上还没有' + h.name + ' —— 先在左侧「器材」里摆上一件', miss: [h.name] };
   const r = placeOn(app.uid, t.uid); if (!r.ok) return r;
   lightTool(t.uid, true);
   syncHeaters();
@@ -3776,11 +3807,11 @@ function mkToolCard(t) {
   const sel = Lab.apps.find((a) => a.uid === Lab.selected) || Lab.apps[0] || null;
   const attached = isMeter && t.app ? Lab.apps.find((a) => a.uid === t.app) : null;
   const meta = isHeat ? t.def.icon + ' ' + t.def.power + ' W · ≤' + K2C(t.def.flameT) + ' °C'
-    : t.def.big ? t.def.icon + ' 上格放容器 · 下格放酒精灯'
+    : t.def.big ? t.def.icon + ' 上格放容器 · 下格放热源（酒精灯/本生灯/喷灯）'
     : t.def.icon + ' ' + (isMeter ? '测量：' + ({ temp: '温度', vol: '体积', ph: 'pH', mass: '质量' }[t.def.measures] || '') : '辅助器材');
   const ops = isHeat
     ? '<button data-op="light"' + (t.on ? ' class="on"' : '') + '>' + (t.on ? '💨 熄灭' : '🔥 点燃') + '</button>'
-      + (t.hid === 'lamp' ? '<button data-op="rig" title="玻璃器皿（烧杯/锥形瓶/集气瓶）不能直火：一键摆齐铁架台 + 石棉网 + 下格酒精灯，并点着">🗼 配铁架台</button>' : '')
+      + (t.kind === 'heat' && !t.def.big ? '<button data-op="rig" title="玻璃器皿（烧杯/锥形瓶/集气瓶）不能直火：把台面上已有的铁架台 + 石棉网 + 这件热源装成一套并点着（缺哪件会告诉你）">🗼 配铁架台</button>' : '')
       + '<button data-op="mount">⬆ 架上来</button><button data-op="deltool">✕ 收走</button>'
     : isMeter
       ? (attached
@@ -3793,8 +3824,8 @@ function mkToolCard(t) {
           ? ((standAppOf(t) ? '<button data-op="unslotapp">⬆ 取回上格容器</button>' : '<button data-op="slotapp">⬆ 上格放容器</button>')
             + (standLampOf(t)
               ? '<button data-op="light"' + (standLampOf(t).on ? ' class="on"' : '') + '>🔥 ' + (standLampOf(t).on ? '熄灭' : '点燃') + '</button>'
-                + '<button data-op="unslotlamp">⬇ 取出酒精灯</button>'
-              : '<button data-op="slotlamp">⬇ 下格放酒精灯</button>')
+                + '<button data-op="unslotlamp">⬇ 取出热源</button>'
+              : '<button data-op="slotlamp">⬇ 下格放热源</button>')
             + '<button data-op="deltool">✕ 收走</button>')
           : isRod
             ? (t.app
@@ -3818,7 +3849,7 @@ function mkToolCard(t) {
     }
     else if (b.dataset.op === 'rig') {                          // 一键配齐：铁架台 + 石棉网 + 下格酒精灯
       const r = assembleRig(t.uid);
-      toast(r.ok ? '铁架台 + 石棉网 + 下格酒精灯都齐了，' + r.app.def.name + '开始受热' : r.why);
+      toast(r.ok ? '铁架台 + 石棉网 + 下格' + r.lamp.def.name + '都齐了，' + r.app.def.name + '开始受热' : r.why);
       renderBench(true); updateReadouts();
     }
     else if (b.dataset.op === 'slotapp') {                      // 上格：放一个空着的容器
@@ -3828,7 +3859,7 @@ function mkToolCard(t) {
       if (r.ok) {
         Lab.selected = app.uid;
         const lamp = standLampOf(t);
-        toast(app.def.name + ' 放进铁架台上格了' + (lamp ? (lamp.on ? '，下格酒精灯正在加热' : '，下格酒精灯还没点着') : '，下格还空着'));
+        toast(app.def.name + ' 放进铁架台上格了' + (lamp ? (lamp.on ? '，下格' + lamp.def.name + '正在加热' : '，下格' + lamp.def.name + '还没点着') : '，下格还空着 —— 点「⬇ 下格放热源」'));
       } else toast(r.why);
       renderBench(true); updateReadouts(); return;
     }
@@ -3836,17 +3867,17 @@ function mkToolCard(t) {
       const a = standAppOf(t); if (a) { placeOn(a.uid, null); toast(a.def.name + ' 取回台面'); }
       renderBench(true); updateReadouts(); return;
     }
-    else if (b.dataset.op === 'slotlamp') {                     // 下格：放酒精灯（台面上没有再摆一盏）
-      let lamp = Lab.tools.find((x) => x.hid === 'lamp' && !x.lampStand);
-      if (!lamp) lamp = addTool('lamp');
-      if (!lamp) { toast('台面摆不下酒精灯了（最多 6 件器材）'); return; }
-      const r = slotLamp(t.uid, lamp.uid);
-      toast(r.ok ? '把 ' + lamp.def.name + ' 放进下格了' + (lamp.on ? '' : ' —— 点「🔥 点燃」')
+    else if (b.dataset.op === 'slotlamp') {                     // 下格：放一件**台面上已有**的热源（酒精灯/本生灯/喷灯/电热板）
+      const heat = Lab.tools.find((x) => x.kind === 'heat' && !x.def.big && !x.lampStand)
+        || Lab.tools.find((x) => x.kind === 'heat' && !x.def.big);
+      if (!heat) { toast('还差一件热源 —— 先在左侧「器材」里摆上 🕯 酒精灯（或本生灯 / 喷灯）'); return; }
+      const r = slotLamp(t.uid, heat.uid);
+      toast(r.ok ? '把 ' + heat.def.name + ' 放进下格了' + (heat.on ? '' : ' —— 点「🔥 点燃」')
         : (r.why || '放不进去'));
       renderBench(true); updateReadouts(); return;
     }
     else if (b.dataset.op === 'unslotlamp') {
-      slotLamp(t.uid, null); toast('酒精灯取回台面');
+      slotLamp(t.uid, null); toast('热源取回台面');
       renderBench(true); updateReadouts(); return;
     }
     else if (b.dataset.op === 'unmount') { placeOn(t.app, null); toast(t.def.name + ' 已拿开'); renderBench(true); updateReadouts(); }
@@ -3884,6 +3915,67 @@ function mkToolCard(t) {
 }
 
 /* ------------------------------ 拖拽摆放 -------------------------------- */
+/* 拖动进行中：这一帧不要重建台面。
+   renderBench(false) 每帧按签名决定要不要重画，而拖动会改 item.x → 签名变 → 台面重建 →
+   被拖的卡片、提示条、高亮当场被换成新元素，pointermove 还在旧元素上，拖拽就"没反应"了。
+   （B28：真因在这里，不是事件没到。） */
+let dragActive = false;
+/* 拖动时悬停的"落点提示条" */
+function dragTipEl() {
+  let el = document.getElementById('dragtip');
+  if (!el) { el = mk('div', 'dragtip'); el.id = 'dragtip'; (benchEl() || document.body).appendChild(el); }
+  return el;
+}
+/** 水平方向最近、且槽位空着的铁架台（容器 → 上格；热源 → 下格） */
+function nearestStand(item, forWhat) {
+  let best = null, bd = 96;
+  Lab.tools.forEach((t) => {
+    if (t.hid !== 'stand') return;
+    if (forWhat === 'app' && occupantOf(t, item)) return;          // 上格已经占了别的容器
+    if (forWhat === 'heat' && standLampOf(t)) return;              // 下格已经有热源
+    const d = Math.abs((t.x + toolW(t) / 2) - (item.x + (forWhat === 'app' ? ITEM_W.app : toolW(item)) / 2));
+    if (d < bd) { bd = d; best = t; }
+  });
+  return best;
+}
+/** 离器材最近的容器（横向够近就算"拖到它上面"） */
+function nearestApp(tool) {
+  let best = null, bd = 70;
+  Lab.apps.forEach((a) => {
+    const d = Math.abs((a.x + ITEM_W.app / 2) - (tool.x + toolW(tool) / 2));
+    if (d < bd) { bd = d; best = a; }
+  });
+  return best;
+}
+/** 松手时会做什么：拖拽的全部落点规则集中在这里（高亮和提示都读它） */
+function dragCandidate(item, kind) {
+  if (kind === 'app') {
+    const st = nearestStand(item, 'app');
+    if (st) return { act: 'standUpper', tool: st, text: '松手 → 把 ' + item.def.name + ' 放进铁架台上格' };
+    const t = nearestTool(item);
+    if (t && t.hid !== 'stand') {
+      return { act: 'placeOn', tool: t, text: t.kind === 'heat'
+        ? '松手 → 把 ' + item.def.name + ' 架到 ' + t.def.name + ' 上（点着就能加热）'
+        : '松手 → 把 ' + item.def.name + ' 装到 ' + t.def.name + ' 上' };
+    }
+    if (item.standOn) return { act: 'free', text: '松手 → 把 ' + item.def.name + ' 放回台面' };
+    return { act: 'free', text: '松手 → ' + item.def.name + ' 摆在台面这个位置' };
+  }
+  if (item.kind === 'heat') {
+    const st = nearestStand(item, 'heat');
+    if (st) return { act: 'standLower', tool: st, text: '松手 → 把 ' + item.def.name + ' 放进铁架台下格' };
+    return { act: 'free', text: '松手 → ' + item.def.name + ' 摆在台面（拖到容器上方可「架上来」）' };
+  }
+  const a = nearestApp(item);
+  if (a) {
+    const verb = item.hid === 'gauze' ? '垫到 ' + a.def.name + ' 下面（垫了才能受热均匀）'
+      : item.hid === 'rod' ? '插进 ' + a.def.name + '（可以搅拌了）'
+        : item.kind === 'meter' ? '插进 ' + a.def.name + ' 就能读数'
+          : '装到 ' + a.def.name + ' 上';
+    return { act: 'mount', app: a, text: '松手 → 把 ' + item.def.name + ' ' + verb };
+  }
+  return { act: 'free', text: '松手 → ' + item.def.name + ' 摆在台面这个位置' };
+}
 function attachDrag(card, item, kind) {
   const bar = card.querySelector('.dragbar'); if (!bar) return;
   bar.addEventListener('pointerdown', (ev) => {
@@ -3893,27 +3985,49 @@ function attachDrag(card, item, kind) {
     const bw = Math.max(160, bench.clientWidth);
     const w = kind === 'heat' ? toolW(item) : ITEM_W.app;
     const startX = ev.clientX, origX = item.x;
-    let moved = false;
+    let moved = false, cand = null;
+    dragActive = true;
+    const tip = dragTipEl();
     bar.setPointerCapture(ev.pointerId);
     card.classList.add('dragging');
+    const paint = () => {                                        // 落点高亮 + 提示条
+      document.querySelectorAll('.toolcard.over, .appcard.over').forEach((c) => c.classList.remove('over'));
+      if (cand && cand.tool) { const c = document.querySelector('.toolcard[data-uid="' + cand.tool.uid + '"]'); if (c) c.classList.add('over'); }
+      if (cand && cand.app) { const c = document.querySelector('.appcard[data-uid="' + cand.app.uid + '"]'); if (c) c.classList.add('over'); }
+      if (!moved) { tip.classList.remove('show'); return; }
+      tip.textContent = cand ? cand.text : '';
+      tip.classList.add('show');
+      tip.style.left = Math.max(4, Math.min(bw - 210, item.x)) + 'px';
+      tip.style.top = '6px';        // 固定贴在台面顶端：offsetTop 的参照系不稳，别拿它算垂直位置
+      tip.style.bottom = 'auto';
+    };
     const move = (e) => {
       const dx = e.clientX - startX;
       if (Math.abs(dx) > 2) moved = true;
       item.x = Math.max(2, Math.min(bw - w - 2, origX + dx));
       card.style.left = item.x + 'px';
-      if (kind === 'app') {
-        const near = nearestTool(item);
-        document.querySelectorAll('.toolcard').forEach((c) => c.classList.toggle('over', !!near && c.dataset.uid === near.uid));
-      }
+      cand = dragCandidate(item, kind);
+      paint();
     };
     const up = () => {
       bar.removeEventListener('pointermove', move);
       bar.removeEventListener('pointerup', up);
       card.classList.remove('dragging');
-      document.querySelectorAll('.toolcard.over').forEach((c) => c.classList.remove('over'));
+      document.querySelectorAll('.toolcard.over, .appcard.over').forEach((c) => c.classList.remove('over'));
+      tip.classList.remove('show');
+      dragActive = false;
       if (!moved) {                                  // 只是点了一下 = 选中
         if (kind === 'app') Lab.selected = item.uid;
         else { const a = occupantOf(item); if (a) Lab.selected = a.uid; }
+        renderBench(true); updateReadouts(); return;
+      }
+      const c2 = cand || dragCandidate(item, kind);
+      if (c2.act === 'standUpper') { const r = placeOn(item.uid, c2.tool.uid); toast(r.ok ? item.def.name + ' 放进铁架台上格了 —— 下格要放热源、器皿下垫石棉网' : r.why); renderBench(true); updateReadouts(); return; }
+      if (c2.act === 'standLower') { const r = slotLamp(c2.tool.uid, item.uid); toast(r.ok ? item.def.name + ' 放进铁架台下格了 —— 点「🔥 点燃」开始加热' : (r.why || '放不进去')); renderBench(true); updateReadouts(); return; }
+      if (c2.act === 'mount' || c2.act === 'placeOn') {
+        const r = placeOn(c2.act === 'mount' ? c2.app.uid : item.uid, c2.act === 'mount' ? item.uid : c2.tool.uid);
+        if (r.ok) Lab.selected = c2.act === 'mount' ? c2.app.uid : item.uid;
+        toast(r.ok ? '装好了' : r.why);
         renderBench(true); updateReadouts(); return;
       }
       if (kind === 'app') dropApp(item); else dropTool(item);
@@ -4263,7 +4377,7 @@ function frame(now) {
   Lab.apps.forEach((app) => { initViewState(app); if (app.canvas) renderApparatus(app.canvas, app, dtReal); });
   Lab.tools.forEach((t) => { if (t.canvas) renderTool(t.canvas, t, dtReal); });
   renderFx();                                        // 第九轮：白光/爆炸要漫出容器小画布
-  renderBench(false);
+  if (!dragActive) renderBench(false);               // 拖拽中不重建台面（见 dragActive 注释）
   updateReadouts(); flushLog(); renderTasks(); tutTick(dtReal);
   if (Lab.dirtySave || (Lab.time % 5) < 0.02) { save(); Lab.dirtySave = false; }
   requestAnimationFrame(frame);
@@ -4397,6 +4511,8 @@ const norm2 = (s) => s.split(',').map((x) => x.trim()).sort().join(',');
 /* 注意：判定一律看"工作台当前状态"（容器是开始实验时新建的，所以天然是本次实验的净结果），
    不用 Lab.discovered —— 那是全局积累的，别的实验做过同样的反应会把它提前点亮。 */
 const anyHas = (f, min) => Lab.apps.some((a) => a.contents.some((c) => c.formula === f && c.mol > (min || 1e-6)));
+/** 容器里某物质的**未溶解**部分（mol）—— 判"饱和/有晶体析出"用 */
+const crysMol = (app, f) => (app ? app.contents.filter((c) => c.formula === f && !c.dissolved).reduce((s, c) => s + c.mol, 0) : 0);
 const appHas = (app, f, min) => !!app && app.contents.some((c) => c.formula === f && c.mol > (min || 1e-6));
 const dissolved = (app, f, min) => !!app && app.contents.some((c) => c.formula === f && c.dissolved && c.mol > (min || 1e-6));
 const solMol = (app, f) => (app ? app.contents.filter((c) => c.formula === f).reduce((s, c) => s + c.mol, 0) : 0);
@@ -4417,6 +4533,24 @@ const base = () => Lab.tut.base;
 
 /* ------------------------------ 步骤构造器 -------------------------------- */
 const mkStep = (t, h, c, auto) => ({ t, h, c, auto: auto || null });
+
+/** 自动步骤用的加热装配：**显式**摆出器材（铁架台/石棉网/热源），再架上去点着。
+ *  第十轮起 setHeater/assembleRig 不再白送器材 —— 自动步骤也要"真的把器材摆出来"，
+ *  于是干跑出来的计划就是玩家看到的：摆器材 → 垫石棉网 → 放上铁架台 → 热源进下格 → 点燃。 */
+function tutHeat(i, hid) {
+  const app = tutApp(i); if (!app) return { ok: false, why: '先有容器' };
+  const id = hid || 'lamp';
+  const h = Lab.tools.find((x) => x.hid === id) || addTool(id);
+  if (!h) return { ok: false, why: '摆不下热源' };
+  if (app.def.direct) { placeOn(app.uid, h.uid); lightTool(h.uid, true); syncHeaters(); return { ok: true, direct: true }; }
+  const stand = Lab.tools.find((x) => x.hid === 'stand') || addTool('stand');
+  const g = Lab.tools.find((x) => x.hid === 'gauze') || addTool('gauze');
+  if (g) placeOn(app.uid, g.uid);
+  if (stand) { placeOn(app.uid, stand.uid); slotLamp(stand.uid, h.uid); }
+  lightTool(h.uid, true);
+  syncHeaters();
+  return { ok: true, rig: true };
+}
 
 /* ============================== 实验数据 ================================== */
 
@@ -4460,7 +4594,7 @@ const TUT = [
       mkStep('用酒精灯把试管加热到 240 °C 以上',
         '三步：① 工作台上方「器材」行点「🕯 酒精灯」摆一盏 ② 点灯上的「⬆ 架上来」把试管架上去 ③ 点灯上的「🔥 点燃」。试管可直接加热，别用本生灯猛烧',
         () => heatTo(513, 'KMnO4') || gasHere('O2', 1e-4),
-        () => { setHeater(tutUid(0), 'lamp', true); }),
+        () => { tutHeat(0, 'lamp'); }),
       mkStep('观察试管里放出气体（紫黑色固体变墨绿）',
         '看试管里冒出的气泡（气泡就是氧气）；慢的话点右上「⏩ 时间」加速',
         () => gasNew('O2', 5e-4), null),
@@ -4544,7 +4678,7 @@ const TUT = [
       mkStep('先不加二氧化锰，用酒精灯加热到 250 °C 以上，观察「几乎不分解」',
         '①「器材」行点「🕯 酒精灯」② 点「⬆ 架上来」把试管架上去 ③ 点「🔥 点燃」。注意：没有催化剂时，加热到 250 °C 也几乎看不到氧气',
         () => heatTo(523),
-        () => { setHeater(tutUid(0), 'lamp', true); }),
+        () => { tutHeat(0, 'lamp'); }),
       mkStep('加入 0.5 g 二氧化锰（催化剂）',
         '试剂架搜「二氧化锰」→ 加入同样这支试管',
         () => anyHas('MnO2', 1e-4),
@@ -4669,7 +4803,7 @@ const TUT = [
       mkStep('把蒸发皿放到酒精灯上加热，让水沸腾蒸发',
         '①「器材」行点「🕯 酒精灯」② 点灯上「⬆ 架上来」把蒸发皿架上去 ③ 点「🔥 点燃」（蒸发皿可直接加热；嫌慢就点「⏩ 时间」或改用 🟥 电热板）',
         () => heatTo(373, 'NaCl') || Lab.apps.some((a) => a.steamAccum > 0),
-        () => { setHeater(tutUid(1), 'lamp', true); }),
+        () => { tutHeat(1, 'lamp'); }),
       mkStep('继续加热蒸发：水越来越少、溶液变浓，直到析出白色晶体（精盐）',
         '溶液饱和后食盐就以晶体析出（真实实验就是"蒸发浓缩 → 出现晶体 → 趁热过滤"）；沙子仍留在烧杯里。嫌慢就点「⏩ 时间」',
         () => !!tutApp(1) && tutApp(1).contents.some((c) => c.formula === 'NaCl' && !c.dissolved && c.mol > 1e-4), null),
@@ -5032,7 +5166,7 @@ const TUT = [
       mkStep('用酒精灯加热到 80 °C 以上：放出氨气（溶进水里就是氨水）',
         '三步：①「器材」行点「🕯 酒精灯」② 点「⬆ 架上来」把试管架上去 ③ 点「🔥 点燃」。常温下几乎不反应，必须加热',
         () => heatTo(353) && (appHas(tutApp(0), 'NH3', 1e-5) || appHas(tutApp(0), 'NH3·H2O', 1e-5)),
-        () => { setHeater(tutUid(0), 'lamp', true); }),
+        () => { tutHeat(0, 'lamp'); }),
       mkStep('把气体导入 2 号烧杯的水中，加 1 mL 石蕊：变蓝（证明是碱性气体氨）',
         '烧杯加 20 mL 水；点试管「💨 导气」→ 选烧杯（氨气溶进水里变成氨水）；再加 1 mL 石蕊会变蓝 —— 要数字就摆「🖊 pH 计」插进去点「📏 测量」，pH 在 8 以上',
         () => opNew('gasFeedCount') && !!tutApp(1)
@@ -5157,7 +5291,7 @@ const TUT = [
       mkStep('把 3 号试管架到酒精灯上加热到 130 °C 以上：小苏打分解放出 CO₂ 和水',
         '①「器材」行点「🕯 酒精灯」② 点「⬆ 架上来」把 3 号试管架上去 ③ 点「🔥 点燃」。1 号里的碳酸钠受热不分解（可以自己再试一次对比）',
         () => heatTo(400) && appHas(tutApp(2), 'Na2CO3', 1e-5),
-        () => { setHeater(tutUid(2), 'lamp', true); }),
+        () => { tutHeat(2, 'lamp'); }),
     ],
     see: '两种白色粉末加盐酸都剧烈冒气泡；加热时只有碳酸氢钠分解，放出气体并在管口出现水珠，留下碳酸钠。',
     eq: ['Na₂CO₃ + 2HCl --> 2NaCl + H₂O + CO₂↑', 'NaHCO₃ + HCl --> NaCl + H₂O + CO₂↑', '2NaHCO₃ --加热--> Na₂CO₃ + H₂O + CO₂↑'],
@@ -5230,7 +5364,7 @@ const TUT = [
       mkStep('用酒精灯加热到 250 °C 以上：蓝色逐渐变成白色（失去结晶水）',
         '①「器材」行点「🕯 酒精灯」② 点「⬆ 架上来」把 1 号试管架上去 ③ 点「🔥 点燃」，加热到生成无水硫酸铜',
         () => heatTo(523) && appHas(tutApp(0), 'CuSO4', 1e-4),
-        () => { setHeater(tutUid(0), 'lamp', true); }),
+        () => { tutHeat(0, 'lamp'); }),
       mkStep('2 号试管加 0.5 g 无水硫酸铜 + 3 mL 水，搅拌：白色粉末遇水变蓝并放热',
         '搜「硫酸铜」加 0.5 g 到 2 号试管，再加 3 mL 水、点「🌀 搅拌」—— 看它溶解成蓝色溶液、试管摸着发烫（摆「🌡 温度计」插进去点「📏 测量」就能读出升了多少度）',
         () => dissolved(tutApp(1), 'CuSO4', 1e-5) && tutApp(1).temp > 298.6,
@@ -5543,7 +5677,7 @@ const TUT = [
       mkStep('试管里放 3 g 高锰酸钾，用铁架台 + 石棉网 + 酒精灯加热，制一瓶氧气',
         '试管能直火，但玻璃器皿上明火要经铁架台、上格放试管、下格放酒精灯、别忘了石棉网 —— 点酒精灯卡片的「🗼 配铁架台」最快',
         () => heatTo(513, 'KMnO4') || gasInApp(tutApp(2), 'O2') > 1e-4,
-        () => { addReagent(tutUid(2), 'KMnO4', 3, 'g'); setHeater(tutUid(2), 'lamp', true); }),
+        () => { addReagent(tutUid(2), 'KMnO4', 3, 'g'); tutHeat(2, 'lamp'); }),
       mkStep('导气：把氧气收进 2 号集气瓶',
         '点试管的「💨 导气」→ 选 2 号集气瓶（收集前先让气体把瓶里空气顶出去）',
         () => gasInApp(tutApp(3), 'O2') > 1e-4,
@@ -5635,7 +5769,7 @@ const TUT = [
       mkStep('架好铁架台 + 石棉网，点燃酒精灯加热蒸发',
         '玻璃器皿不能直火：先摆铁架台与石棉网 —— 选中蒸发皿后点酒精灯卡片的「🗼 配铁架台」一步到位',
         () => heatTo(353) || (tutApp(2) && tutApp(2).steamAccum > 1e-4),
-        () => { setHeater(tutUid(2), 'lamp', true); }),
+        () => { tutHeat(2, 'lamp'); }),
       mkStep('边加热边用玻璃棒搅拌，水蒸干后留下白色晶体（精盐）',
         '点蒸发皿的「🌀 搅拌」防液滴飞溅；水快干时停止加热，用余热蒸干 —— 晶体就是提纯出来的氯化钠',
         () => appHas(tutApp(2), 'NaCl', 1e-6) && (tutApp(2).steamAccum > 1e-4 || waterMol(tutApp(2)) < 1e-2),
@@ -5649,6 +5783,416 @@ const TUT = [
       '提纯只能除掉不溶性杂质；可溶性杂质（如 MgCl₂、CaCl₂）要另外用化学方法除',
       '烧杯/蒸发皿上明火必须垫石棉网并架在铁架台上 —— 直接压火会受热不均炸裂'],
     safe: '加热时别把脸凑到蒸发皿上方（蒸汽烫伤）；蒸发皿很烫，取用要夹子或等冷却；搅拌时玻璃棒别碰壁，防止戳破器皿。',
+  },
+  /* --------------------------------------------------------------- 实验三十 */
+  {
+    id: 'e30', no: '实验三十', grp: '上册 · 第三单元', title: '分子运动：氨分子从一只烧杯跑到另一只',
+    goal: '用「氨水 → 空气 → 另一杯水」的实测，证明分子在不停地运动、分子之间有间隔。',
+    gear: ['烧杯 ×2', '浓氨水 20 mL', '水 20 mL', '导气管（导气操作）', 'pH 计（读数）'],
+    terms: [
+      ['氨水', 'NH3·H2O', '氨气的水溶液，有刺激性气味；氨分子会不断从液面运动到空气里（所以要密封保存）'],
+      ['氨气', 'NH3', '有刺激性气味的气体，极易溶于水，水溶液显碱性'],
+      ['分子运动', '—', '分子在不停运动：氨分子能离开 1 号烧杯、扩散到 2 号烧杯的水里'],
+      ['pH 计', '—', '读 pH 判断酸碱性：氨水显碱性，2 号烧杯的水会从 pH 7 升到 7 以上'],
+    ],
+    bench: ['beaker', 'beaker'],
+    steps: [
+      mkStep('1 号烧杯加 20 mL 浓氨水（凑近就能闻到刺激性气味）',
+        '搜「氨水」→ 加入 20 mL 到 1 号烧杯；气味本身就是"分子跑到空气里"的证据',
+        () => appHas(tutApp(0), 'NH3·H2O', 1e-3) || appHas(tutApp(0), 'NH3', 1e-6),
+        () => addReagent(tutUid(0), 'NH3·H2O', 20, 'mL')),
+      mkStep('2 号烧杯加 20 mL 水（对照：水本身是中性的）',
+        '搜「水」→ 加入 20 mL 到 2 号烧杯',
+        () => waterMol(tutApp(1)) > 1e-3,
+        () => addReagent(tutUid(1), 'H2O', 20, 'mL')),
+      mkStep('把 1 号烧杯上方的气体导入 2 号烧杯的水里',
+        '点 1 号烧杯的「💨 导气」→ 选 2 号烧杯：氨分子溶进水里，这杯水就从"中性"变成"碱性"',
+        () => opNew('gasFeedCount') && (appHas(tutApp(1), 'NH3', 1e-5) || appHas(tutApp(1), 'NH3·H2O', 1e-5)
+          || (computePH(tutApp(1)) || 0) > 7.5),
+        () => feedGas(tutUid(0), tutUid(1))),
+      mkStep('观察并归纳：2 号烧杯里的水变碱性（pH > 7）—— 氨分子真的从 1 号跑到 2 号了',
+        '要数字就摆「🖊 pH 计」插进 2 号烧杯，再点容器上的「📏 测量」；现象日志同时记下逸出气体量',
+        () => appHas(tutApp(1), 'NH3', 1e-5) || appHas(tutApp(1), 'NH3·H2O', 1e-6) || (computePH(tutApp(1)) || 0) > 7.5,
+        () => { }),
+    ],
+    see: '氨水敞口放着，很快能闻到刺激性气味（氨分子从液面运动到空气中）；把它上方的气体导入另一只盛水的烧杯，那杯水由中性变成碱性（pH 上升、石蕊变蓝）—— 氨分子穿过了中间的空气。',
+    eq: ['NH₃·H₂O → NH₃↑ + H₂O（氨分子逸出）', 'NH₃ + H₂O → NH₃·H₂O（溶进另一杯水，显碱性）'],
+    key: ['分子在不停运动；温度越高运动越快（所以夏天氨水味更冲）',
+      '分子之间有间隔：气体容易被压缩、1 体积水能溶约 700 体积氨',
+      '氨水必须密封、阴凉保存，否则氨分子跑掉、浓度下降',
+      '本作没有"酚酞试液"这种试剂，改用 pH 计读数来证明碱性 —— 教材里是把酚酞滴在另一只烧杯里，酚酞变红就说明氨分子到了'],
+    safe: '氨气有刺激性、对眼睛和呼吸道有伤害：闻气味用扇闻法，绝不能把鼻子凑到杯口。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十一 */
+  {
+    id: 'e31', no: '实验三十一', grp: '上册 · 第四单元', title: '硬水与软水：肥皂水检验 + 煮沸除水垢',
+    goal: '学会区分硬水和软水（肥皂水泡沫/浮渣），并理解煮沸只能除掉暂时硬度。',
+    gear: ['试管 ×2', '烧杯 ×1', '水 40 mL', '氯化钙 0.5 g（模拟硬水）', '肥皂水 4 mL', '碳酸氢钙 1 g', '铁架台 + 石棉网 + 酒精灯'],
+    terms: [
+      ['硬水', '—', '含较多可溶性钙镁化合物的水（本作用 CaCl₂ / Ca(HCO₃)₂ 模拟）'],
+      ['软水', '—', '不含或含较少可溶性钙镁化合物的水（本作用纯水）'],
+      ['肥皂水', 'C17H35COONa', '硬脂酸钠，肥皂的主要成分；遇 Ca²⁺ 生成不溶于水的浮渣'],
+      ['硬脂酸钙', '(C17H35COO)2Ca', '白色浮渣，不溶于水 —— 硬水费肥皂、洗不干净的原因'],
+      ['水垢', 'CaCO3', '煮沸暂时硬水时 Ca(HCO₃)₂ 分解生成的碳酸钙沉淀'],
+    ],
+    bench: ['tube', 'tube', 'beaker'],
+    steps: [
+      mkStep('1 号试管加 10 mL 水 + 0.5 g 氯化钙（配"硬水"），2 号试管只加 10 mL 水（软水）',
+        '1 号：搜「水」加 10 mL，再搜「氯化钙」加 0.5 g，点「🌀 搅拌」；2 号：加 10 mL 水',
+        () => dissolved(tutApp(0), 'CaCl2', 1e-3) && waterMol(tutApp(1)) > 5e-4,
+        () => { addReagent(tutUid(0), 'H2O', 10, 'mL'); addReagent(tutUid(0), 'CaCl2', 0.5, 'g'); stir(tutUid(0)); addReagent(tutUid(1), 'H2O', 10, 'mL'); }),
+      mkStep('两支试管各加 2 mL 肥皂水，搅拌：1 号泡沫少、有白色浮渣；2 号泡沫多',
+        '搜「肥皂水」各加 2 mL，再各点一次「🌀 搅拌」—— 浮渣就是硬水里的钙离子抢走了肥皂',
+        () => appHas(tutApp(0), '(C17H35COO)2Ca', 1e-6) && appHas(tutApp(1), 'C17H35COONa', 1e-6),
+        () => { addReagent(tutUid(0), 'C17H35COONa', 2, 'mL'); addReagent(tutUid(1), 'C17H35COONa', 2, 'mL'); stir(tutUid(0)); stir(tutUid(1)); }),
+      mkStep('3 号烧杯加 20 mL 水 + 1 g 碳酸氢钙，搅拌（这是"暂时硬水"）',
+        '搜「水」加 20 mL，再搜「碳酸氢钙」加 1 g，点「🌀 搅拌」',
+        () => dissolved(tutApp(2), 'Ca(HCO3)2', 1e-4) || appHas(tutApp(2), 'Ca(HCO3)2', 1e-4),
+        () => { addReagent(tutUid(2), 'H2O', 20, 'mL'); addReagent(tutUid(2), 'Ca(HCO3)2', 1, 'g'); stir(tutUid(2)); }),
+      mkStep('把 3 号烧杯煮沸：出现白色浑浊（水垢 CaCO₃）',
+        '玻璃器皿不能直火：先摆「🗼 铁架台」和「🕸 石棉网」，选中烧杯后点酒精灯的「🗼 配铁架台」一步到位；水开后就能看到白色沉淀',
+        () => heatTo(373, 'Ca(HCO3)2') ? appHas(tutApp(2), 'CaCO3', 1e-6) : appHas(tutApp(2), 'CaCO3', 1e-6),
+        () => tutHeat(2, 'lamp')),
+      mkStep('观察并归纳：肥皂水泡沫多的是软水、浮渣多的是硬水；煮沸能除掉暂时硬度（水垢）',
+        '生活里：硬水洗衣服费肥皂、烧水结水垢；实验室用蒸馏水，工业上还有离子交换法软化硬水',
+        () => appHas(tutApp(2), 'CaCO3', 1e-6) && appHas(tutApp(0), '(C17H35COO)2Ca', 1e-6),
+        () => { }),
+    ],
+    see: '1 号试管（硬水）加肥皂水后泡沫很少、出现白色浮渣；2 号试管（软水）泡沫丰富；3 号烧杯的暂时硬水煮沸后出现白色浑浊（水垢），冷却后沉在杯底。',
+    eq: ['2C₁₇H₃₅COONa + CaCl₂ → (C₁₇H₃₅COO)₂Ca↓ + 2NaCl', 'Ca(HCO₃)₂ --加热--> CaCO₃↓ + H₂O + CO₂↑'],
+    key: ['硬水的危害：洗衣服费肥皂、锅炉结水垢浪费燃料还有爆炸风险',
+      '区分硬水与软水：加肥皂水搅拌 —— 泡沫多的是软水，浮渣多的是硬水',
+      '煮沸只能除去暂时硬度（Ca(HCO₃)₂ → CaCO₃），永久硬度要用蒸馏或离子交换',
+      '实验室做实验要用蒸馏水（本作试剂架上的水即按纯水处理）'],
+    safe: '加热烧杯必须垫石棉网、架在铁架台上，直接压明火会炸；煮沸的液体别俯视。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十二 */
+  {
+    id: 'e32', no: '实验三十二', grp: '上册 · 第四单元', title: '氢气燃烧：检验水的组成（淡蓝色火焰 + 水雾）',
+    goal: '通过氢气燃烧只生成水，认识水由氢、氧两种元素组成，氢气是清洁能源。',
+    gear: ['集气瓶 ×1', '氢气 0.01 g', '点火（🔥 点燃）', '（可选）pH 计/温度计读数'],
+    terms: [
+      ['氢气', 'H2', '密度最小的气体，可燃，燃烧发出淡蓝色火焰'],
+      ['水', 'H2O', '氢气燃烧的唯一产物（氢气 + 氧气 → 水）'],
+      ['爆鸣', '—', '氢气与空气混合后点燃会爆鸣 —— 所以点燃前必须验纯'],
+    ],
+    bench: ['gasjar'],
+    steps: [
+      mkStep('集气瓶里通入少量氢气（0.01 g）',
+        '搜「氢气」→ 加入 0.01 g 到集气瓶：量少才安全（氢气与空气混合遇火会爆鸣）',
+        () => appHas(tutApp(0), 'H2', 1e-5),
+        () => addReagent(tutUid(0), 'H2', 0.01, 'g')),
+      mkStep('点燃：发出淡蓝色火焰',
+        '点集气瓶卡片上的「🔥 点燃」—— 点燃类反应必须先有可燃物和氧气，再给火',
+        () => { const a = tutApp(0); return !!(a && (a.ignited || a.broken)) || appHas(a, 'H2O', 1e-6); },
+        () => ignite(tutUid(0))),
+      mkStep('观察并归纳：瓶壁出现水雾，产物只有水 —— 说明水由氢、氧两种元素组成',
+        '氢气燃烧不产生 CO₂、不产生烟尘，产物只有水，所以被称为最清洁的燃料',
+        () => appHas(tutApp(0), 'H2O', 1e-6) || gasNew('H2O', 1e-6),
+        () => { }),
+    ],
+    see: '氢气在空气中安静燃烧，火焰呈淡蓝色；在集气瓶内壁上出现水雾（水蒸气冷凝）；反应只生成水，没有其他产物。',
+    eq: ['2H₂ + O₂ --点燃--> 2H₂O'],
+    key: ['氢气 + 氧气 → 水：产物唯一，所以能证明水由氢、氧元素组成',
+      '点燃氢气前必须验纯（本作按"少量直接点燃"处理，量大会爆鸣）',
+      '氢气是理想清洁能源：热值高、产物只有水；难在制取和储存',
+      '反应现象里"淡蓝色火焰"要写清楚；水雾在瓶壁，不是白烟'],
+    safe: '氢气易燃易爆：远离明火、别在密闭空间大量放出；点燃时脸不要正对瓶口。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十三 */
+  {
+    id: 'e33', no: '实验三十三', grp: '上册 · 第六单元', title: '一氧化碳还原氧化铜（黑色变红 + 尾气通石灰水）',
+    goal: '认识一氧化碳的还原性：夺取金属氧化物里的氧，自己变成二氧化碳。',
+    gear: ['试管 ×2', '氧化铜 2 g', '一氧化碳 0.5 g', '澄清石灰水（水 10 mL + 氢氧化钙 0.5 g）', '铁架台/本生灯（加热 573 K 以上）', '导气管（尾气检验）'],
+    terms: [
+      ['一氧化碳', 'CO', '无色无味的有毒气体（与血红蛋白结合），有还原性、可燃性'],
+      ['氧化铜', 'CuO', '黑色粉末'],
+      ['铜', 'Cu', '紫红色金属 —— 黑色变红就说明 CuO 被还原了'],
+      ['还原剂', '—', '能夺取氧化物里氧的物质（这里是 CO，被氧化成 CO₂）'],
+    ],
+    bench: ['crucible', 'tube'],
+    steps: [
+      mkStep('1 号坩埚里加 2 g 氧化铜（黑色粉末）',
+        '搜「氧化铜」→ 加入 2 g：高温/加热反应用坩埚，试管烧到高温容易炸',
+        () => appHas(tutApp(0), 'CuO', 1e-3),
+        () => addReagent(tutUid(0), 'CuO', 2, 'g')),
+      mkStep('2 号试管配澄清石灰水：10 mL 水 + 0.5 g 氢氧化钙，搅拌（用来检验尾气）',
+        '搜「水」加 10 mL，搜「氢氧化钙」加 0.5 g，点「🌀 搅拌」—— 澄清石灰水是 CO₂ 的检验试剂',
+        () => dissolved(tutApp(1), 'Ca(OH)2', 1e-4),
+        () => { addReagent(tutUid(1), 'H2O', 10, 'mL'); addReagent(tutUid(1), 'Ca(OH)2', 0.5, 'g'); stir(tutUid(1)); }),
+      mkStep('往 1 号坩埚里通入一氧化碳（先通 CO 再加热，防止爆炸）',
+        '搜「一氧化碳」→ 加入 0.5 g；CO 有毒，操作要通风',
+        () => appHas(tutApp(0), 'CO', 1e-5),
+        () => addReagent(tutUid(0), 'CO', 0.5, 'g')),
+      mkStep('加热到 573 K 以上：黑色粉末变成紫红色（生成铜）',
+        '摆「🔥 本生灯」→ 点「⬆ 架上来」把坩埚架上去 → 点「🔥 点燃」；酒精灯温度不够，要用本生灯/喷灯',
+        () => heatTo(573) && appHas(tutApp(0), 'Cu', 1e-5),
+        () => tutHeat(0, 'bunsen')),
+      mkStep('把生成的气体通进石灰水：变浑浊（说明生成了二氧化碳）',
+        '点 1 号坩埚的「💨 导气」→ 选 2 号试管；石灰水变浑浊就证明 CO 变成了 CO₂',
+        () => opNew('gasFeedCount') && appHas(tutApp(1), 'CaCO3', 1e-6),
+        () => feedGas(tutUid(0), tutUid(1))),
+      mkStep('观察并归纳：CO 夺走 CuO 里的氧 → 自己被氧化成 CO₂（CO 是还原剂）',
+        '氧化还原一对：CuO 失氧被还原（黑色→红色），CO 得氧被氧化（→CO₂）',
+        () => appHas(tutApp(0), 'Cu', 1e-5) && appHas(tutApp(1), 'CaCO3', 1e-6),
+        () => { }),
+    ],
+    see: '黑色氧化铜在加热下与一氧化碳反应，逐渐变成紫红色的铜；导出的气体通入澄清石灰水，石灰水变浑浊，说明生成的气体是二氧化碳。',
+    eq: ['CO + CuO --加热--> Cu + CO₂↑', 'CO₂ + Ca(OH)₂ → CaCO₃↓ + H₂O'],
+    key: ['还原反应：含氧化合物里的氧被夺去的反应；CO 在这里是还原剂（有还原性）',
+      '操作顺序：先通 CO 把装置里的空气排净，再加热（否则 CO 与空气混合加热会爆炸）',
+      '尾气必须处理（点燃或收集），CO 有毒、不能直接排进空气',
+      '氢气、碳也能还原氧化铜（H₂ + CuO → Cu + H₂O，C + 2CuO → 2Cu + CO₂↑）—— 它们都有还原性'],
+    safe: '一氧化碳剧毒、易燃：必须在通风处操作，尾气要处理；加热后的坩埚很烫，别用手拿。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十四 */
+  {
+    id: 'e34', no: '实验三十四', grp: '下册 · 第八单元', title: '工业炼铁原理：一氧化碳还原氧化铁（高温 973 K）',
+    goal: '用高温实验理解高炉炼铁的核心反应：CO 把铁从它的矿石里"抢"出来。',
+    gear: ['坩埚 ×1', '试管 ×1', '氧化铁 2 g', '一氧化碳 0.5 g', '酒精喷灯（或本生灯）', '澄清石灰水'],
+    terms: [
+      ['氧化铁', 'Fe2O3', '红棕色粉末，赤铁矿的主要成分（铁矿石）'],
+      ['铁', 'Fe', '银白色金属；被还原出来的铁粉是黑色的'],
+      ['一氧化碳', 'CO', '还原剂：夺走 Fe₂O₃ 里的氧'],
+      ['高炉炼铁', '—', '原料：铁矿石、焦炭、石灰石；焦炭生成 CO，CO 在高温下还原铁矿石'],
+    ],
+    bench: ['crucible', 'tube'],
+    steps: [
+      mkStep('坩埚里加 2 g 氧化铁（红棕色粉末）',
+        '搜「氧化铁」→ 加入 2 g；973 K 的高温反应用坩埚（陶瓷），试管到这个温度会炸',
+        () => appHas(tutApp(0), 'Fe2O3', 1e-3),
+        () => addReagent(tutUid(0), 'Fe2O3', 2, 'g')),
+      mkStep('试管里配澄清石灰水（10 mL 水 + 0.5 g 氢氧化钙）用来检验生成的 CO₂',
+        '搜「水」加 10 mL、搜「氢氧化钙」加 0.5 g，点「🌀 搅拌」',
+        () => dissolved(tutApp(1), 'Ca(OH)2', 1e-4),
+        () => { addReagent(tutUid(1), 'H2O', 10, 'mL'); addReagent(tutUid(1), 'Ca(OH)2', 0.5, 'g'); stir(tutUid(1)); }),
+      mkStep('通入一氧化碳 0.5 g',
+        '搜「一氧化碳」→ 加入 0.5 g（先通气后排空气，再加热）',
+        () => appHas(tutApp(0), 'CO', 1e-5),
+        () => addReagent(tutUid(0), 'CO', 0.5, 'g')),
+      mkStep('用酒精喷灯加热到 973 K 以上：红棕色粉末变成黑色（铁被还原出来）',
+        '摆「🔆 酒精喷灯」→「⬆ 架上来」→「🔥 点燃」；温度表要真的到 973 K 以上才会反应',
+        () => heatTo(973) && appHas(tutApp(0), 'Fe', 1e-5),
+        () => tutHeat(0, 'torch')),
+      mkStep('把生成的气体通进石灰水：变浑浊（CO 变成 CO₂）',
+        '点坩埚的「💨 导气」→ 选试管；浑浊就证明有 CO₂ 生成',
+        () => opNew('gasFeedCount') && appHas(tutApp(1), 'CaCO3', 1e-6),
+        () => feedGas(tutUid(0), tutUid(1))),
+      mkStep('观察并归纳：3CO + Fe₂O₃ --高温--> 2Fe + 3CO₂ —— 这就是高炉炼铁的核心反应',
+        '高炉里：焦炭燃烧生成 CO₂，CO₂ 与灼热的碳反应生成 CO，CO 再把铁从矿石里还原出来',
+        () => appHas(tutApp(0), 'Fe', 1e-5) && appHas(tutApp(1), 'CaCO3', 1e-6),
+        () => { }),
+    ],
+    see: '红棕色的氧化铁在高温下与一氧化碳反应，逐渐变成黑色的铁粉；导出的气体使澄清石灰水变浑浊，说明生成二氧化碳。',
+    eq: ['Fe₂O₃ + 3CO --高温--> 2Fe + 3CO₂↑', 'CO₂ + Ca(OH)₂ → CaCO₃↓ + H₂O'],
+    key: ['炼铁的还原剂是 CO（不是碳本身直接还原，碳先生成 CO）',
+      '铁矿石 → 生铁（含碳量 2%~4.3%）→ 钢（含碳量 0.03%~2%）',
+      'CO 有毒，尾气必须处理；高温操作要用坩埚/硬质玻璃管，不能拿普通试管硬烧',
+      '铁在氧气里燃烧生成的是 Fe₃O₄，而这里生成的是 Fe —— 条件不同产物不同'],
+    safe: 'CO 剧毒、喷灯火焰温度极高（约 1300 °C）：戴护目镜、远离可燃物、注意通风。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十五 */
+  {
+    id: 'e35', no: '实验三十五', grp: '下册 · 第九单元', title: '饱和溶液与溶解度：硝酸钾在冷水里溶不完，加热就溶完了',
+    goal: '用实测数据认识饱和溶液、以及"溶解度随温度升高而增大"这件事。',
+    gear: ['烧杯 ×1', '水 20 mL', '硝酸钾 5 g', '玻璃棒（搅拌）', '电热板 / 铁架台 + 石棉网 + 酒精灯', '温度计（读数）'],
+    terms: [
+      ['饱和溶液', '—', '在一定温度下，不能再继续溶解某种溶质的溶液'],
+      ['溶解度', '—', '一定温度下 100 g 水里最多能溶解的溶质质量（g）'],
+      ['硝酸钾', 'KNO3', '溶解度受温度影响很大的典型物质：20 ℃ 约 32 g，60 ℃ 约 110 g'],
+      ['结晶', '—', '溶质从饱和溶液里以晶体形式析出（降温结晶 / 蒸发结晶）'],
+    ],
+    bench: ['beaker'],
+    steps: [
+      mkStep('烧杯里加 20 mL 水',
+        '搜「水」→ 加入 20 mL',
+        () => waterMol(tutApp(0)) > 5e-4,
+        () => addReagent(tutUid(0), 'H2O', 20, 'mL')),
+      mkStep('加入 5 g 硝酸钾并搅拌：还有固体没溶完 —— 这杯水在常温下已经饱和了',
+        '搜「硝酸钾」加 5 g → 点「🌀 搅拌」；杯底剩下的固体就是"溶解不了的多余部分"',
+        () => appHas(tutApp(0), 'KNO3', 5e-3) && crysMol(tutApp(0), 'KNO3') > 1e-4,
+        () => { addReagent(tutUid(0), 'KNO3', 5, 'g'); stir(tutUid(0)); }),
+      mkStep('加热到 60 ℃ 以上并搅拌：剩下的固体也溶解了（溶解度随温度升高而增大）',
+        '摆电热板（或酒精灯 + 铁架台 + 石棉网）：点电热板的「⬆ 架上来」再「🔥 点燃」；温度到 333 K 以上再搅拌',
+        () => (tutApp(0) && tutApp(0).temp >= 333) && crysMol(tutApp(0), 'KNO3') < 1e-5,
+        () => { const app = tutApp(0); if (app) { const pl = Lab.tools.find((x) => x.hid === 'plate') || addTool('plate'); if (pl) { placeOn(app.uid, pl.uid); lightTool(pl.uid, true); syncHeaters(); } stir(app.uid); } }),
+      mkStep('观察并归纳：同一杯水，20 ℃ 只能溶这么多，60 ℃ 能溶更多 —— 所以降温能让它结晶析出',
+        '硝酸钾适合"降温结晶"提纯（溶解度受温度影响大）；氯化钠溶解度变化小，用"蒸发结晶"（见实验二十九）',
+        () => (tutApp(0) && tutApp(0).temp >= 333) && crysMol(tutApp(0), 'KNO3') < 1e-5 && dissolved(tutApp(0), 'KNO3', 0.02),
+        () => { }),
+    ],
+    see: '常温下往 20 mL 水里加 5 g 硝酸钾，搅拌后仍有固体剩余（溶液已饱和）；加热到 60 ℃ 以上，剩余固体全部溶解，溶液变澄清。',
+    eq: ['溶解：KNO₃ --水--> K⁺ + NO₃⁻', '饱和 ⇌ 不饱和：升温 → 溶解度增大 → 由饱和变不饱和'],
+    key: ['判断饱和的依据：在该温度下，有未溶解的溶质且量不再减少（本作直接看杯底固体）',
+      '溶解度四要素：一定温度、100 g 水、达到饱和、单位是克',
+      'KNO₃ 的溶解度随温度升高明显变大 → 用降温结晶；NaCl 变化很小 → 用蒸发结晶',
+      '本作把"降温析晶"留给教材结论：模拟器只算到"升温溶解/饱和判断"，降温重结晶这一步没有建成模型（如实说明）'],
+    safe: '加热烧杯要垫石棉网并架在铁架台上；取用热的溶液要小心烫伤。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十六 */
+  {
+    id: 'e36', no: '实验三十六', grp: '下册 · 第十单元', title: '浓硫酸的稀释：酸入水、边加边搅拌（摸一摸就烫手）',
+    goal: '掌握稀释浓硫酸的正确操作与原因：溶解放出大量热，必须"酸入水"。',
+    gear: ['烧杯 ×1', '水 20 mL', '硫酸 5 mL', '玻璃棒（搅拌）', '温度计（读数）'],
+    terms: [
+      ['浓硫酸', 'H2SO4', '无色黏稠液体，吸水性强、腐蚀性强，溶于水放出大量热'],
+      ['稀释', '—', '把浓溶液加水变成稀溶液；对硫酸来说必须"酸入水"'],
+      ['酸入水', '—', '把浓硫酸沿器壁缓缓倒入水中并不断搅拌；反过来（水入酸）会局部沸腾、酸液飞溅'],
+    ],
+    bench: ['beaker'],
+    steps: [
+      mkStep('烧杯里先加 20 mL 水',
+        '搜「水」→ 加入 20 mL：稀释硫酸时水必须在下面',
+        () => waterMol(tutApp(0)) > 5e-4,
+        () => addReagent(tutUid(0), 'H2O', 20, 'mL')),
+      mkStep('沿器壁缓缓加入 5 mL 硫酸（酸入水）',
+        '搜「硫酸」→ 加入 5 mL；真实操作是沿器壁缓缓倒入、边倒边搅拌',
+        () => appHas(tutApp(0), 'H2SO4', 5e-3),
+        () => addReagent(tutUid(0), 'H2SO4', 5, 'mL')),
+      mkStep('搅拌后用温度计测一测：温度明显升高（放热）',
+        '点「🌀 搅拌」让热量散开，再点容器上的「📏 测量」读温度 —— 会看到温度比室温高出几十度',
+        () => tutApp(0) && tutApp(0).temp > 318,
+        () => stir(tutUid(0))),
+      mkStep('观察并归纳：溶液温度升高 40 ℃ 以上 —— 所以只能"酸入水"，绝不能"水入酸"',
+        '水入浓硫酸：局部剧烈放热使水瞬间沸腾，酸液带着水一起飞溅出来 —— 这是实验室最常见的严重事故之一',
+        () => tutApp(0) && tutApp(0).temp > 318,
+        () => { }),
+    ],
+    see: '把浓硫酸沿器壁缓缓加入水中并搅拌，溶液温度很快升到 60 ℃ 以上（放热明显）；若把水倒进浓硫酸，会因为局部剧烈放热而沸腾飞溅。',
+    eq: ['H₂SO₄（浓）--水--> H₂SO₄（稀）+ 大量热（物理变化为主，放热是水合作用）'],
+    key: ['稀释浓硫酸：酸入水、沿器壁、缓缓加、不断搅拌 —— 四句话一个都不能少',
+      '为什么放热：浓硫酸与水结合成水合物并放出大量热',
+      '浓硫酸还有吸水性（可作干燥剂）和脱水性（使纸张、蔗糖炭化）',
+      '本作容器卡片上的「🧪 酸浓度：浓/稀」按钮用来切换浓硫酸与稀硫酸 —— 有些反应只跟浓硫酸反应（如 Cu + 2H₂SO₄(浓)）'],
+    safe: '浓硫酸强腐蚀性：沾到皮肤先用大量水冲、再涂碳酸氢钠溶液；绝不能把水倒进浓硫酸。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十七 */
+  {
+    id: 'e37', no: '实验三十七', grp: '下册 · 第十一单元', title: '复分解反应发生的条件：气体、水、沉淀三选一',
+    goal: '通过三支试管的对比，归纳复分解反应发生的条件。',
+    gear: ['试管 ×3', '水 15 mL', '碳酸钠 2 g', '氢氧化钠 1 g', '氯化钠 1 g', '稀盐酸 4 mL', '硝酸银溶液 2 mL', '玻璃棒/pH 计'],
+    terms: [
+      ['复分解反应', '—', '两种化合物互相交换成分、生成另外两种化合物的反应（AB + CD → AD + CB）'],
+      ['发生条件', '—', '生成物中有沉淀、气体或水（三者之一），反应才能进行到底'],
+      ['碳酸钠', 'Na2CO3', '纯碱，与酸反应放出 CO₂'],
+      ['氯化银', 'AgCl', '白色沉淀，不溶于稀硝酸'],
+    ],
+    bench: ['tube', 'tube', 'tube'],
+    steps: [
+      mkStep('三支试管各加 5 mL 水',
+        '搜「水」→ 分别加 5 mL 到三支试管',
+        () => waterMol(tutApp(0)) > 2e-4 && waterMol(tutApp(1)) > 2e-4 && waterMol(tutApp(2)) > 2e-4,
+        () => { addReagent(tutUid(0), 'H2O', 5, 'mL'); addReagent(tutUid(1), 'H2O', 5, 'mL'); addReagent(tutUid(2), 'H2O', 5, 'mL'); }),
+      mkStep('1 号：加 2 g 碳酸钠 + 2 mL 稀盐酸 → 冒气泡（生成 CO₂）',
+        '搜「碳酸钠」加 2 g，搜「盐酸」加 2 mL —— 冒气泡说明有气体生成',
+        () => gasNew('CO2', 1e-4) || appHas(tutApp(0), 'CO2', 1e-6),
+        () => { addReagent(tutUid(0), 'Na2CO3', 2, 'g'); addReagent(tutUid(0), 'HCl', 2, 'mL'); }),
+      mkStep('2 号：加 1 g 氢氧化钠 + 2 mL 稀盐酸 → 没有气泡也没有沉淀，但生成了水（酸碱中和）',
+        '搜「氢氧化钠」加 1 g，搜「盐酸」加 2 mL，搅拌；检验办法：溶液 pH 从碱性往中性靠近、生成了 NaCl',
+        () => appHas(tutApp(1), 'NaCl', 1e-5) || (appHas(tutApp(1), 'NaOH', 1e-5) && (computePH(tutApp(1)) || 14) < 9),
+        () => { addReagent(tutUid(1), 'NaOH', 1, 'g'); addReagent(tutUid(1), 'HCl', 2, 'mL'); stir(tutUid(1)); }),
+      mkStep('3 号：加 1 g 氯化钠 + 2 mL 硝酸银 → 出现白色沉淀（AgCl）',
+        '搜「氯化钠」加 1 g，搜「硝酸银」加 2 mL；白色沉淀不溶于稀硝酸，是 Cl⁻ 的检验方法',
+        () => appHas(tutApp(2), 'AgCl', 1e-6),
+        () => { addReagent(tutUid(2), 'NaCl', 1, 'g'); addReagent(tutUid(2), 'AgNO3', 2, 'mL'); }),
+      mkStep('观察并归纳：复分解反应发生的条件是 —— 生成物中有沉淀、气体或水',
+        '三个试管各占一条：① 气体（CO₂）② 水（中和）③ 沉淀（AgCl）；都不满足时反应就不发生',
+        () => appHas(tutApp(2), 'AgCl', 1e-6) && appHas(tutApp(1), 'NaCl', 1e-6) && (gasNew('CO2', 1e-4) || appHas(tutApp(0), 'CO2', 1e-6)),
+        () => { }),
+    ],
+    see: '1 号试管冒出大量气泡（CO₂）；2 号试管没有明显现象，但酸碱发生了中和、生成盐和水；3 号试管出现白色沉淀（AgCl）。',
+    eq: ['Na₂CO₃ + 2HCl → 2NaCl + H₂O + CO₂↑', 'NaOH + HCl → NaCl + H₂O', 'NaCl + AgNO₃ → AgCl↓ + NaNO₃'],
+    key: ['复分解反应发生的条件：生成物中有沉淀、气体或水（满足其一即可）',
+      '反应前后元素的化合价都不变 —— 这是复分解与置换反应的区别',
+      '常见沉淀：AgCl、BaSO₄（不溶于酸）、CaCO₃、BaCO₃、Cu(OH)₂、Fe(OH)₃（溶于酸）',
+      '盐 + 盐、盐 + 碱、酸 + 盐、酸 + 碱 都可以是复分解反应；反应物还必须都能溶于水（或酸）'],
+    safe: '硝酸银见光分解、会染黑皮肤；稀盐酸有腐蚀性，别碰到眼睛。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十八 */
+  {
+    id: 'e38', no: '实验三十八', grp: '下册 · 第十一单元', title: '常见化肥的区分：铵态氮肥遇碱放出氨气',
+    goal: '用"加熟石灰研磨/混合"区分铵态氮肥与钾肥，并理解铵态氮肥为什么不能与碱性物质混用。',
+    gear: ['试管 ×2', '硫酸铵 2 g（氮肥）', '硫酸钾 2 g（钾肥）', '熟石灰 1 g ×2', '水 6 mL', '玻璃棒（搅拌）'],
+    terms: [
+      ['氮肥', '(NH4)2SO4', '硫酸铵：含铵根，属于铵态氮肥（促进枝叶生长）'],
+      ['钾肥', 'K2SO4', '硫酸钾：含钾，增强抗倒伏和抗病虫害能力'],
+      ['熟石灰', 'Ca(OH)2', '氢氧化钙，碱性物质；与铵盐混合会放出氨气'],
+      ['铵态氮肥', 'NH4^+', '含铵根离子的氮肥：不能与碱性物质（熟石灰、草木灰）混用，否则氨气跑掉、肥效降低'],
+    ],
+    bench: ['tube', 'tube'],
+    steps: [
+      mkStep('1 号试管加 2 g 硫酸铵（氮肥），2 号试管加 2 g 硫酸钾（钾肥）',
+        '搜「硫酸铵」加 2 g 到 1 号；搜「硫酸钾」加 2 g 到 2 号',
+        () => appHas(tutApp(0), '(NH4)2SO4', 5e-3) && appHas(tutApp(1), 'K2SO4', 5e-3),
+        () => { addReagent(tutUid(0), '(NH4)2SO4', 2, 'g'); addReagent(tutUid(1), 'K2SO4', 2, 'g'); }),
+      mkStep('两支试管各加 0.5 g 熟石灰 + 3 mL 水，搅拌（模拟"加碱研磨"）',
+        '搜「氢氧化钙」各加 0.5 g，再各加 3 mL 水，各点一次「🌀 搅拌」',
+        () => (appHas(tutApp(0), 'Ca(OH)2', 1e-4) || appHas(tutApp(0), 'CaSO4', 1e-5)
+          || appHas(tutApp(0), 'NH3·H2O', 1e-5) || gasAt(0, 'NH3') > 1e-7)      // 熟石灰会当场被铵盐反应吃掉，按产物认
+          && appHas(tutApp(1), 'Ca(OH)2', 1e-4),
+        () => { addReagent(tutUid(0), 'Ca(OH)2', 0.5, 'g'); addReagent(tutUid(0), 'H2O', 3, 'mL'); stir(tutUid(0)); addReagent(tutUid(1), 'Ca(OH)2', 0.5, 'g'); addReagent(tutUid(1), 'H2O', 3, 'mL'); stir(tutUid(1)); }),
+      mkStep('闻一闻（扇闻）：1 号有刺激性气味（放出氨气），2 号没有',
+        '1 号试管里的铵盐与碱反应放出氨气（气体逸出量记在现象日志里）；2 号钾肥遇碱不反应',
+        () => gasAt(0, 'NH3') > 1e-6 || appHas(tutApp(0), 'NH3', 1e-6),
+        () => stir(tutUid(0))),
+      mkStep('观察并归纳：铵态氮肥 + 碱 → 放出氨气 —— 所以铵态氮肥不能与碱性物质混用',
+        '区分办法：加熟石灰混合研磨，有刺激性气味的是铵态氮肥；没有的是钾肥等其他肥料',
+        () => (gasAt(0, 'NH3') > 1e-6 || appHas(tutApp(0), 'NH3', 1e-6)) && !(gasAt(1, 'NH3') > 1e-6),
+        () => { }),
+    ],
+    see: '硫酸铵与熟石灰混合后放出有刺激性气味的气体（氨气）；硫酸钾与熟石灰混合后没有气味变化。',
+    eq: ['(NH₄)₂SO₄ + Ca(OH)₂ → CaSO₄ + 2NH₃↑ + 2H₂O'],
+    key: ['铵态氮肥的检验：加碱（熟石灰）混合研磨，放出有刺激性气味的氨气',
+      '铵态氮肥（碳铵、硫铵、硝铵）不能与碱性物质（熟石灰、草木灰）混用，否则氨气跑掉、肥效下降',
+      '常见化肥：氮肥（尿素、碳铵、硫铵）、磷肥（磷矿粉、过磷酸钙）、钾肥（硫酸钾、氯化钾）、复合肥（KNO₃、NH₄H₂PO₄）',
+      '铵态氮肥要深施盖土、不与碱性物质混用、不长期暴晒（碳酸氢铵受热就分解）'],
+    safe: '熟石灰有腐蚀性，别用手直接抓；氨气有刺激性，闻气味要扇闻。',
+  },
+
+  /* --------------------------------------------------------------- 实验三十九 */
+  {
+    id: 'e39', no: '实验三十九', grp: '上册 · 第二单元', title: '铁丝在氧气中燃烧：火星四射，生成黑色固体',
+    goal: '观察铁丝在纯氧中燃烧的现象，理解"瓶底要留少量水或细沙"的安全原因。',
+    gear: ['集气瓶 ×1', '细铁丝 0.3 g', '氧气 0.1 g', '点火（🔥 点燃）'],
+    terms: [
+      ['铁', 'Fe', '银白色金属，在空气中不易燃烧，在纯氧中能剧烈燃烧'],
+      ['四氧化三铁', 'Fe3O4', '黑色固体（磁性氧化铁），铁丝燃烧的产物'],
+      ['纯氧', 'O2', '助燃：氧气浓度越高，燃烧越剧烈'],
+    ],
+    bench: ['gasjar'],
+    steps: [
+      mkStep('集气瓶里放 0.3 g 细铁丝（绕成螺旋状更容易烧起来）',
+        '搜「铁」→ 加入 0.3 g：铁丝要少量，多了会炸瓶',
+        () => appHas(tutApp(0), 'Fe', 1e-4),
+        () => addReagent(tutUid(0), 'Fe', 0.3, 'g')),
+      mkStep('加入 0.1 g 氧气（纯氧才能看到"火星四射"）',
+        '搜「氧气」→ 加入 0.1 g；空气里只有 21% 的氧气，铁丝在空气里烧不起来',
+        () => appHas(tutApp(0), 'O2', 1e-4),
+        () => addReagent(tutUid(0), 'O2', 0.1, 'g')),
+      mkStep('点燃：剧烈燃烧、火星四射',
+        '点集气瓶卡片上的「🔥 点燃」；现象日志会记下"火星四射、放出大量热"',
+        () => { const a = tutApp(0); return !!(a && (a.ignited || a.broken)) || appHas(a, 'Fe3O4', 1e-6); },
+        () => ignite(tutUid(0))),
+      mkStep('观察并归纳：生成黑色固体（Fe₃O₄）—— 瓶底要预先留少量水或细沙',
+        '高温熔渣落在瓶底会让集气瓶炸裂（本作真的会炸：量给多了温度过高就会碎）',
+        () => appHas(tutApp(0), 'Fe3O4', 1e-6) || gasNew('Fe3O4', 1e-6),
+        () => { }),
+    ],
+    see: '铁丝在纯氧中剧烈燃烧，火星四射、放出大量热，生成黑色固体（Fe₃O₄）；瓶底留下少量水或细沙可以防止熔渣炸裂瓶底。',
+    eq: ['3Fe + 2O₂ --点燃--> Fe₃O₄'],
+    key: ['燃烧剧烈程度与氧气浓度有关：空气里烧不起来，纯氧里火星四射',
+      '产物是 Fe₃O₄（黑色、有磁性），不是 Fe₂O₃（红色铁锈）',
+      '瓶底预先放少量水或细沙：防止高温熔渣溅落炸裂瓶底（本作按真实温度模拟炸裂）',
+      '铁丝要绕成螺旋状、末端系火柴引燃 —— 增大受热面积、提高局部温度'],
+    safe: '燃烧时别直视火焰（强光伤眼）；集气瓶很烫，等冷却再拿。',
   },
 ];
 
@@ -5753,6 +6297,16 @@ function tutTick(dt) {
 /* ------------- 器材清单：教程里"要求用上"的器材，逐个真检查（不是照着念） ------------ */
 /* t = 器材/仪器 id（台面上有就算就位）；use = 必须真的用它做过某个操作；f = 需要的物质 */
 const TUT_NEED = {
+  e30: [{ t: 'gasFeed', n: '导气：把氨分子送到另一只烧杯', use: 'gasFeed' }, { t: 'phmeter', n: 'pH 计：读出碱性', use: 'measure:ph' }],
+  e31: [{ t: 'rod', n: '玻璃棒（搅拌）', use: 'rod' }, { t: 'lamp', n: '酒精灯（煮沸）' }, { t: 'stand', n: '铁架台 + 石棉网' }],
+  e32: [],
+  e33: [{ t: 'bunsen', n: '本生灯（加热到 573 K）' }, { t: 'gasFeed', n: '导气：尾气通石灰水', use: 'gasFeed' }, { t: 'rod', n: '玻璃棒（配石灰水）', use: 'rod' }],
+  e34: [{ t: 'torch', n: '酒精喷灯（973 K 高温）' }, { t: 'gasFeed', n: '导气：检验 CO₂', use: 'gasFeed' }],
+  e35: [{ t: 'rod', n: '玻璃棒（搅拌溶解）', use: 'rod' }, { t: 'plate', n: '电热板（加热到 60 ℃）' }, { t: 'thermometer', n: '温度计：确认温度', use: 'measure:temp' }],
+  e36: [{ t: 'rod', n: '玻璃棒（搅拌散热）', use: 'rod' }, { t: 'thermometer', n: '温度计：测放热', use: 'measure:temp' }],
+  e37: [{ t: 'rod', n: '玻璃棒（搅拌）', use: 'rod' }, { t: 'phmeter', n: 'pH 计：看中和到中性', use: 'measure:ph' }],
+  e38: [{ t: 'rod', n: '玻璃棒（搅拌混合）', use: 'rod' }],
+  e39: [],
   e1: [{ t: 'tube', n: '试管' }, { t: 'lamp', n: '酒精灯' }, { t: 'flask', n: '锥形瓶（收集氧气）' }],
   e4: [{ t: 'flask', n: '锥形瓶' }],
   e5: [{ t: 'flask', n: '锥形瓶（发生装置）' }, { t: 'beaker', n: '烧杯（石灰水）' }, { t: 'gasFeed', n: '导气：把气体通进石灰水', use: 'gasFeed' }],
@@ -5819,6 +6373,7 @@ TUT.forEach((e) => { e.need = TUT_NEED[e.id] || []; });
 
 /* -------------------------------- 界面 ---------------------------------- */
 function tutRender(force) {
+  if (Lab.tut && !Lab.tut.filter) Lab.tut.filter = 'all';
   const box = document.querySelector('#tutorial'); if (!box) return;
   box.classList.toggle('show', !!Lab.tut.open);
   if (!Lab.tut.open) return;
@@ -5836,8 +6391,13 @@ function tutRender(force) {
   let html = '<div class="tutwrap">'
     + '<div class="tutside"><h3>📘 初中化学实验教程</h3>'
     + '<p class="hint">' + TUT.length + ' 个教材经典实验（人教九上＋九下）。点一个看详情 → 按「▶ 开始实验」，工作台右侧就会弹出<b>步骤面板</b>，跟着一步步做。每一步都会真的检查（物质、温度、气体、pH、过滤结果），每个实验都带<b>名称对照表</b>：俗名、化学名称、化学式一一对应。</p>'
+    + '<div class="tutfilt">'
+    + [['all', '全部'], ['std', '📘 教材实验'], ['cmp', '⚗ 化合物制备']].map(([k, t]) => {
+      const n = k === 'all' ? TUT.length : TUT.filter((e) => (k === 'cmp') === (e.ext === 'cmp')).length;
+      return '<button class="tfbtn' + ((Lab.tut.filter || 'all') === k ? ' cur' : '') + '" data-tf="' + k + '">' + t + ' ' + n + '</button>';
+    }).join('') + '</div>'
     + '<div class="tutlist">';
-  TUT.forEach((e) => {
+  TUT.filter((e) => (Lab.tut.filter || 'all') === 'all' || ((Lab.tut.filter === 'cmp') === (e.ext === 'cmp'))).forEach((e) => {
     const p = prog(e), all = p >= e.steps.length;
     html += '<button class="tutitem' + (Lab.tut.sel === e.id ? ' cur' : '') + (all ? ' ok' : '') + '" data-exp="' + e.id + '">'
       + '<b>' + (all ? '✅ ' : '') + e.no + '　' + e.title + '</b>'
@@ -5884,6 +6444,7 @@ function tutRender(force) {
   /* 教程模块自己的动作也走"被引导包过"的入口（CHEM.tutStart），否则引导状态不会跟着重置 */
   const startExp = (id, rs) => { const f = (window.CHEM && window.CHEM.tutStart) || tutStart; return f(id, rs); };
   box.querySelectorAll('.tutitem').forEach((b) => b.addEventListener('click', () => { Lab.tut.sel = b.dataset.exp; tutRender(true); }));
+  box.querySelectorAll('.tfbtn').forEach((b) => b.addEventListener('click', () => { Lab.tut.filter = b.dataset.tf; tutRender(true); }));
   const cl = box.querySelector('#tutClose'); if (cl) cl.addEventListener('click', () => tutToggle(false));
   const dm = box.querySelector('#tutDemo'); if (dm) dm.addEventListener('click', () => { const r = tutDemo(); if (!r.ok) toast(r.why); });
   const sk = box.querySelector('#tutSkip'); if (sk) sk.addEventListener('click', () => { Lab.tut.mem.skip = 1; Lab.tut.done[sel.id + ':' + Lab.tut.step] = true; Lab.tut.step++; tutSave(); tutRender(true); toast('已跳过这一步'); });
@@ -5929,7 +6490,7 @@ Object.assign(window.CHEM, {
  * ==========================================================================*/
 
 const GUIDE_KINDS = ['addReagent', 'setHeater', 'ignite', 'stir', 'pour', 'feedGas', 'filterApp', 'setPower', 'clearApp', 'measure', 'addApparatus',
-  'addTool', 'placeOn', 'lightTool', 'submergeJar', 'liftJar', 'lightSplint', 'probeGas'];
+  'addTool', 'placeOn', 'slotLamp', 'lightTool', 'submergeJar', 'liftJar', 'lightSplint', 'probeGas'];
 const G_ORIG = {};
 let gDry = null;            // 非 null = 干跑模式（只记录调用，不碰真状态）
 let gDryTools = {};         // 干跑里"虚拟摆出来的器材"：uid → 影子器材（只为把种类对上，不碰真台面）
@@ -5977,6 +6538,7 @@ function guideNorm(r) {
   else if (k === 'measure') { o.uid = (a[0] && a[0].uid) || (typeof a[0] === 'string' ? a[0] : null); }   // measure 收 app 对象（也兼容 uid）
   else if (k === 'addApparatus') { o.kind = a[0]; }              // 参数是仪器 id（'tube'…）
   else if (k === 'addTool') { o.hid = a[0]; }
+  else if (k === 'slotLamp') { o.stand = a[0]; o.hid = ((gDryTools[a[1]] || toolByUid(a[1])) || {}).hid || null; }
   else if (k === 'placeOn') { o.uid = a[0]; o.tool = a[1]; o.toolHid = ((gDryTools[a[1]] || toolByUid(a[1])) || {}).hid || null; }
   else if (k === 'lightTool') { o.uid = a[0]; o.lit = a[1]; o.hid = ((gDryTools[a[0]] || toolByUid(a[0])) || {}).hid || null; }
   else if (k === 'lightSplint' || k === 'probeGas') { o.uid = a[0]; o.to = a[1]; o.hid = ((gDryTools[a[0]] || toolByUid(a[0])) || {}).hid || 'splint'; }
@@ -6035,6 +6597,12 @@ function guideSatisfied(w) {
     if (m) return true;
     if (!a.standOn) return false;
     const t = toolByUid(a.standOn); return !!t && (!w.toolHid || t.hid === w.toolHid);
+  }
+  if (w.k === 'slotLamp') {
+    // 计划里的器材 uid 是干跑时排的（干跑时台面上没有玻璃棒，编号会整体错位）—— 只认种类：铁架台全场唯一
+    const s = Lab.tools.find((x) => x.hid === 'stand') || toolByUid(w.stand);
+    const h = s ? standLampOf(s) : null;
+    return !!h && (!w.hid || h.hid === w.hid);
   }
   if (w.k === 'measure') return false;                            // 测量只能真点（点第二次无害，所以不做"已满足"跳过）
   if (w.k === 'setPower') { const a = appByUid(w.uid); return !!a && !!a.elec === !!w.on; }
@@ -6160,6 +6728,10 @@ function guideTarget() {
       const ub = gToolBtn(t.uid, 'unmount');
       if (ub) return { key: 'unmount:' + t.uid, el: ub, kind: 'place', label: '「' + t.def.name + '」正插在「' + gAppName(t.app) + '」上 —— 先点「⏏ 拔出」，再插进「' + gAppName(a.uid) + '」' };
     }
+    if (t && a.toolHid === 'stand') {                                      // 铁架台没有「架上来」，它的槽位叫「⬆ 上格放容器」
+      const sb = gToolBtn(t.uid, 'slotapp');
+      if (sb) return { key: 'slotapp:' + t.uid, el: sb, label: '点「铁架台」卡片上的「⬆ 上格放容器」，把' + gAppName(a.uid) + '放进铁圈里', kind: 'place' };
+    }
     const mb = t ? gToolBtn(t.uid, 'mount') : null;
     if (mb) {
       // 「⬆ 架上来」架的是**当前选中的**那个容器 —— 选错了就会把别的器皿架上灯，玩家照着点也做不完
@@ -6171,9 +6743,22 @@ function guideTarget() {
     const ab = document.querySelector('#addTools button[data-hid="' + (a.toolHid || 'lamp') + '"]');
     if (ab) return { key: 'addtool:' + (a.toolHid || 'lamp'), el: ab, label: '先在「器材」行点一件加热器材摆上台面', kind: 'tool' };
   }
+  if (a.k === 'slotLamp') {
+    const stand = Lab.tools.find((x) => x.hid === 'stand') || toolByUid(a.stand);   // 计划里的 uid 可能错位，只认种类
+    if (!stand) {
+      const ab1 = document.querySelector('#addTools button[data-hid="stand"]');
+      if (ab1) return { key: 'addtool:stand', el: ab1, label: '先在「器材」行摆一件「🗼 铁架台」上台面', kind: 'tool' };
+    }
+    const sb = stand ? gToolBtn(stand.uid, 'slotlamp') : null;
+    if (sb) return { key: 'slotlamp:' + a.stand, el: sb, label: '点「铁架台」卡片上的「⬇ 下格放热源」—— 铁架台下格放灯（酒精灯 / 本生灯 / 喷灯都行）', kind: 'place' };
+  }
   if (a.k === 'lightTool') {
     const t = Lab.tools.find((x) => x.hid === a.hid && (a.lit ? !x.on : x.on)) || Lab.tools.find((x) => x.hid === a.hid) || null;
-    const lb = t ? gToolBtn(t.uid, 'light') : null;
+    let lb = t ? gToolBtn(t.uid, 'light') : null;
+    if (!lb && t && t.lampStand) {                       // 热源塞在铁架台下格里：卡片收起了，开关挪到铁架台卡片上
+      const st = toolByUid(t.lampStand);
+      lb = st ? gToolBtn(st.uid, 'light') : null;
+    }
     if (lb) return { key: 'light:' + t.uid, el: lb, label: '在「' + t.def.name + '」卡片上点「' + (a.lit ? '🔥 点燃' : '💨 熄灭') + '」' + (a.lit ? ' —— 点着才会真的开始加热' : ''), kind: 'tool' };
   }
   if (a.k === 'setHeater') {
@@ -6248,6 +6833,7 @@ function guideMatch(act, want) {
   // 器材 uid 每次摆都不是同一个（干跑摆的是影子器材），所以按"种类 + 谁被架上去了 + 点着与否"判定
   if (want.k === 'placeOn') return act.a[0] === want.uid && (!want.toolHid || ((toolByUid(act.a[1]) || {}).hid === want.toolHid));
   if (want.k === 'lightTool') return !!act.a[1] === !!want.lit && (!want.hid || ((toolByUid(act.a[0]) || {}).hid === want.hid));
+  if (want.k === 'slotLamp') return (!want.hid || ((gDryTools[act.a[1]] || toolByUid(act.a[1])) || {}).hid === want.hid);   // uid 会错位，按热源种类匹配
   if (want.k === 'lightSplint' || want.k === 'probeGas') return ((toolByUid(act.a[0]) || {}).hid || '') === (want.hid || 'splint');
   return act.a[0] === want.uid;
 }
@@ -6279,8 +6865,9 @@ function guidePrereq(act, plan) {
   const toolHid = (uid) => ((toolByUid(uid) || {}) || {}).hid || null;
   return plan.some((w) => {
     if (!w || w.k !== 'setHeater') return false;
-    if (act.k === 'addTool') return act.a[0] === w.h;                                // 摆这件热源
+    if (act.k === 'addTool') return act.a[0] === w.h || act.a[0] === 'stand' || act.a[0] === 'gauze';   // 摆热源 / 铁架台 / 石棉网
     if (act.k === 'lightTool') return toolHid(act.a[0]) === w.h && act.a[1] !== false; // 点燃它
+    if (act.k === 'slotLamp') return true;                                                              // 热源进下格
     if (act.k === 'placeOn') {
       if (act.a[0] !== w.uid) return false;                                          // 只能是这个容器
       const hid = toolHid(act.a[1]);
@@ -6549,14 +7136,14 @@ const CURRICULUM = [
     book: '上册', no: 2, unit: '空气和氧气', alt: '旧版单元名：我们周围的空气',
     lessons: [
       { n: '课题1', t: '我们周围的空气', exps: ['e26'], todo: ['空气的污染与防治'] },
-      { n: '课题2', t: '氧气', exps: ['e2'], todo: ['铁丝在氧气中燃烧'] },
+      { n: '课题2', t: '氧气', exps: ['e2', 'e39'], todo: [] },
       { n: '课题3', t: '制取氧气', exps: ['e1', 'e4', 'e3', 'e23'], todo: [] },
     ],
   },
   {
     book: '上册', no: 3, unit: '物质构成的奥秘', alt: '',
     lessons: [
-      { n: '课题1', t: '分子和原子', exps: [], todo: ['分子运动现象（浓氨水使酚酞变红）', '品红在水中扩散'] },
+      { n: '课题1', t: '分子和原子', exps: ['e30'], todo: ['品红在水中扩散'] },
       { n: '课题2', t: '原子结构', exps: [], todo: [] },
       { n: '课题3', t: '元素', exps: [], todo: [] },
       { n: '课题4', t: '物质组成的表示（化学式与化合价）', exps: [], todo: ['化学式与化合价的书写练习', '相对分子质量的计算'] },
@@ -6565,8 +7152,8 @@ const CURRICULUM = [
   {
     book: '上册', no: 4, unit: '自然界的水', alt: '',
     lessons: [
-      { n: '课题1', t: '水资源及其利用', exps: [], todo: ['硬水与软水的检验（肥皂水）'] },
-      { n: '课题2', t: '水的组成', exps: ['e7'], todo: ['氢气燃烧（检验水的组成）'] },
+      { n: '课题1', t: '水资源及其利用', exps: ['e31'], todo: [] },
+      { n: '课题2', t: '水的组成', exps: ['e7', 'e32'], todo: [] },
       { n: '课题3', t: '水的净化', exps: [], todo: ['过滤、吸附、蒸馏（净水三件套）'] },
     ],
   },
@@ -6584,7 +7171,7 @@ const CURRICULUM = [
       { n: '课题1', t: '碳单质的多样性', exps: [], todo: ['金刚石、石墨、C60（结构决定性质）'] },
       { n: '课题2', t: '二氧化碳的实验室制取', exps: ['e5', 'e25'], todo: [] },
       { n: '课题3', t: '碳的化学性质', exps: ['e22'], todo: [] },
-      { n: '课题4', t: '二氧化碳和一氧化碳', exps: ['e13'], todo: ['一氧化碳的毒性、还原性（CO 还原 CuO）'] },
+      { n: '课题4', t: '二氧化碳和一氧化碳', exps: ['e13', 'e33'], todo: [] },
     ],
   },
   {
@@ -6599,14 +7186,14 @@ const CURRICULUM = [
     lessons: [
       { n: '课题1', t: '金属材料', exps: [], todo: ['合金与纯金属的性质比较（焊锡、武德合金）'] },
       { n: '课题2', t: '金属的化学性质', exps: ['e9', 'e28'], todo: [] },
-      { n: '课题3', t: '金属资源的利用和保护', exps: ['e14'], todo: ['一氧化碳还原氧化铁（工业炼铁）'] },
+      { n: '课题3', t: '金属资源的利用和保护', exps: ['e14', 'e34'], todo: [] },
     ],
   },
   {
     book: '下册', no: 9, unit: '溶液', alt: '',
     lessons: [
       { n: '课题1', t: '溶液及其应用', exps: ['e21'], todo: ['溶解时吸热放热现象（本作即此实验）'] },
-      { n: '课题2', t: '溶解度', exps: [], todo: ['饱和溶液与不饱和溶液', '溶解度曲线与结晶（硝酸钾）'] },
+      { n: '课题2', t: '溶解度', exps: ['e35'], todo: ['溶解度曲线（教材图表）'] },
       { n: '课题3', t: '溶质的质量分数', exps: ['e12'], todo: ['溶液的稀释与配制'] },
     ],
   },
@@ -6614,9 +7201,9 @@ const CURRICULUM = [
     book: '下册', no: 10, unit: '常见的酸、碱、盐', alt: '旧版：第十单元 酸和碱 + 第十一单元 盐 化肥',
     lessons: [
       { n: '课题1', t: '溶液的酸碱性', exps: ['e24'], todo: ['pH 试纸比色（本作直接用 pH 计读数）'] },
-      { n: '课题2', t: '常见的酸和碱', exps: ['e10', 'e11', 'e19'], todo: ['酸的化学性质（除锈、与指示剂）', '浓硫酸的稀释'] },
-      { n: '课题3', t: '常见的盐', exps: ['e6', 'e16', 'e18', 'e20', 'e29'], todo: ['复分解反应发生的条件'] },
-      { n: '课题4', t: '化学与农业生产（化学肥料）', exps: ['e15'], todo: ['常见化肥的区分与施用'] },
+      { n: '课题2', t: '常见的酸和碱', exps: ['e10', 'e11', 'e19', 'e36'], todo: ['酸的化学性质（除锈、与指示剂）'] },
+      { n: '课题3', t: '常见的盐', exps: ['e6', 'e16', 'e18', 'e20', 'e29', 'e37'], todo: [] },
+      { n: '课题4', t: '化学与农业生产（化学肥料）', exps: ['e15', 'e38'], todo: [] },
     ],
   },
   {
@@ -6644,6 +7231,7 @@ function courseApply() {
   if (typeof TUT === 'undefined') return [];
   const miss = [];
   TUT.forEach((e) => {
+    if (e.ext === 'cmp') return;                     // 化合物制备课：自成一条轨，不占教材单元表
     const hit = courseOf(e.id);
     if (!hit) { miss.push(e.id); return; }
     e.grp = unitLabel(hit.u) + '（' + hit.l.n + ' ' + hit.l.t + '）';
@@ -6655,12 +7243,13 @@ function courseApply() {
 const courseStats = () => {
   let core = 0, todo = 0, exps = 0, out = 0;
   CURRICULUM.forEach((u) => u.lessons.forEach((l) => { core += 1; exps += l.exps.length; todo += l.todo.length; }));
-  (typeof TUT !== 'undefined' ? TUT : []).forEach((e) => { if (!courseOf(e.id)) out += 1; });
-  return { units: CURRICULUM.length, lessons: core, exps, todo, out };
+  let cmp = 0;
+  (typeof TUT !== 'undefined' ? TUT : []).forEach((e) => { if (e.ext === 'cmp') { cmp += 1; return; } if (!courseOf(e.id)) out += 1; });
+  return { units: CURRICULUM.length, lessons: core, exps, todo, out, cmp };
 };
 /** 自查：有没有实验没进课程表、有没有课程表点了名但游戏里没有的实验 */
 const courseAudit = () => {
-  const ids = (typeof TUT !== 'undefined' ? TUT : []).map((e) => e.id);
+  const ids = (typeof TUT !== 'undefined' ? TUT : []).filter((e) => e.ext !== 'cmp').map((e) => e.id);
   const mapped = [];
   CURRICULUM.forEach((u) => u.lessons.forEach((l) => l.exps.forEach((x) => mapped.push(x))));
   return {
@@ -7053,7 +7642,9 @@ function synthHTML() {
         + '<div class="synrow"><i>条件：</i>' + esc(r ? (r.condText || '常温即可') : '—')
         + '　<i>现象：</i>' + esc(r ? (Array.isArray(r.phen) ? r.phen.join('；') : r.phen) : '—') + '</div>'
         + '<div class="synrow"><i>器材：</i>' + esc(s.route.use.join('、')) + '</div>'
-        + '<div class="synnote">' + esc(s.route.note || '') + '</div></div>';
+        + '<div class="synnote">' + esc(s.route.note || '') + '</div>'
+        + '<div class="synfoot"><button class="synstart" data-cmp="' + SYNTH.indexOf(s) + '">▶ 手把手做这条</button>'
+        + '<i>跟教材实验一样：一步一步高亮该点哪个控件，判定读真实状态</i></div></div>';
     });
     out += '</div>';
   });
@@ -7090,6 +7681,11 @@ function synthInit() {
     document.body.appendChild(m);
   }
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') synthOpen(false); });
+  const mm = document.querySelector('#synthModal');
+  if (mm) mm.addEventListener('click', (ev) => {                 // 从合成面板直接开一条手把手课程
+    const b = ev.target && ev.target.closest ? ev.target.closest('button[data-cmp]') : null;
+    if (b && typeof cmpStart === 'function') cmpStart(Number(b.dataset.cmp));
+  });
 }
 document.addEventListener('DOMContentLoaded', synthInit);
 
@@ -7097,6 +7693,216 @@ Object.assign(window.CHEM, {
   SYNTH, SYNTH_RAW, synthResolve, synthStats, synthMade, synthOpen,
   synthHTML: () => synthHTML(), synthOnMade,
 });
+
+
+/* ================= 13-complexp.js ================= */
+/* ============================================================================
+ * 13-complexp.js —— 每个化合物的专门教学（跟教材实验同一套手把手引擎）
+ *
+ * 用户在第九轮之后提的需求：「给每个化合物都做专门的教学，也是跟我们的实验一样手把手」。
+ *
+ * 做法（不写死步骤、不写死方程）：
+ *   ① 从 12-synth.js 的路线表出发（目标物质 + 原料），方程/条件/现象从反应库 RXNS 查；
+ *   ② 按**真实配平系数**算出每一步该加多少（固体按克、液体按毫升，够反应还有余量）；
+ *   ③ 生成和教材实验完全同构的步骤：加料 → 满足条件（点燃/加热/通电/催化剂）→ 观察现象 → 记台账；
+ *   ④ 判定读的都是工作台真实状态（容器里有没有这种物质、有没有气体逸出、有没有沉淀、台账记没记上），
+ *      所以「点了就算」在这里同样不成立。
+ * ==========================================================================*/
+
+const CMP_CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四',
+  '十五', '十六', '十七', '十八', '十九', '二十', '二十一', '二十二', '二十三', '二十四', '二十五', '二十六', '二十七', '二十八'];
+
+const cmpAppName = (k) => {
+  const d = (typeof APPARATUS !== 'undefined' ? APPARATUS : []).find((a) => a.id === k);
+  return d ? d.name : k;
+};
+
+/** 器材推断：电解 → 烧杯；点燃 → 集气瓶；≥800 °C → 坩埚（能直火）；溶液/沉淀 → 试管；其余 → 锥形瓶 */
+function cmpBench(route, rx) {
+  if (route.bench) return route.bench.slice();
+  const c = (rx && rx.cond) || {};
+  if (c.elec) return ['beaker'];
+  if (c.ignite) return ['gasjar'];
+  if (c.temp >= 800) return ['crucible'];
+  if (c.temp >= 400) return ['tube'];          // 要上 400 K 以上：用能直火的试管，别拿锥形瓶隔着石棉网慢慢焐
+  if (route.grp === '盐' || route.grp === '碱') return ['tube'];
+  return ['flask'];
+}
+
+/** 热源：器皿能直火就按温度挑（灯/本生灯/喷灯），不能直火只能走酒精灯 + 铁架台 + 石棉网 */
+function cmpHeater(route, rx, bench) {
+  const direct = bench.every((k) => { const d = APPARATUS.find((a) => a.id === k); return !d || d.direct; });
+  if (!direct) return 'lamp';
+  const t = ((rx && rx.cond) || {}).temp || 0;
+  if (t >= 1000) return 'torch';
+  if (t >= 700) return 'bunsen';
+  return 'lamp';
+}
+
+/** 用量：以第一个原料为基准，按配平系数换算 —— 固体给克、液体/溶液给毫升，其余原料多给 25% */
+function cmpDoses(route, rx, bench) {
+  const lhs = route.lhs.slice();
+  const coef = (rx && rx.coef) ? rx.coef.slice(0, lhs.length) : lhs.map(() => 1);
+  const base = subOf(lhs[0]) || { st: 's', M: 100 };
+  const c0 = coef[0] || 1;
+  const anchorMol = lhs[0] === 'H2O' ? 1.6 : (base.st === 's' ? 2 / base.M : 0.05);
+  const cap = ((APPARATUS.find((a) => a.id === (bench || [])[0]) || {}).cap) || 250;
+  const waterML = Math.max(5, Math.min(30, Math.round(cap * 0.4)));      // 试管只有 25 mL：30 mL 水会被判"装不下"
+  const r10 = (x) => Math.max(0.05, Math.round(x * 100) / 100);
+  const GAS_MIN = 0.011;                                                 // 弹窗的最小用量是 0.01，给气体留一点余量
+  const ignite = !!(rx && rx.cond && rx.cond.ignite);
+  const VM = 22400;                                                      // mL/mol（模拟器的气体体积量级）
+  const gasIdx = lhs.map((f, i) => ((subOf(f) || {}).st === 'g' ? i : -1)).filter((i) => i >= 0);
+  const allGas = gasIdx.length === lhs.length && lhs.length > 0;
+  const gasTotal = ((allGas ? 0.6 : 0.4) * cap) / VM;                    // 气体总摩尔数：别把瓶子灌爆
+  const gasSum = gasIdx.reduce((s2, i) => s2 + (coef[i] || 1), 0) || 1;
+  return lhs.map((f, i) => {
+    const s = subOf(f) || { st: 's', M: 100 };
+    const c = coef[i] || 1;
+    let mol = anchorMol * (c / c0) * (i === 0 ? 1 : 1.25);
+    if (s.st === 'g') mol = Math.min(mol, gasTotal * (c / gasSum));       // 气体：按容积上限给药
+    if (f === 'H2O') return { f: f, v: waterML, u: 'mL', mol: waterML / 18 };
+    if (s.st === 'g') {                                                   // 气体：克数是小数字，别被弹窗下限挡回来
+      const gv = Math.max(GAS_MIN, Math.round(mol * s.M * 1000) / 1000);
+      return { f: f, v: gv, u: 'g', mol: gv / s.M };
+    }
+    if (s.st === 's') {
+      let sv = r10(mol * s.M);
+      if (ignite) sv = Math.min(sv, 0.4);                                 // 点燃类实验按教材「少量」给药：镁 2 g 会把集气瓶炸了
+      return { f: f, v: sv, u: 'g', mol: sv / s.M };
+    }
+    return { f: f, v: r10(mol * s.M), u: 'mL', mol: mol };
+  });
+}
+
+/** 产物判定：气体看逸出账 + 气相（SO₂/CO₂ 会溶在水里，也要算） */
+function cmpMade(i, f) {
+  const s = subOf(f) || {};
+  return () => {
+    const a = tutApp(i);
+    if (s.st === 'g') return gasAt(i, f) > 1e-4 || appHas(a, f, 1e-9) || heldGas(f, 1e-4);
+    return appHas(a, f, 1e-9) || !!(a && a.pptBy && (a.pptBy[f] || 0) > 1e-9);
+  };
+}
+
+function cmpLesson(route, rx, idx) {
+  const f = route.f;
+  const fname = subName(f) + '（' + f + '）';
+  const bench = cmpBench(route, rx);
+  const heater = cmpHeater(route, rx, bench);
+  const c = (rx && rx.cond) || {};
+  const doses = cmpDoses(route, rx, bench);
+  const steps = [];
+  const u0 = () => tutUid(0);
+
+  /* ① 溶液反应先配溶液：固体干放在试管里是不会反应的（第九轮 e28 踩过的坑） */
+  if (c.sol && route.lhs.indexOf('H2O') < 0) {
+    const wv = Math.max(5, Math.min(20, Math.round((((APPARATUS.find((a) => a.id === bench[0]) || {}).cap) || 250) * 0.3)));
+    steps.push(mkStep('先加 ' + wv + ' mL 水（溶液反应要有溶液相）',
+      '试剂架搜「水」→ 加入 ' + wv + ' mL：溶液反应必须真有溶液相，干粉混在一起是不反应的',
+      () => waterMol(tutApp(0)) > 1e-3,
+      () => addReagent(u0(), 'H2O', wv, 'mL')));
+  }
+
+  /* ② 一种原料一步：用量按配平系数算好，弹窗会照这一步填 */
+  doses.forEach((d, i) => {
+    const s = subOf(d.f) || {};
+    steps.push(mkStep('加入 ' + d.v + ' ' + d.u + ' ' + subName(d.f) + '（' + d.f + '）',
+      '试剂架搜「' + subName(d.f) + '」→ 加入 ' + d.v + ' ' + d.u
+      + '（按 ' + (rx ? rx.eq : '') + ' 配平算出来的量' + (i === 0 ? '' : '，留了 25% 余量') + '）',
+      () => anyHas(d.f, 1e-6) || heldGas(d.f, 1e-6) || cmpMade(0, f)(),
+      () => addReagent(u0(), d.f, d.v, d.u)));
+  });
+
+  /* ③ 催化剂（路线里单独写的 cat 字段） */
+  if (route.cat) {
+    steps.push(mkStep('加入少量 ' + subName(route.cat) + '（' + route.cat + '）作催化剂',
+      '试剂架搜「' + subName(route.cat) + '」→ 加入 0.5 g（催化剂只改速率，不改产量）',
+      () => anyHas(route.cat, 1e-6) || cmpMade(0, f)(),
+      () => addReagent(u0(), route.cat, 0.5, 'g')));
+  }
+
+  /* ④ 满足条件：点燃 / 加热 / 通电 —— 条件不满足，反应库里的这条方程根本不会启动 */
+  if (c.ignite) {
+    steps.push(mkStep('点燃：反应需要点火',
+      '点容器卡片上的「🔥 点燃」（点燃类反应：先有可燃物 + 氧气，再给火）',
+      () => { const a = tutApp(0); return !!(a && (a.ignited || a.broken)) || cmpMade(0, f)(); },
+      () => ignite(u0())));
+  }
+  if (c.temp) {
+    const hname = (HEATERS.find((h) => h.id === heater) || {}).name || '酒精灯';
+    steps.push(mkStep('加热到 ' + c.temp + ' K 以上（用' + hname + '）',
+      bench.every((k) => (APPARATUS.find((a) => a.id === k) || {}).direct)
+        ? '把「' + hname + '」摆上台面 → 点「⬆ 架上来」→ 点「🔥 点燃」（第十轮起器材不会白送，缺了就提示缺哪件）'
+        : '玻璃器皿不能见明火：先在「器材」行摆出铁架台 + 石棉网 + ' + hname + '，容器进上格、石棉网垫到器皿下、热源塞进下格，再点「🔥 点燃」',
+      () => !!(tutApp(0) && tutApp(0).heater && tutApp(0).heater.on),
+      () => tutHeat(0, heater)));
+  }
+  if (c.elec || route.use.some((x) => /电解|通电/.test(x))) {
+    steps.push(mkStep('接通电源：开始电解',
+      '点容器卡片上的「⚡ 通电」',
+      () => !!(tutApp(0) && tutApp(0).elec),
+      () => setPower(u0(), true)));
+  }
+
+  /* ⑤ 观察：产物真的出现了才算（气体看逸出账、固体看容器里、沉淀看沉淀账） */
+  steps.push(mkStep('观察现象：' + (rx ? (Array.isArray(rx.phen) ? rx.phen.join('；') : rx.phen) : '等待反应发生'),
+    '看着容器里的变化（温度、气泡、颜色、沉淀），这一步不点按钮 —— 现象要真的发生',
+    () => cmpMade(0, f)() || synthMade(f), null));
+
+  /* ⑥ 记台账：合成教学的真进度（Lab.madeEver 由反应引擎写入，不是自己报的） */
+  steps.push(mkStep('观察并归纳：' + fname + ' 已经合成出来了 —— ' + (rx ? rx.eq : ''),
+    '这条路线走通了：' + (rx ? (rx.condText || '常温即可') : '') + '。它会被记进「⚗ 合成路线」的进度里。',
+    () => synthMade(f), null));
+
+  const names = route.lhs.map((x) => subName(x) + (route.cat && x === route.cat ? '' : '')).join(' + ');
+  return {
+    id: 'c' + (idx + 1), ext: 'cmp',
+    no: '合成' + (CMP_CN[idx] || (idx + 1)),
+    grp: '⚗ 化合物制备 · ' + route.grp,
+    title: '制备 ' + subName(f) + '：' + names,
+    goal: (route.note || '') + '　目标物质：' + fname + '。',
+    gear: route.use.map((x) => x).concat(doses.map((d) => subName(d.f) + ' ' + d.v + d.u)).concat(route.cat ? [subName(route.cat) + ' 0.5 g'] : []),
+    terms: [{ f: f, note: route.note || '' }].concat(route.lhs.map((x) => ({ f: x, note: '原料：' + subName(x) })))
+      .concat(route.cat ? [{ f: route.cat, note: '催化剂：只改速率，不改产量' }] : [])
+      .map((t) => [subName(t.f), t.f, t.note]),
+    bench: bench,
+    steps: steps,
+    see: (rx ? (Array.isArray(rx.phen) ? rx.phen.join('；') : rx.phen) : '') + '。'
+      + '（' + fname + ' 就是这条路线要拿到的东西。）',
+    eq: rx ? [rx.eq] : [],
+    key: rx ? [
+      (rx.kind || '') + '反应，条件：' + (rx.condText || '常温即可'),
+      '原料配比按配平系数算：' + doses.map((d) => subName(d.f) + ' ' + d.v + d.u).join(' + '),
+      route.note || '',
+    ] : ['反应库里查不到这条路线，已报给开发者'],
+    safe: c.ignite ? '点燃类反应：远离可燃物，眼睛别凑近瓶口（铁丝在氧气里燃烧会溅落熔渣）。'
+      : (c.temp >= 800 ? '高温操作：用坩埚/蒸发皿并戴护目镜，加热完别用手直接碰。'
+        : (c.elec ? '电解用低压直流电源，手湿不要碰电极。' : '按屏幕提示操作；闻气味要用扇闻法。')),
+    need: doses.map((d) => ({ f: d.f, n: subName(d.f) + '（原料）' }))
+      .concat(route.cat ? [{ f: route.cat, n: subName(route.cat) + '（催化剂）' }] : [])
+      .concat(c.temp ? [{ t: heater, n: (HEATERS.find((h) => h.id === heater) || {}).name || '加热器材' }] : []),
+  };
+}
+
+/* 路线表 → 课程表（顺序与 SYNTH 一致，合成面板按同一个下标跳转） */
+const CMP_LESSONS = SYNTH.map((s, i) => cmpLesson(s.route, s.rx, i));
+CMP_LESSONS.forEach((l) => { l.need = l.need || []; });
+if (typeof TUT !== 'undefined') TUT.push.apply(TUT, CMP_LESSONS);
+
+/** 从合成面板点「▶ 手把手做这条」：开始对应课程 */
+function cmpStart(i) {
+  const l = CMP_LESSONS[i];
+  if (!l) return { ok: false, why: '没有这条路线' };
+  synthOpen(false);
+  const r = tutStart(l.id, true);
+  if (typeof tutToggle === 'function') tutToggle(true);
+  Lab.tut.sel = l.id;
+  tutRender(true);
+  return r;
+}
+
+Object.assign(window.CHEM, { CMP_LESSONS, cmpStart, cmpLesson });
 
 </script>
 </body>
