@@ -4969,7 +4969,7 @@ const TUT = [
       ['精盐', 'NaCl', '蒸发结晶得到的白色晶体（仍是混合物，不是纯净物）'],
       ['蒸发皿 / 玻璃棒 / 漏斗', '—', '仪器：蒸发皿可直接加热；玻璃棒用来搅拌和引流'],
     ],
-    bench: ['beaker', 'dish'],
+    bench: ['beaker', 'dish', 'rod'],   // 玻璃棒跟器材一起摆好（过滤要引流）
     steps: [
       mkStep('把 3 g 食盐和 1 g 沙子（二氧化硅）一起放进烧杯（模拟粗盐）',
         '搜「氯化钠」加入 3 g，再搜「二氧化硅」加入 1 g',
@@ -6417,7 +6417,8 @@ function tutActive() {
 /** 开始/切换实验：清空工作台 → 摆好仪器 → 记录基线。
  *  restart=true 时连进度一起清掉；切换实验则保留各实验自己的进度（不会把做过的一步步弄丢） */
 function tutStart(id, restart) {
-  try { const O = window.CHEM && window.CHEM.ONB; if (O && O.dismiss) O.dismiss(); } catch (e) { }   // 直接上课 = 不用新手教程挡着
+  /* 直接上课：把欢迎页收起来就行 —— 别掐掉正在跑的新手教程（它的最后一关就是「打开一节教材课」） */
+  try { const O = window.CHEM && window.CHEM.ONB; if (O && O.hideWelcome) O.hideWelcome(); } catch (e) { }
   const exp = TUT.find((e) => e.id === id);
   if (!exp) return { ok: false, why: '没有这个实验' };
   if (restart) {
@@ -7088,6 +7089,16 @@ const gVerb = (act) => {
 function guidePrereq(act, plan) {
   if (!act || !plan || !plan.length) return false;
   const toolHid = (uid) => ((toolByUid(uid) || {}) || {}).hid || null;
+  /* 第十四轮：这一步要搅拌/过滤 → 玩家按引导去「器材行拿玻璃棒」「把玻璃棒插进容器」都是必经子动作
+     （以前只有加热三件套算子动作，棒子这两下会被判成「不是必需的」，跟引导自己指的方向打架） */
+  const needRod = plan.some((w) => w && (w.k === 'stir' || w.k === 'filterApp'));
+  if (needRod) {
+    if (act.k === 'addTool') return act.a[0] === 'rod';
+    if (act.k === 'placeOn' || act.k === 'delTool') {
+      const h = toolHid(act.a[1] != null ? act.a[1] : act.a[0]);
+      if (h === 'rod') return true;
+    }
+  }
   return plan.some((w) => {
     if (!w || w.k !== 'setHeater') return false;
     if (act.k === 'addTool') return act.a[0] === w.h || act.a[0] === 'stand' || act.a[0] === 'gauze';   // 摆热源 / 铁架台 / 石棉网
@@ -8752,6 +8763,7 @@ function onbBoot() {
 const ONB = {
   STEPS: ONB_STEPS, state: () => ({ active: onbState.active, i: onbState.i, saved: onbLoad() }),
   start: onbStart, skip: onbSkip, tick: onbTick, welcome: onbShowWelcome, dismiss: onbDismiss,
+  hideWelcome: onbHideWelcome,
   reset: () => { try { localStorage.removeItem(ONB_KEY); } catch (e) { } },
 };
 window.CHEM = window.CHEM || {};
