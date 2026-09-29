@@ -7137,6 +7137,7 @@ function guideTick(dtReal) {
         }
         if (hit >= 0) { d[hit] = true; guideAdvance(plan); Lab.tut.nudge = null; return; }
         if (guidePrereq(act, plan)) { Lab.tut.nudge = null; return; }   // 复合动作的必经子步骤：不算错，也先别算完成
+        if (act.k === 'addTool') { Lab.tut.nudge = null; return; }       // 从「器材」行拿器材本身无害，不算做错（用不上就自己收走）
         if (act.k === 'stir') return;                                   // 搅拌无害：这一步用不上它，也不判玩家错
         if (act.k === 'placeOn' && act.a[1] == null) return;             // 把量器拔下来：换容器时的正常中间步骤，不算错
         if (!Lab.tut.nudge || (Lab.time - Lab.tut.nudgeAt) > 6) {        // 同一类错别刷屏
