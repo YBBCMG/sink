@@ -450,12 +450,44 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
 /* 第十一轮：面板里"不做手把手"的说明要单独一行，别和后面的灰字粘在一起 */
 #synthModal .synfoot .synbad { display: block; margin-bottom: 3px; }
 
+/* ------------------------- 第十四轮：新手教程 ------------------------- */
+.onbwelcome { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
+  background: #05090dee; backdrop-filter: blur(2px); }
+.onbwelcome.show { display: flex; }
+.onbwelcome .onbbox { width: min(560px, 92vw); background: var(--panel); border: 1px solid #2e4636;
+  border-radius: 14px; padding: 20px 22px; box-shadow: 0 18px 60px #000a; }
+.onbwelcome h2 { margin: 0 0 10px; font-size: 19px; color: #d8f5e2; }
+.onbwelcome p { color: #c3d3dd; line-height: 1.7; margin: 0 0 10px; font-size: 13px; }
+.onbwelcome ul { margin: 0 0 14px 18px; color: #9fb3c0; font-size: 12.5px; line-height: 1.8; }
+.onbwelcome .onbbtns { display: flex; gap: 10px; align-items: center; }
+.onbwelcome .onbnote { color: #6d8291; font-size: 11.5px; margin-top: 10px; }
+.onbwelcome button { padding: 8px 14px; }
+.onbprimary { background: linear-gradient(180deg, #2c6b46, #1d4a30) !important; border-color: #3f8a5c !important; color: #eafff2 !important; }
+
+.onbcard { position: fixed; left: 14px; bottom: 14px; z-index: 55; width: min(420px, 92vw); display: none;
+  background: #0d1a22f2; border: 1px solid #2f5c74; border-radius: 12px; padding: 10px 12px;
+  box-shadow: 0 10px 34px #000b; }
+.onbcard.show { display: block; }
+.onbcard .onbhead { display: flex; align-items: center; gap: 8px; }
+.onbcard .onbhead span { color: #7fd4ff; font-size: 11.5px; letter-spacing: .5px; }
+.onbcard .onbhead b { color: #e8f6ff; font-size: 13.5px; flex: 1 1 auto; }
+.onbcard .onbhead button { padding: 3px 8px; font-size: 11px; }
+.onbcard .onbtext { color: #bed3de; font-size: 12.5px; line-height: 1.65; margin-top: 6px; }
+.onbcard .onbhint { color: #ffd479; font-size: 12px; margin-top: 6px; }
+.onbcard .onbdots { display: flex; gap: 5px; margin-top: 8px; }
+.onbcard .onbdots i { width: 16px; height: 4px; border-radius: 2px; background: #24404f; }
+.onbcard .onbdots i.done { background: #3f8a5c; }
+.onbcard .onbdots i.now { background: #7fd4ff; box-shadow: 0 0 8px #7fd4ff88; }
+.onbglow { outline: 2px dashed #7fd4ff !important; outline-offset: 3px; border-radius: 8px;
+  animation: onbpulse 1.4s ease-in-out infinite; }
+@keyframes onbpulse { 0%, 100% { outline-color: #7fd4ffcc; } 50% { outline-color: #7fd4ff44; } }
+
 </style>
 </head>
 <body>
 <header>
   <h1>🧪 元素实验室<small>真实物理 · 真实化学</small></h1>
-  <span class="stat">容器 <b id="apparatusCount">0 / 6</b></span>
+  <span class="stat">容器 <b id="apparatusCount">0 / 12</b></span>
   <span class="stat">已发现反应 <b id="rxCount">0</b> / <b id="rxTotal">0</b></span>
   <span class="spacer"></span>
   <button id="courseBtn">📚 教材课程</button>
@@ -464,6 +496,7 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
   <button id="speedBtn">⏩ 时间 ×1</button>
   <button id="pauseBtn" title="空格键：暂停 / 继续（暂停时物理不再推进，画面照常）">⏸ 暂停</button>
   <button id="fsBtn" title="全屏（F 键）：把实验台铺满屏幕">⛶ 全屏</button>
+  <button id="onbBtn" title="新手教程：7 个小动作带你上手（随时可重看）">👋 新手教程</button>
   <button id="guideToggle">🎓 引导 开/关</button>
   <button id="paneLeftBtn" class="paneTgl on" title="元素周期表：显示 / 收起">🧪</button>
   <button id="paneObsBtn" class="paneTgl on" title="俯视观察窗：显示 / 收起">🔍</button>
@@ -482,7 +515,7 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
     <h3>工作台<small id="benchTip">一大片空地 —— 容器和热源都是实物，摆上来、拖到位，再动手</small></h3>
     <div class="bars">
       <div class="barrow"><span class="barlbl">仪器</span><div id="addApparatus"></div></div>
-      <div class="barrow"><span class="barlbl">器材 <b id="toolCount">0 / 6</b></span><div id="addTools"></div></div>
+      <div class="barrow"><span class="barlbl">器材 <b id="toolCount">0 / 12</b></span><div id="addTools"></div></div>
     </div>
     <div id="workrow">
       <div id="bench"></div>
@@ -2698,7 +2731,7 @@ function ignite(uid) {
  *  —— 自由玩的时候一律自己拿，缺就是缺。 */
 /* allowAutoTool：允许「程序替你取器材」的三种情形 —— ① 程序自己的自动演示（_tutAuto）；② 玩家点的正是引导高亮的那个控件（_gGuided）；③ 手把手课程进行中（引导要用玻璃棒引流/量具插入时不该让玩家卡死）。自由玩一律自己拿。 */
 const allowAutoTool = () => {
-  if (window._tutAuto || window._gGuided) return true;
+  if (window._tutAuto || window._gGuided || window._onbAuto) return true;
   try { return !!(typeof tutActive === 'function' && tutActive()); } catch (e) { return false; }   // 手把手课程进行中（面板开着或引导条在跑）
 };
 function ensureRod(app, why) {
@@ -4322,13 +4355,13 @@ function ensureMeter(app, kind, thenMeasure) {
   let made = false;
   if (!t) {
     t = Lab.tools.find((x) => x.kind === 'meter' && x.def.measures === kind) || null;
-    if (!t && !(window._tutAuto || window._gGuided)) {
+    if (!t && !allowAutoTool()) {
       toast('还差 ' + def.icon + ' ' + def.name + '：先到「器材」行点一下把它拿上台面，再点这一行读数 —— 读数不白送');
       return null;
     }
     if (!t) { t = addTool(def.id); made = true; }
   }
-  if (!t) { toast('台面上已经摆了 6 件器材，先收走一件再摆' + def.name); return null; }
+  if (!t) { toast('台面上已经摆了 ' + BENCH_MAX + ' 件器材，先收走一件再摆' + def.name); return null; }
   if (def.attach && app.meters.indexOf(t.uid) < 0) {
     const r = placeOn(app.uid, t.uid);
     if (!r.ok) { toast(r.why); return t; }
@@ -4412,8 +4445,8 @@ function updateReadouts() {
     });
   });
   updateHeatStatus();
-  $('#apparatusCount').textContent = Lab.apps.length + ' / 6';
-  const tc = $('#toolCount'); if (tc) tc.textContent = Lab.tools.length + ' / 6';
+  $('#apparatusCount').textContent = Lab.apps.length + ' / ' + BENCH_MAX;
+  const tc = $('#toolCount'); if (tc) tc.textContent = Lab.tools.length + ' / ' + BENCH_MAX;
 }
 
 /* -------------------------------- 日志 --------------------------------- */
@@ -5903,10 +5936,10 @@ const TUT = [
       ['石棉网', '—', '烧杯、蒸发皿不能直接压在明火上：垫石棉网让受热均匀，防炸裂'],
       ['二氧化硅', 'SiO2', '泥沙的主要成分，不溶于水也不与盐酸反应 —— 所以能被过滤掉'],
     ],
-    bench: ['beaker', 'beaker', 'dish'],
+    bench: ['beaker', 'beaker', 'dish', 'rod'],   // 玻璃棒跟器材一起摆好：这一节的判定要「搅拌」，别让玩家先跑一趟器材行
     steps: [
       mkStep('烧杯 1：30 mL 水 + 5 g 粗盐（氯化钠 + 泥沙），用玻璃棒搅拌溶解',
-        '加 30 mL 水，搜「氯化钠」加 4.5 g、搜「二氧化硅」加 0.5 g 当泥沙，**先从「器材」行拿 🥢 玻璃棒插进烧杯**，再点「🌀 搅拌」',
+        '加 30 mL 水，搜「氯化钠」加 4.5 g、搜「二氧化硅」加 0.5 g 当泥沙；玻璃棒已经摆好在台面上，点它上面的「⬆ 插进容器」（直接点烧杯的「🌀 搅拌」也行），再点「🌀 搅拌」',
         () => dissolved(tutApp(0), 'NaCl', 1e-5) && (Lab.stirCount || 0) > (Lab.tut.base.stir || 0),
         () => { addReagent(tutUid(0), 'H2O', 30, 'mL'); addReagent(tutUid(0), 'NaCl', 4.5, 'g'); addReagent(tutUid(0), 'SiO2', 0.5, 'g'); stir(tutUid(0)); }),
       mkStep('过滤：玻璃棒引流，把盐水滤进烧杯 2，泥沙留在滤纸上',
@@ -6384,6 +6417,7 @@ function tutActive() {
 /** 开始/切换实验：清空工作台 → 摆好仪器 → 记录基线。
  *  restart=true 时连进度一起清掉；切换实验则保留各实验自己的进度（不会把做过的一步步弄丢） */
 function tutStart(id, restart) {
+  try { const O = window.CHEM && window.CHEM.ONB; if (O && O.dismiss) O.dismiss(); } catch (e) { }   // 直接上课 = 不用新手教程挡着
   const exp = TUT.find((e) => e.id === id);
   if (!exp) return { ok: false, why: '没有这个实验' };
   if (restart) {
@@ -6394,7 +6428,8 @@ function tutStart(id, restart) {
   Lab.apps.length = 0; Lab.tools.length = 0; Lab.selected = null;   // 器材也要清：上个实验点着的酒精灯留在台面上，引导就会指着"一盏已经亮着的灯"让你去点燃，一点反而熄灭
   Lab.tut.added = {};                                              // 本实验的"加料台账"（每次开课清零，避免上个实验的料算到这一步）
   Lab.tut.uids = [];
-  exp.bench.forEach((k) => { const a = addApparatus(k); Lab.tut.uids.push(a ? a.uid : ''); });
+  /* 开课摆器材：bench 里写容器就摆容器，写「器材」（玻璃棒、石棉网…）就摆器材 —— 以前只认容器，玻璃棒会静默摆不上 */
+  exp.bench.forEach((k) => { const a = addApparatus(k) || addTool(k); Lab.tut.uids.push(a ? a.uid : ''); });
   Lab.tut.id = id;
   Lab.tut.step = restart ? 0 : (Lab.tut.pos[id] || 0);
   if (Lab.tut.step > exp.steps.length) Lab.tut.step = 0;
@@ -6982,6 +7017,14 @@ function guideTarget() {
     const v = Lab.apps.find((x) => x.uid === a.uid);
     if (v && typeof toolByUid === 'function') {
       const rod = toolByUid(v.rod);
+      /* 第十五行：台面上已经有玻璃棒、只是还没插进容器时，引导要指向「插入」而不是又叫玩家去器材行拿一根
+         （以前只认 v.rod，拿上台面后 v.rod 仍是空 → 一直卡在「去拿玻璃棒」） */
+      const looseRod = !rod ? (Lab.tools.find((t) => t.hid === 'rod' && !t.app)
+        || Lab.tools.find((t) => t.hid === 'rod' && t.app !== v.uid)) : null;
+      if (looseRod) {
+        const mb0 = gToolBtn(looseRod.uid, 'mount');
+        if (mb0) return { key: 'mountrod:' + looseRod.uid, el: mb0, label: '点「' + looseRod.def.name + '」卡片上的「插入」，把它插进「' + gAppName(v.uid) + '」', kind: 'place' };
+      }
       if (!rod) {
         const rb = document.querySelector('#addTools button[data-hid="rod"]');
         if (rb) return { key: 'needrod', el: rb, label: '先到上面「器材」行点「🥢 玻璃棒」拿一根 —— 搅拌、引流都得用它，这个得自己拿', kind: 'tool' };
@@ -8476,6 +8519,253 @@ function cmpStart(i) {
 }
 
 Object.assign(window.CHEM, { CMP_LESSONS, cmpStart, cmpLesson, ROUTE_NO_LESSON });
+
+
+/* ================= 14-onboarding.js ================= */
+/* ============================================================================
+ * 14-onboarding.js —— 新手教程（第十四轮）
+ *
+ * 产品思路：新玩家打开游戏看到的是三栏 + 一大片空地，**不知道第一步该干嘛**。
+ * 教程要解决的不是"教会化学"，而是三件事：
+ *   ① 器材从哪拿（顶部「器材」行）  ② 试剂从哪加（右栏试剂架）
+ *   ③ 怎么让它们真的发生反应（量具 / 加热 / 现象与日志 / 教材课）
+ * 所以教程做成 7 个"真动作"关卡 —— 每一关的判定读的都是真实游戏状态，
+ * 不是"点了下一关就算过"。做错不拦，做完自动过，随时可以跳过。
+ *
+ * 三条硬规矩（跟游戏其它部分一致）：
+ *   ① 不硬编码化学：试剂名、器材名、温度阈值都从既有表里取
+ *   ② 进度落 localStorage（`chemlab.onboarding`），下次打开续上；跳过 / 做完就不再自动弹
+ *   ③ 顶栏「👋 新手教程」随时重看（重看不影响存档里的合成进度）
+ * ========================================================================== */
+
+const ONB_KEY = 'chemlab.onboarding';
+
+const onbLoad = () => {
+  try { return JSON.parse(localStorage.getItem(ONB_KEY) || 'null') || null; } catch (e) { return null; }
+};
+const onbSave = (st) => { try { localStorage.setItem(ONB_KEY, JSON.stringify(st)); } catch (e) { /* file:// 下可能不可用 */ } };
+
+/** 第一个烧杯（教程各关都用它，玩家要是收走了就自动再拿一个） */
+function onbBeaker() {
+  return Lab.apps.find((a) => a.def.id === 'beaker' && !a.broken) || null;
+}
+function onbEnsureBeaker() {
+  const b = onbBeaker();
+  if (b) return b;
+  const nb = addApparatus('beaker');
+  if (nb) { Lab.selected = nb.uid; renderBench(true); updateReadouts(); }
+  return nb;
+}
+const onbSel = (q) => document.querySelector(q);
+
+/* ------------------------------- 7 关 ------------------------------- */
+const ONB_STEPS = [
+  {
+    key: 'beaker',
+    t: '认识器材行：自己再拿一件容器',
+    d: '台面上开局给你一个烧杯、一支试管。顶部「器材」行里点一件你想要的（试管 / 锥形瓶 / 集气瓶 / 蒸发皿…）—— 容器、热源、量具都是实物，得自己摆上台面。',
+    sel: '#addTools',
+    hint: '点顶部「器材」行里的任意一件',
+    check: () => Lab.apps.length > (onbState.base || 0),
+  },
+  {
+    key: 'water',
+    t: '往里面加试剂',
+    d: '右边试剂架搜「H2O 水」，点它 → 用量框里填 50 mL → 点「加入 烧杯」。',
+    sel: '#shelf',
+    hint: '右栏试剂台的搜索框 / 试剂格子',
+    check: () => { const b = onbBeaker(); return !!(b && waterMol(b) > 0.5); },
+  },
+  {
+    key: 'measure',
+    t: '量一量：读数行点一下就会插量具',
+    d: '点容器卡片上的「🌡 温度」那一行 —— 量具会自己摆上台面插进容器，读数立刻出来（插着的是实时读数）。',
+    sel: '.appcard .readouts',
+    hint: '点卡片上的读数行',
+    check: () => { const b = onbBeaker(); return !!(b && b.meas && b.meas.temp); },
+  },
+  {
+    key: 'rig',
+    t: '明火要有架子：铁架台 + 石棉网',
+    d: '硬规矩：烧杯这类玻璃器皿不碰明火。顶部「器材」行拿「铁架台」「石棉网」「酒精灯」，再点容器上的「⬆ 架上来」。',
+    sel: '#addTools',
+    hint: '器材行：铁架台 / 石棉网 / 酒精灯',
+    check: () => { const b = onbBeaker(); return !!(b && standOf(b)); },
+  },
+  {
+    key: 'heat',
+    t: '点着它，看真实升温',
+    d: '点酒精灯卡片上的「🔥 点燃」。热量按真实物理算：功率 × 效率 ÷ (质量 × 比热)，温度是算出来的，不是假的。',
+    sel: '.toolcard',
+    hint: '酒精灯卡片上的「🔥 点燃」',
+    check: () => { const b = onbBeaker(); return !!(b && b.heater && b.temp > (b.temp0 || 293) + 4); },
+  },
+  {
+    key: 'observe',
+    t: '现象与台账：数据都记下来了',
+    d: '右栏「现象日志」会记下每一步；「⚗ 合成路线」里的进度也是真台账。现在看右上角的「俯视观察」也行。',
+    sel: '#log',
+    hint: '右栏「现象日志」',
+    check: () => (Lab.log || []).length > 3,
+  },
+  {
+    key: 'lesson',
+    t: '最后一关：打开一节教材课',
+    d: '顶部「📘 实验教程」里有 139 节课（教材 39 + 化合计 100），每节都一步一步高亮该点哪儿。挑一节点「▶ 手把手做」。',
+    sel: '#tutBtn',
+    hint: '顶部「📘 实验教程」',
+    check: () => !!(Lab.tut && Lab.tut.id),
+  },
+];
+
+/* --------------------------- 界面：欢迎页 + 卡片 --------------------------- */
+function onbWelcomeEl() {
+  let el = document.getElementById('onbWelcome');
+  if (el) return el;
+  el = mk('div', 'onbwelcome');
+  el.id = 'onbWelcome';
+  el.innerHTML = '<div class="onbbox">'
+    + '<h2>👋 第一次来？两分钟带你上手</h2>'
+    + '<p>这个实验台是<b>真的在算</b>的：加热按功率和比热算温度，pH 按电离平衡算，反应按配平式查表。'
+    + '新手教程只教你怎么<b>用它</b>——7 个小动作，每关都要你真的动手（不是点"下一步"）。</p>'
+    + '<ul><li>器材从顶部「器材」行拿，试剂从右边试剂架加</li>'
+    + '<li>读数行点一下会自己插量具；插着的量具是实时读数</li>'
+    + '<li>烧杯这类玻璃器皿不碰明火：铁架台 + 石棉网 + 酒精灯，缺一样都不给热</li></ul>'
+    + '<div class="onbbtns"><button id="onbGo" class="onbprimary">🎓 来，带我上手</button>'
+    + '<button id="onbSkip0">跳过，直接开玩</button></div>'
+    + '<div class="onbnote">随时能从顶栏「👋 新手教程」重新打开；跳过不影响任何进度。</div>'
+    + '</div>';
+  document.body.appendChild(el);
+  el.querySelector('#onbGo').addEventListener('click', () => { onbHideWelcome(); onbStart(0); });
+  el.querySelector('#onbSkip0').addEventListener('click', () => { onbHideWelcome(); onbSkip('welcome'); });
+  return el;
+}
+function onbShowWelcome() { onbWelcomeEl().classList.add('show'); }
+function onbHideWelcome() { const el = document.getElementById('onbWelcome'); if (el) el.classList.remove('show'); }
+
+function onbCardEl() {
+  let el = document.getElementById('onbCard');
+  if (el) return el;
+  el = mk('div', 'onbcard');
+  el.id = 'onbCard';
+  el.innerHTML = '<div class="onbhead"><span id="onbStep">1 / 7</span><b id="onbTitle"></b>'
+    + '<button id="onbQuit" title="跳过新手教程（随时可从顶栏重开）">✕ 跳过</button></div>'
+    + '<div class="onbtext" id="onbText"></div>'
+    + '<div class="onbhint" id="onbHint"></div>'
+    + '<div class="onbdots" id="onbDots"></div>';
+  document.body.appendChild(el);
+  el.querySelector('#onbQuit').addEventListener('click', () => onbSkip('quit'));
+  return el;
+}
+
+const onbState = { active: false, i: 0 };
+
+function onbGlowClear() { document.querySelectorAll('.onbglow').forEach((e) => e.classList.remove('onbglow')); }
+
+function onbPaint() {
+  const st = ONB_STEPS[onbState.i];
+  const card = onbCardEl();
+  card.classList.add('show');
+  card.querySelector('#onbStep').textContent = (onbState.i + 1) + ' / ' + ONB_STEPS.length;
+  card.querySelector('#onbTitle').textContent = st.t;
+  card.querySelector('#onbText').textContent = st.d;
+  card.querySelector('#onbHint').textContent = '👉 ' + st.hint;
+  card.querySelector('#onbDots').innerHTML = ONB_STEPS
+    .map((s, k) => '<i class="' + (k < onbState.i ? 'done' : k === onbState.i ? 'now' : '') + '"></i>').join('');
+  onbGlowClear();
+  const el = st.sel ? onbSel(st.sel) : null;
+  if (el) el.classList.add('onbglow');
+}
+
+/** 每关的判定读真实状态；过关自动进下一关 */
+function onbTick() {
+  if (!onbState.active) return;
+  const st = ONB_STEPS[onbState.i];
+  if (!st) { onbFinish(); return; }
+  let ok = false;
+  try { ok = !!st.check(); } catch (e) { ok = false; }
+  if (!ok) { if (!onbSel('.onbglow')) onbPaint(); return; }   // 卡片重渲染丢了高亮就补回来
+  toast('✅ ' + st.t + ' —— 过了');
+  onbState.i += 1;
+  onbSave({ state: 'doing', i: onbState.i });
+  if (onbState.i >= ONB_STEPS.length) onbFinish(); else onbPaint();
+}
+
+function onbStart(i) {
+  onbHideWelcome();
+  onbState.active = true;
+  window._onbAuto = true;                       // 教程进行中 = 手把手：点读数行时代取量具（和课程里的规矩一致）
+  onbState.i = Math.max(0, Math.min(ONB_STEPS.length, i || 0));
+  if (!onbState.base || onbState.i === 0) onbState.base = Lab.apps.length;   // 第一关：比开局多拿一件才算过
+  onbSave({ state: 'doing', i: onbState.i, base: onbState.base });
+  if (onbState.i >= ONB_STEPS.length) { onbFinish(); return; }
+  onbPaint();
+  toast('新手教程：' + ONB_STEPS.length + ' 个小动作，随时点「✕ 跳过」');
+}
+
+/** 收起教程界面（但不改存档状态）：玩家直接去上课、或探针开课时用 */
+function onbDismiss() {
+  onbState.active = false;
+  onbState.dismissed = true;          // 本次会话别再弹（玩家自己收起 / 直接去上课）
+  window._onbAuto = false;
+  onbGlowClear();
+  const c = document.getElementById('onbCard'); if (c) c.classList.remove('show');
+  onbHideWelcome();
+}
+
+function onbSkip(why) {
+  onbState.active = false;
+  window._onbAuto = false;
+  onbGlowClear();
+  const card = document.getElementById('onbCard'); if (card) card.classList.remove('show');
+  onbHideWelcome();
+  onbSave({ state: 'skip', why: why || '', i: onbState.i, at: Date.now() });
+  toast('跳过了新手教程 —— 顶栏「👋 新手教程」随时能重开');
+}
+
+function onbFinish() {
+  onbState.active = false;
+  window._onbAuto = false;
+  onbGlowClear();
+  const card = document.getElementById('onbCard'); if (card) card.classList.remove('show');
+  onbSave({ state: 'done', at: Date.now() });
+  toast('🎉 新手教程做完了：器材、试剂、量具、加热、日志、教程 —— 六件事你都会了');
+  setTimeout(() => { try { tutToggle(true); } catch (e) { } }, 400);   // 顺势把课程表打开，接着上第一课
+}
+
+/* 打开游戏：没做过也没跳过 → 弹欢迎页；做到一半 → 问要不要接着做 */
+function onbBoot() {
+  if (onbState.dismissed) return;
+  const st = onbLoad();
+  if (!st) { onbShowWelcome(); return; }
+  if (st.state === 'doing') {
+    const el = onbWelcomeEl();
+    el.querySelector('h2').textContent = '👋 上次的新手教程做到第 ' + (st.i + 1) + ' 关';
+    el.querySelector('p').innerHTML = '还剩 <b>' + (ONB_STEPS.length - st.i) + '</b> 个小动作。要不要接着做？';
+    el.querySelector('#onbGo').textContent = '🎓 接着做';
+    el.querySelector('#onbGo').addEventListener('click', () => { onbHideWelcome(); onbStart(st.i); });
+    el.classList.add('show');
+  }
+  /* state === 'skip' / 'done' → 不打扰，直接开玩（顶栏按钮可重开） */
+}
+
+const ONB = {
+  STEPS: ONB_STEPS, state: () => ({ active: onbState.active, i: onbState.i, saved: onbLoad() }),
+  start: onbStart, skip: onbSkip, tick: onbTick, welcome: onbShowWelcome, dismiss: onbDismiss,
+  reset: () => { try { localStorage.removeItem(ONB_KEY); } catch (e) { } },
+};
+window.CHEM = window.CHEM || {};
+window.CHEM.ONB = ONB;
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(onbBoot, 600);                       // 等 boot() 把台面铺好再弹
+  const btn = document.getElementById('onbBtn');
+  if (btn) btn.addEventListener('click', () => { onbGlowClear(); onbStart(0); });
+  setInterval(onbTick, 350);                      // 判定轮询：读的是真实状态，不靠事件
+});
+
+/* 供套件/探针直接调 */
+window.CHEM.onbOnb = ONB;
 
 </script>
 </body>
