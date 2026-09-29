@@ -46,10 +46,12 @@ main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap
 .pane > .scroll { overflow: auto; min-height: 0; }
 
 /* 周期表 */
-#ptable { display: grid; grid-template-columns: repeat(18, 1fr); gap: 2px; margin-bottom: 8px; }
-.el { aspect-ratio: 1; padding: 0; border-width: 1px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
-.el b { font-size: 11px; }
-.el i { font-size: 7.5px; color: var(--dim); font-style: normal; }
+#ptable { display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); gap: 1px; width: 100%; margin-bottom: 6px; }
+.el { aspect-ratio: 1; min-width: 0; min-height: 0; overflow: hidden; padding: 0; border-width: 1px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.el b { font-size: 9.5px; }
+.el i { font-size: 6px; color: var(--dim); font-style: normal; }
+/* 窄窗口再小一号，保证 118 格一眼全在，不用左右拖 */
+@media (max-width: 900px) { .el b { font-size: 8.5px; } .el i { font-size: 5.5px; } }
 .el:hover { transform: translateY(-1px); border-color: #fff; }
 #elemInfo { border-top: 1px solid var(--line); padding-top: 8px; }
 #elemInfo h4 .sym { color: var(--acc); font-size: 15px; }
@@ -2671,7 +2673,8 @@ function ignite(uid) {
  *  只有手把手课程在"自动做一步"时才代取（那是教程在演示给玩家看）。 */
 /** 程序代取器材的许可：手把手课程在演示这一步（_tutAuto），或者玩家点的正是引导高亮的那个控件（_gGuided）
  *  —— 自由玩的时候一律自己拿，缺就是缺。 */
-const allowAutoTool = () => !!(window._tutAuto || window._gGuided);
+const tutRunning = () => !!(typeof Lab !== 'undefined' && Lab.tut && Lab.tut.id && !(Lab.tut.expDone || {})[Lab.tut.id]);   // 课程真在进行中（做完了就不算）
+const allowAutoTool = () => !!(window._tutAuto || (window._gGuided && tutRunning()));   // 手把手演示 / 课程中点的是引导高亮的控件
 function ensureRod(app, why) {
   const rod = toolByUid(app.rod);
   if (rod) return rod;
@@ -6302,6 +6305,7 @@ function tutLoad() {
 }
 
 function tutReset() {
+  if (typeof guideClearGlow === 'function') guideClearGlow();   // 高亮跟着课程一起收，别留给自由玩
   Lab.tut.id = null; Lab.tut.step = 0; Lab.tut.done = {}; Lab.tut.expDone = {}; Lab.tut.pos = {}; Lab.tut.mem = {}; Lab.tut.uids = [];
   try { localStorage.removeItem(TUT_KEY); } catch (e) { }
   tutRender(true);
@@ -6548,6 +6552,7 @@ function tutRender(force) {
 }
 function tutToggle(on) {
   Lab.tut.open = on === undefined ? !Lab.tut.open : !!on;
+  if (!Lab.tut.open && typeof guideClearGlow === 'function') guideClearGlow();
   if (Lab.tut.open && Lab.tut.id) Lab.tut.sel = Lab.tut.id;   // 全览默认翻到"正在进行"的那个实验
   tutRender(true);
   if (Lab.tut.open) tutSave();
