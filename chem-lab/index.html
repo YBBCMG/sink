@@ -8598,10 +8598,14 @@ const ONB_STEPS = [
   {
     key: 'rig',
     t: '明火要有架子：铁架台 + 石棉网',
-    d: '硬规矩：烧杯这类玻璃器皿不碰明火。顶部「器材」行拿「铁架台」「石棉网」「酒精灯」，再点容器上的「⬆ 架上来」。',
+    d: '硬规矩：烧杯这类玻璃器皿不碰明火，得走铁架台。三件事：① 顶部「器材」行拿「铁架台」「石棉网」「酒精灯」；② 点容器上的「⬆ 架上来」把烧杯架进铁圈；③ 把石棉网拖到烧杯上（点它的「⬇ 垫到容器下」）、酒精灯拖进「⬇ 下格」—— 三样缺一样，点着了也一点热不给。',
     sel: '#addTools',
-    hint: '器材行：铁架台 / 石棉网 / 酒精灯',
-    check: () => { const b = onbBeaker(); return !!(b && standOf(b)); },
+    hint: '铁架台 → ⬆ 架上来；石棉网 → ⬇ 垫到容器下；酒精灯 → 拖进下格',
+    check: () => { const b = onbBeaker(); const st = b && standOf(b);
+      if (!st) return false;
+      if (!Lab.tools.some((t) => t.lampStand === st.uid)) return false;   // 下格得真有盏灯
+      return !!b.gauze;                                                  // 石棉网得真垫在器皿底下，否则一点热都不给
+    },
   },
   {
     key: 'heat',
@@ -8609,7 +8613,10 @@ const ONB_STEPS = [
     d: '点酒精灯卡片上的「🔥 点燃」。热量按真实物理算：功率 × 效率 ÷ (质量 × 比热)，温度是算出来的，不是假的。',
     sel: '.toolcard',
     hint: '酒精灯卡片上的「🔥 点燃」',
-    check: () => { const b = onbBeaker(); return !!(b && b.heater && b.temp > (b.temp0 || 293) + 4); },
+    check: () => { const b = onbBeaker();
+      /* 从进入本关那一刻的实测温度算起，真升 4 K 才算过（原来 temp0 兜底写 293 K，室温 298.15 会白过）*/
+      return !!(b && b.heater && b.temp > (onbState.t0 || 298.15) + 4);
+    },
   },
   {
     key: 'observe',
@@ -8617,7 +8624,7 @@ const ONB_STEPS = [
     d: '右栏「现象日志」会记下每一步；「⚗ 合成路线」里的进度也是真台账。现在看右上角的「俯视观察」也行。',
     sel: '#log',
     hint: '右栏「现象日志」',
-    check: () => (Lab.log || []).length > 3,
+    check: () => !!(onbState.sawLog || (Lab.log || []).length > (onbState.logBase || 0)),
   },
   {
     key: 'lesson',
@@ -8670,11 +8677,22 @@ function onbCardEl() {
 }
 
 const onbState = { active: false, i: 0 };
+/* 每关进入时拍一次快照（第 5 关要算温差、第 6 关要看日志有没有新增）。
+   注意 onbPaint 会因为高亮丢了被重复调用，快照只能在本关第一次进入时拍 */
+function onbSnapshotStep() {
+  if (onbState.paintI === onbState.i) return;
+  onbState.paintI = onbState.i;
+  const b = onbBeaker();
+  onbState.t0 = b ? b.temp : 298.15;
+  onbState.logBase = (Lab.log || []).length;
+  onbState.sawLog = false;
+}
 
 function onbGlowClear() { document.querySelectorAll('.onbglow').forEach((e) => e.classList.remove('onbglow')); }
 
 function onbPaint() {
   const st = ONB_STEPS[onbState.i];
+  onbSnapshotStep();
   const card = onbCardEl();
   card.classList.add('show');
   card.querySelector('#onbStep').textContent = (onbState.i + 1) + ' / ' + ONB_STEPS.length;
@@ -8702,11 +8720,18 @@ function onbTick() {
   if (onbState.i >= ONB_STEPS.length) onbFinish(); else onbPaint();
 }
 
+document.addEventListener('click', (ev) => {
+  if (!onbState.active) return;
+  const el = ev.target && ev.target.closest ? ev.target.closest('#log, .obsbox, #obsWrap, #obsWin') : null;
+  if (el) onbState.sawLog = true;
+}, true);
+
 function onbStart(i) {
   onbHideWelcome();
   onbState.active = true;
   window._onbAuto = true;                       // 教程进行中 = 手把手：点读数行时代取量具（和课程里的规矩一致）
   onbState.i = Math.max(0, Math.min(ONB_STEPS.length, i || 0));
+  onbState.paintI = -1;                                  // 强制重拍本关快照
   if (!onbState.base || onbState.i === 0) onbState.base = Lab.apps.length;   // 第一关：比开局多拿一件才算过
   onbSave({ state: 'doing', i: onbState.i, base: onbState.base });
   if (onbState.i >= ONB_STEPS.length) { onbFinish(); return; }
