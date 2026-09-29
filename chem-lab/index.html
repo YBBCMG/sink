@@ -2261,6 +2261,9 @@ function repackBench() {
 /** 催化剂（不消耗，只开门） */
 const CATALYSTS = new Set(['MnO2', 'Fe', 'V2O5']);
 
+/* 台面容量：容器和器材各自最多这么多件（第十三轮从 6 提到 12 —— 用户问为什么有上限） */
+const BENCH_MAX = 12;
+
 const AMOUNT_DEFAULT = { g: 5, mL: 50 };   // 默认取用量
 
 /* ------------------------------- 世界状态 -------------------------------- */
@@ -2276,7 +2279,7 @@ const Lab = {
 function addApparatus(kindId, x) {
   const def = (kindId && kindId.id) ? kindId : APPARATUS.find((a) => a.id === kindId);
   if (!def) return null;
-  if (Lab.apps.length >= 6) return null;            // 到上限就拒绝，绝不静默挤掉别人的容器
+  if (Lab.apps.length >= BENCH_MAX) return null;    // 到上限就拒绝，绝不静默挤掉别人的容器
   const app = makeApparatus(def);
   app.uid = 'A' + (Lab.seq++);
   if (x == null) { const sp = nextX(ITEM_W.app); app.x = sp.x; app.y = sp.y; }         // 台面上的位置（px）
@@ -2384,7 +2387,7 @@ const round = (v, n = 2) => { const p = Math.pow(10, n); return Math.round(v * p
 function addTool(hid, x, force) {
   const def = (hid && hid.id) ? hid : TOOL_DEFS.find((h) => h.id === hid);
   if (!def) return null;
-  if (Lab.tools.length >= 6 && !force) { pushMsg('台面上的器材已经够多了（最多 6 件）'); return null; }
+  if (Lab.tools.length >= BENCH_MAX && !force) { pushMsg('台面上的器材已经够多了（最多 ' + BENCH_MAX + ' 件）'); return null; }
   const t = {
     uid: 'T' + (Lab.toolSeq++), kind: def.kind || 'heat', hid: def.id, def: def, on: false,
     x: 0, y: 0, app: null, lampUid: null, lampStand: null,
@@ -2700,7 +2703,7 @@ function ensureRod(app, why) {
   if (!allowAutoTool()) return null;                     // 玩家自己的动作：缺就是缺，绝不代取
   window._gSilent = true;
   const t = Lab.tools.find((x) => x.def && x.def.id === 'rod') || addTool('rod');
-  const r = t ? placeOn(app.uid, t.uid) : { ok: false, why: '台面上器材摆满了（最多 6 件），先收走一件再摆玻璃棒' };
+  const r = t ? placeOn(app.uid, t.uid) : { ok: false, why: '台面上器材摆满了（最多 ' + BENCH_MAX + ' 件），先收走一件再摆玻璃棒' };
   window._gSilent = false;
   if (!r.ok) { pushMsg(r.why); return null; }
   Lab.log.push({ k: 'place', at: Lab.time, text: '🧑‍🔬 规范操作：' + (why || '搅拌') + '要用玻璃棒 —— 取一根插进 ' + app.def.name + '（溶解速率 ×1.8）' });
@@ -4067,6 +4070,8 @@ function attachDrag(card, item, kind) {
     const bw = Math.max(160, bench.clientWidth);
     const w = kind === 'heat' ? toolW(item) : ITEM_W.app;
     const startX = ev.clientX, origX = item.x;
+    const startY = ev.clientY, origY = item.y || 0;
+    const baseBottom = (parseFloat(card.style.bottom) || 0) - origY;   // 卡片底边基准（含铁架台抬升），纵向只在这个基准上加 y
     let moved = false, cand = null;
     dragActive = true;
     const tip = dragTipEl();
@@ -4085,7 +4090,8 @@ function attachDrag(card, item, kind) {
     };
     const move = (e) => {
       const dx = e.clientX - startX;
-      if (!moved && Math.abs(dx) > 2) {
+      const dy = startY - e.clientY;                     // 往上拖 = y 变大（卡片按 bottom 定位）
+      if (!moved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
         moved = true;
         /* 第十一轮：架在铁架台/热源上的容器，一开始拖就先"端下来"——否则它会一直挂在架子上，
            卡片却跟着指针跑，看着就像"烧杯被铁架台拖着走"。只是点一下（没动）不会端下来。 */
@@ -4093,6 +4099,12 @@ function attachDrag(card, item, kind) {
       }
       item.x = Math.max(2, Math.min(bw - w - 2, origX + dx));
       card.style.left = item.x + 'px';
+      /* 第十三轮：纵向也能拖 —— 台面高度就是可用范围，卡片不许顶出台面、也不许钻到台面下 */
+      const bh = Math.max(140, bench.clientHeight);
+      const ch = card.offsetHeight || 0;
+      const maxY = Math.max(0, bh - ch - 6);
+      item.y = Math.max(0, Math.min(maxY, origY + dy));
+      card.style.bottom = (baseBottom + item.y) + 'px';
       cand = dragCandidate(item, kind);
       paint();
     };
@@ -4158,7 +4170,11 @@ function dropApp(app) {
   renderBench(true); updateReadouts();
 }
 function dropTool(t) {
-  Lab.apps.forEach((a) => { if (a.standOn === t.uid) a.x = t.x; });     // 架在它上面的容器跟着走
+  /* 第十三轮用户要求：架在架子上的容器不跟着器材移动 —— 各摆各的，架子挪走了容器原地不动
+     （加热关系不受影响：standOn 只记"架在谁上"，跟位置无关） */
+  const carried = Lab.apps.filter((a) => a.standOn === t.uid);
+  if (carried.length) Lab.log.push({ k: 'place', at: Lab.time, text: '把 ' + t.def.name + ' ' + t.uid
+    + ' 挪到台面另一处（架上的 ' + carried.map((a) => a.def.name).join('、') + ' 留在原地）' });
   renderBench(true); updateReadouts();
 }
 
@@ -4499,7 +4515,7 @@ function boot() {
     const k = ev.target.dataset.kind; if (!k) return;
     const app = addApparatus(k);
     if (app) { Lab.selected = app.uid; Lab.dirtySave = true; renderBench(true); shim(); }
-    else toast('最多 6 个容器');
+    else toast('台面上最多 ' + BENCH_MAX + ' 个容器（先把用不上的收走）');
     updateReadouts();
   });
   const grp = (defs) => defs.map((h) => '<button data-hid="' + h.id + '" title="' + (h.desc || (h.power + 'W，最高 ' + K2C(h.flameT) + '°C，' + h.eff * 100 + '% 传热效率')) + '">'
