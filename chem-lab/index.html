@@ -2696,7 +2696,11 @@ function ignite(uid) {
  *  只有手把手课程在"自动做一步"时才代取（那是教程在演示给玩家看）。 */
 /** 程序代取器材的许可：手把手课程在演示这一步（_tutAuto），或者玩家点的正是引导高亮的那个控件（_gGuided）
  *  —— 自由玩的时候一律自己拿，缺就是缺。 */
-const allowAutoTool = () => !!window._tutAuto;   // 只有程序自己的自动演示（_tutAuto）能代取；玩家点什么都得自己拿
+/* allowAutoTool：允许「程序替你取器材」的三种情形 —— ① 程序自己的自动演示（_tutAuto）；② 玩家点的正是引导高亮的那个控件（_gGuided）；③ 手把手课程进行中（引导要用玻璃棒引流/量具插入时不该让玩家卡死）。自由玩一律自己拿。 */
+const allowAutoTool = () => {
+  if (window._tutAuto || window._gGuided) return true;
+  try { return !!(typeof tutActive === 'function' && tutActive()); } catch (e) { return false; }   // 手把手课程进行中（面板开着或引导条在跑）
+};
 function ensureRod(app, why) {
   const rod = toolByUid(app.rod);
   if (rod) return rod;
