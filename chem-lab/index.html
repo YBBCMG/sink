@@ -42,8 +42,25 @@ header .stat b { color: var(--acc); }
 header .spacer { flex: 1; }
 
 main { display: grid; grid-template-columns: 402px minmax(470px, 1fr) 372px; gap: 10px; padding: 10px; height: calc(100vh - 52px); }
-.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; min-height: 0; }
+.pane { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; min-height: 0; }
 .pane > .scroll { overflow: auto; min-height: 0; }
+
+/* 面板收起：✕ 一按就收，实验台吃满空出来的地方（顶栏三个开关还能叫回来） */
+.pclose { position: absolute; top: 6px; right: 8px; padding: 1px 7px; font-size: 11px; line-height: 1.5;
+  border-radius: 6px; background: #16222c; color: var(--dim); z-index: 4; }
+.pclose:hover { color: var(--txt); border-color: var(--acc); }
+#obsbox { position: relative; }
+#obsbox .pclose { top: 2px; right: 2px; }
+.paneTgl { padding: 5px 7px; font-size: 13px; }
+header button { white-space: nowrap; }   /* 顶栏按钮别把词拆两行 */
+.paneTgl:not(.on) { opacity: .55; }
+main.noleft #left, main.noright #right, body.noobs #obsbox { display: none; }
+main.noleft { grid-template-columns: minmax(0, 1fr) 372px !important; }
+main.noright { grid-template-columns: 402px minmax(0, 1fr) !important; }
+main.noleft.noright { grid-template-columns: minmax(0, 1fr) !important; }
+body.guiding main.noleft { grid-template-columns: minmax(320px, 1fr) 318px !important; }
+body.guiding main.noright { grid-template-columns: 340px minmax(0, 1fr) !important; }
+body.guiding main.noleft.noright { grid-template-columns: minmax(0, 1fr) !important; }
 
 /* 周期表 */
 #ptable { display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); gap: 1px; width: 100%; margin-bottom: 6px; }
@@ -448,11 +465,14 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
   <button id="pauseBtn" title="空格键：暂停 / 继续（暂停时物理不再推进，画面照常）">⏸ 暂停</button>
   <button id="fsBtn" title="全屏（F 键）：把实验台铺满屏幕">⛶ 全屏</button>
   <button id="guideToggle">🎓 引导 开/关</button>
+  <button id="paneLeftBtn" class="paneTgl on" title="元素周期表：显示 / 收起">🧪</button>
+  <button id="paneObsBtn" class="paneTgl on" title="俯视观察窗：显示 / 收起">🔍</button>
+  <button id="paneShelfBtn" class="paneTgl on" title="试剂台：显示 / 收起">🧫</button>
   <button id="resetAll">↺ 重置</button>
 </header>
 <main>
   <aside class="pane" id="left">
-    <h3>元素周期表（118 种，点格子取用）</h3>
+    <h3>元素周期表（118 种，点格子取用）<button class="pclose" data-pane="left" title="收起这栏，地方让给实验台">✕</button></h3>
     <div class="scroll">
       <div id="ptable"></div>
       <div id="elemInfo"><span class="hint">点一个元素看真实数据（原子量 / 熔点 / 沸点 / 密度 / 电负性 / 危险性）</span></div>
@@ -470,7 +490,7 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
     </div>
   </section>
   <aside class="pane" id="right">
-    <h3>试剂架</h3>
+    <h3>试剂架（试剂台）<button class="pclose" data-pane="right" title="收起这栏，地方让给实验台">✕</button></h3>
     <input id="shelfSearch" placeholder="搜索试剂 / 化学式…">
     <div class="scroll" id="shelf" style="max-height:38%"></div>
     <h3 style="margin-top:8px">现象日志</h3>
@@ -2673,8 +2693,7 @@ function ignite(uid) {
  *  只有手把手课程在"自动做一步"时才代取（那是教程在演示给玩家看）。 */
 /** 程序代取器材的许可：手把手课程在演示这一步（_tutAuto），或者玩家点的正是引导高亮的那个控件（_gGuided）
  *  —— 自由玩的时候一律自己拿，缺就是缺。 */
-const tutRunning = () => !!(typeof Lab !== 'undefined' && Lab.tut && Lab.tut.id && !(Lab.tut.expDone || {})[Lab.tut.id]);   // 课程真在进行中（做完了就不算）
-const allowAutoTool = () => !!(window._tutAuto || (window._gGuided && tutRunning()));   // 手把手演示 / 课程中点的是引导高亮的控件
+const allowAutoTool = () => !!window._tutAuto;   // 只有程序自己的自动演示（_tutAuto）能代取；玩家点什么都得自己拿
 function ensureRod(app, why) {
   const rod = toolByUid(app.rod);
   if (rod) return rod;
@@ -4518,6 +4537,32 @@ function boot() {
   const typing = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   $('#pauseBtn').addEventListener('click', () => setPaused(!Lab.paused));
   $('#fsBtn').addEventListener('click', () => toggleFull());
+  /* 第十三轮：三栏都能收，收起时实验台吃满空出来的地方 */
+  const paneState = () => { try { return JSON.parse(localStorage.getItem('chemPaneHide') || '{}') || {}; } catch (e) { return {}; } };
+  const applyPanes = (st) => {
+    const m = document.querySelector('main');
+    if (m) { m.classList.toggle('noleft', !!st.left); m.classList.toggle('noright', !!st.right); }
+    document.body.classList.toggle('noobs', !!st.obs);
+    const set = (id, on) => { const b = document.getElementById(id); if (b) b.classList.toggle('on', !on); };
+    set('paneLeftBtn', st.left); set('paneShelfBtn', st.right); set('paneObsBtn', st.obs);
+    if (typeof renderBench === 'function') renderBench(true); else if (typeof obsRender === 'function') obsRender();
+  };
+  window.chemPanes = (patch2) => {
+    const st = Object.assign(paneState(), patch2 || {});
+    try { localStorage.setItem('chemPaneHide', JSON.stringify(st)); } catch (e) { }
+    applyPanes(st); return st;
+  };
+  applyPanes(paneState());
+  document.addEventListener('click', (ev) => {
+    const c = ev.target.closest && ev.target.closest('.pclose');
+    if (c) { window.chemPanes({ [c.dataset.pane]: true }); return; }
+    const t = ev.target.closest && ev.target.closest('.paneTgl');
+    if (t) {
+      const key = t.id === 'paneLeftBtn' ? 'left' : t.id === 'paneShelfBtn' ? 'right' : 'obs';
+      const now = paneState();
+      window.chemPanes({ [key]: !now[key] });
+    }
+  });
   document.addEventListener('fullscreenchange', () => {
     const b = $('#fsBtn'); if (b) b.textContent = document.fullscreenElement ? '⛶ 退出全屏' : '⛶ 全屏';
   });
@@ -6912,6 +6957,20 @@ function guideTarget() {
     const def = (typeof APPARATUS !== 'undefined' ? APPARATUS : []).find((x) => x.id === a.kind);
     if (ab) return { key: 'add:' + a.kind, el: ab, label: '工作台上方点「' + (def ? def.name : a.kind) + '」添一个容器', kind: 'apparatus' };
   }
+  /* 搅拌 / 过滤要玻璃棒，而玻璃棒得玩家自己去「器材」行拿 —— 引导先指器材行，拿到插好了再指按钮 */
+  if (a.k === 'stir' || a.k === 'filterApp') {
+    const v = Lab.apps.find((x) => x.uid === a.uid);
+    if (v && typeof toolByUid === 'function') {
+      const rod = toolByUid(v.rod);
+      if (!rod) {
+        const rb = document.querySelector('#addTools button[data-hid="rod"]');
+        if (rb) return { key: 'needrod', el: rb, label: '先到上面「器材」行点「🥢 玻璃棒」拿一根 —— 搅拌、引流都得用它，这个得自己拿', kind: 'tool' };
+      } else if (rod.app !== v.uid) {
+        const mb = gToolBtn(rod.uid, 'mount');
+        if (mb) return { key: 'mountrod:' + rod.uid, el: mb, label: '点「' + rod.def.name + '」卡片上的「插入」，把它插进「' + gAppName(v.uid) + '」', kind: 'place' };
+      }
+    }
+  }
   const opMap = { ignite: 'ignite', stir: 'stir', setPower: 'power', clearApp: 'clear' };
   const op = opMap[a.k];
   if (op) {
@@ -7618,7 +7677,8 @@ function obsInit() {
   if (!host || document.querySelector('#obsbox')) return;
   const box = document.createElement('div');
   box.id = 'obsbox';
-  box.innerHTML = '<h4>🔍 俯视观察<small>低头看容器里面：颜色 / 沉淀 / 气泡 / 结晶</small></h4>'
+  box.innerHTML = '<h4>🔍 俯视观察<small>低头看容器里面：颜色 / 沉淀 / 气泡 / 结晶</small>'
+    + '<button class="pclose" data-pane="obs" title="收起俯视观察窗">✕</button></h4>'
     + '<canvas id="obscv"></canvas><div id="obslist"></div>';
   const shelf = document.querySelector('#shelf');
   if (shelf && shelf.parentNode) shelf.parentNode.insertBefore(box, shelf.parentNode.firstChild);
