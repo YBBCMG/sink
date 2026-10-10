@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>记忆当铺 · 正篇剧情设计书 —— 《雾季十年》</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #14101f; color: #d8d4e4;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.85; padding: 28px 16px 60px;
+  }
+  .book { max-width: 920px; margin: 0 auto; }
+  h1 {
+    color: #e8c877; font-size: 30px; letter-spacing: 2px; text-align: center;
+    margin: 18px 0 6px; font-weight: 700;
+  }
+  .sub { text-align: center; color: #8f87ab; font-size: 14px; margin-bottom: 26px; letter-spacing: 1px; }
+  h2 {
+    color: #e8c877; font-size: 21px; margin: 42px 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid rgba(212,175,55,.35); letter-spacing: 1px;
+  }
+  h2 .no { color: #8f87ab; font-size: 14px; margin-right: 10px; font-family: Consolas, monospace; }
+  h3 { color: #c9bdf0; font-size: 16.5px; margin: 22px 0 8px; }
+  p { margin: 8px 0; }
+  b { color: #f0e6c8; }
+  .gold { color: #e8c877; }
+  .dim { color: #8f87ab; }
+  .red { color: #e08a8a; }
+  .teal { color: #8fc7c0; }
+  .box {
+    background: rgba(106,95,158,.12); border: 1px solid rgba(139,124,199,.35);
+    border-radius: 12px; padding: 14px 18px; margin: 14px 0;
+  }
+  .box.rule { border-color: rgba(212,175,55,.45); background: rgba(212,175,55,.06); }
+  .box.warn { border-color: rgba(224,138,138,.4); background: rgba(224,138,138,.05); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid rgba(139,124,199,.3); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: rgba(106,95,158,.18); color: #e8c877; font-weight: 500; white-space: nowrap; }
+  td.c { text-align: center; white-space: nowrap; }
+  /* 章节卡 */
+  .chap {
+    background: #1a1529; border: 1px solid rgba(139,124,199,.35); border-left: 4px solid #6a5f9e;
+    border-radius: 10px; padding: 14px 18px; margin: 14px 0;
+  }
+  .chap.act2 { border-left-color: #8b7cc7; }
+  .chap.act3 { border-left-color: #e8c877; }
+  .chap .cn { font-size: 17px; color: #f0e6c8; font-weight: 700; }
+  .chap .cn .num { color: #8b7cc7; font-family: Consolas, monospace; margin-right: 8px; font-size: 15px; }
+  .chap .meta { color: #8f87ab; font-size: 12.5px; margin: 2px 0 8px; }
+  .chap ul { margin: 4px 0 4px 22px; }
+  .chap li { margin: 4px 0; }
+  .tag {
+    display: inline-block; font-size: 11px; border-radius: 5px; padding: 0 7px; margin-right: 5px;
+    background: rgba(139,124,199,.25); color: #c9bdf0; vertical-align: 1px;
+  }
+  .tag.f { background: rgba(232,200,119,.16); color: #e8c877; }
+  .tag.h { background: rgba(143,199,192,.16); color: #8fc7c0; }
+  .tl { border-left: 2px solid rgba(139,124,199,.4); margin: 10px 0 10px 8px; padding-left: 20px; }
+  .tl div { margin: 8px 0; position: relative; }
+  .tl div::before {
+    content: ''; position: absolute; left: -25px; top: 9px; width: 8px; height: 8px;
+    border-radius: 50%; background: #8b7cc7;
+  }
+  .tl div.key::before { background: #e8c877; }
+  .flow { text-align: center; color: #8f87ab; font-size: 14px; margin: 10px 0; letter-spacing: 1px; }
+  footer { text-align: center; color: #6f6790; font-size: 13px; margin-top: 50px; }
+</style>
+</head>
+<body>
+<div class="book">
+
+<h1>记忆当铺 · 正篇</h1>
+<div class="sub">《雾季十年》剧情设计书 —— 序章（现有内容）转为新手教程 · 正篇十章 + 隐藏章（合并实施版） · 完整世界观</div>
+
+<h2><span class="no">00</span>定位与衔接</h2>
+<div class="box rule">
+  <p><b>序章</b>（现在的全部内容：三信物、五页日记、雾门、四结局）= <b>新手教程 + 序章「七夜」</b>。玩家在其中学会这套世界的四条法则：<b>当、赎、断、忘</b>。</p>
+  <p><b>正篇《雾季十年》</b>发生在真结局「雾散」的<b>一年之后</b>：海之约已践，小满已经回家。妹妹回来了——但<strong>当铺还开着，雾还在涨，而你抵押出去的「完整」，开始计息了</strong>。</p>
+  <p>主题升级：序章学「如何<b>当</b>」，正篇学「如何<b>赎</b>」，终章学「如何<b>记</b>」——从一个人的记忆，到一座镇的遗忘。</p>
+</div>
+
+<h2><span class="no">01</span>世界观总纲 · 三层真相</h2>
+<h3>第一层（序章已知 · 给玩家的地基）</h3>
+<p>雾是这座镇的忘性。人放不下的东西待久了，散进雾里。当铺白日不存在，只收回忆；当金是记忆结晶；断当的记忆「归雾不归铺」。规矩三律：<b>只收回忆，不收命与名字；当金自现，痛者自沉；过期断当，归雾不归铺</b>。</p>
+
+<h3>第二层（正篇前中期揭开 · 镇与铺的真相）</h3>
+<div class="box">
+  <p><b>① 堰</b> —— 雾水镇的雾不是天象，是「漏出来的遗忘」。镇子海口的雾底压着一座<b>记忆之堰</b>，拦着百年前被整镇卖掉的那一夜。堰不散，雾就永远比别处浓——雾浓不是灾难，是「有人一直在岗」。</p>
+  <p><b>② 存货</b> —— 断当的记忆不是消失了，是凝成实物沉进雾里、海里（顶针、戏票、鞋）。<b>雾就是当铺的仓库</b>，雾门是仓库的柜台内侧，堰是仓库的地基。</p>
+  <p><b>③ 守堰人</b> —— 「老板」不是一个人，是一个职位。每代守堰人把自己的名字（连同名字上挂着的一切）交进柜台，换取看堰的资格。守得越久越「空」——序章空白结局里「老板的脸是你的脸」，就是这个轮回的终点预告。</p>
+  <p><b>④ 二级市场</b> —— 镇公所有一间「忘事房」：人们把不敢想的东西上交封存。整座镇的遗忘，是一桩<b>自愿的、持续百年的买卖</b>。</p>
+</div>
+
+<h3>第三层（正篇后期揭开 · 最终真相）</h3>
+<div class="box rule">
+  <p><b>百年前</b>，雾潮大夜，海堤将溃。守灯人一世的女儿、学堂的<b>林先生</b>（名「<b>汛</b>」）逆着逃难的人流跑上钟楼，敲钟报讯——三长两短，是她临场想出的、能穿过风声的节奏。全镇循钟撤离，她被塌下来的钟楼留在了那里。</p>
+  <p>活下来的人愧疚成疾，夜夜不能寐。他们涌进钟楼下的寄思铺，把「那一夜」<b>整批卖掉</b>——寄思铺收下整镇的夜，从此白日不再存在。雾水镇的浓雾，就是那一夜被卖掉之后的「利息」，百年复利。</p>
+  <p><b>她没有散去。</b>她在钟楼里最后做了一笔交易：<b>把自己的名字签给雾</b>——只要雾外无人记得「林汛」二字，她就替这座镇当「堰芯」，把雾拦在海上。<b>忘性是她的工作，百年未曾离岗。</b></p>
+  <p>她的父亲——第一代灯匠、寄思铺主人——不肯认这笔账。他把寄思铺改成当铺，立下三律（「不收名与命」这一条，是因为女儿正是被「名字」收走的人），造起一面墙的抽屉，一格一格替全镇「代管」忘性，想攒到把女儿赎回来的那天。他至死没攒够——因为赎她需要的<b>是名字</b>，而名字当铺不收、也无处可买。<b>里屋正中那格空抽屉，就是留给她的名签位</b>（序章原文：「有一格抽屉是空的，小签也是空的」——它空了一百年）。</p>
+  <p><b>契约条文（终局规则）</b>：当雾外再无人念出「林汛」，她是堰；当有人以完整之物作抵、在雾门前喊出她的名字、并替她敲响第八声钟——堰契作废，雾归库，镇还雾。</p>
+</div>
+
+<h2><span class="no">02</span>两条时间线</h2>
+<table>
+  <tr><th style="width:110px">百年前</th><th>事件</th></tr>
+</table>
+<div class="tl">
+  <div>雾季十年之期将至（当地每逢十年有大雾潮）</div>
+  <div class="key">雾潮夜：海堤溃口，林汛三长两短敲钟报讯，全镇生还，她没下来</div>
+  <div>全镇把「那一夜」整批当给寄思铺 → 当铺白日起不再开门</div>
+  <div>林汛以名为质立堰契；第一代灯匠改铺为当铺、立三律、造抽屉墙</div>
+  <div>第一代守堰人入柜（把自己关于女儿的记忆封进空抽屉——写不出名签）</div>
+  <div>守堰人传了七代 · 催当与断当让镇上的忘性越积越浓</div>
+</div>
+<table>
+  <tr><th style="width:110px">近一年</th><th>事件</th></tr>
+</table>
+<div class="tl">
+  <div class="key">序章「七夜」（= 现有游戏）：你赎回了小满 · 真结局中你以「完整」作抵，抵押收讫</div>
+  <div>雾散数日 · 你和小满践约看海 · 镇子过了半年来少有的晴天</div>
+  <div class="key">正篇开始：次年雾季首日 · 海边回来的傍晚，雾比去年更浓了</div>
+</div>
+
+<h2><span class="no">03</span>人物谱系</h2>
+<table>
+  <tr><th>人物</th><th>身份</th><th>正篇功能</th></tr>
+  <tr><td><b>你（哥）</b></td><td>序章真结局的「抵押人」</td><td>主角。抵押的「完整」在计息，缓慢失漏——行动有期限的人</td></tr>
+  <tr><td><b>小满</b></td><td>从雾里回来的人</td><td>同伴+活线索：她替哥哥背过忘性，如今又「替全镇做梦」（雾中存货向她托梦——她是唯一的双向通道）</td></tr>
+  <tr><td><b>老板</b></td><td>第七代守堰人</td><td>正在变空。本篇交出「代柜权」，说出守堰人一脉的真相</td></tr>
+  <tr><td class="c" colspan="3">—— 新角色 ——</td></tr>
+  <tr><td><b>白老板</b></td><td>「白日当铺」收购人</td><td>对抗线。白天营业、明码标价、卖「无痛遗忘」。要买断雾水镇的整库与堰。他不是恶人，是另一种慈悲的信徒：「记起是会疼的，我卖的是不疼。」</td></tr>
+  <tr><td><b>灯婶</b></td><td>守灯人三世 · 灯匠世家</td><td>钥匙人物：第一代灯匠就是第一代守堰人、林汛的父亲。家谱残页=名字碎片</td></tr>
+  <tr><td><b>档案员</b></td><td>忘事房老先生</td><td>一辈子替镇子誊抄「不该记得的事」，抄完就烧。他烧剩的纸=百年账目</td></tr>
+  <tr><td><b>林汛</b></td><td>学堂先生 · 堰芯</td><td>被全镇卖掉的那一夜的主角。百年数数，数到七就停——她在等第八声</td></tr>
+</table>
+
+<h2><span class="no">04</span>机制升级（架构方案）</h2>
+<table>
+  <tr><th>系统</th><th>设计</th><th>实现要点</th></tr>
+  <tr><td><b>章节引擎</b></td><td>S.chapter（1~11，10 大章 + 隐藏章「接柜」），每章含多个 beat（剧情/交互合并推进），章末结算页</td><td>goalText() 按章分发；ARCH 回顾自动扩章（章节名自动登记）；存档 v4 含 chMap 旧档迁移</td></tr>
+  <tr><td><b>双钟 HUD</b></td><td>利息钟（你的失漏进度）+ 收购钟（距雾季结束天数），终局同日到点</td><td>顶栏新增双进度条；利息随章节推进，收购钟=章节倒计</td></tr>
+  <tr><td><b>记忆旅行</b></td><td>进入「存货」重历旧事（第10章等）</td><td>复用 town 地图 + 雾浓度遮罩 + 物件皮肤替换 + 临时 NPC，scene='mem'</td></tr>
+  <tr><td><b>惦记证词</b></td><td>新资源：从 NPC 处收集「证词」，用于冻结催当、开启存货、堰上点灯</td><td>当金管买卖，证词管救赎——经济升维，两条资源线并行</td></tr>
+  <tr><td><b>全镇催当</b></td><td>NPC 状态机：安 / 当 / 催 / 还，四态影响对话与支线</td><td>第11章引入「速销」，每章刷新一次全镇状态</td></tr>
+  <tr><td><b>账本面板</b></td><td>侧栏「剧情」页升级三页：人物谱 / 名字碎片 / 发还清单</td><td>沿用现有 tab 架构，回顾档案置顶不变</td></tr>
+  <tr><td><b>存档 v3</b></td><td>兼容 v2：旧档读入后自动接「次年雾季」开场</td><td>新游戏可选「跳过序章」（调用 DEV 直达第1章）</td></tr>
+  <tr><td><b>新地图</b></td><td>忘事房 / 旧学堂 / 码头船坞 / 堰芯 四个新区域</td><td>现有 GRID 扩区或独立小图；堰芯=雾浓度最高的关卡</td></tr>
+  <tr><td><b>DEV 扩展</b></td><td>chapter:N 跳章、证词+N、时间跳跃</td><td>沿现有 devAction 架构</td></tr>
+</table>
+
+<h2><span class="no">05</span>三幕二十一章 · 逐章大纲（原案）</h2>
+<p class="dim">标记说明：<span class="tag f">埋</span>=伏笔埋设 <span class="tag h">收</span>=伏笔回收（对应第 06 节总账表）</p>
+
+<div class="box rule">
+  <p><b>⚠ 合并实施说明（v14）</b>：以下原案为 21 章蓝图，实际实施时按「一章一个完整体验段」原则<b>合并为 10 大章 + 隐藏章</b>——原案里节奏相近的小节并入同一大章，形成 2–3 个 beat。对照关系：</p>
+  <table>
+    <tr><th style="width:190px">实施章（游戏内）</th><th>吸收原案内容</th></tr>
+    <tr><td><b>第1章</b> 海与灯芯</td><td>原案第1–2章：开场看海 → 问雾 → 断片（第一次漏息）→ 对账</td></tr>
+    <tr><td><b>第2章</b> 忘事房与渔网</td><td>原案第3–4章：档案员三卷宗委托 → 收网捞断当实物</td></tr>
+    <tr><td><b>第3章</b> 守夜与白日</td><td>原案第5–6章：替全镇做梦的守夜 → 白老板登场（幕终）</td></tr>
+    <tr><td><b>第4章</b> 钟楼二层</td><td>原案第7–8章：机芯校准（《潮汐簿》）→ 忏悔簿对账</td></tr>
+    <tr><td><b>第5章</b> 灯匠家谱 · 催当帖</td><td>原案第9/11章：灯婶家谱证词 → 拒签收购契</td></tr>
+    <tr><td><b>第6章</b> 那一夜</td><td>原案第10章：记忆旅行「雾潮夜」（玩法高潮）</td></tr>
+    <tr><td><b>第7章</b> 老板的真名</td><td>原案第12–13章：代柜权与三律蛀字 → 忘事房雾动（幕终）</td></tr>
+    <tr><td><b>第8章</b> 该还的东西</td><td>原案第14–15章：发还名签 → 速销夜截船</td></tr>
+    <tr><td><b>第9章</b> 堰上 · 三句话</td><td>原案第16–17章：补第八声钟 → 她的三问（答错即散）</td></tr>
+    <tr><td><b>第10章</b> 白天开灯的当铺</td><td>原案第18–20章：名字归位 → 发还日 → 终章抉择（合并为一次清算）</td></tr>
+    <tr><td><b>隐藏章</b> 接柜</td><td>原案隐藏章：视角反转，你坐进柜台</td></tr>
+  </table>
+  <p class="dim">下文原案大纲保留（创作依据与伏笔总账仍按原案章号索引），供后续扩展与口味调参时对照。</p>
+</div>
+
+<h3>第一幕 · 漏（第 1–6 章）—— 镇与铺</h3>
+
+<div class="chap">
+  <div class="cn"><span class="num">第1章</span>海与灯芯</div>
+  <div class="meta">地点：海口滩涂 → 小镇 | 新登场：白日当铺告示（未露面）</div>
+  <ul>
+    <li>一年后雾季首日。开场小喜剧：你和小满践约看海，纸船放浪——<span class="tag h">收</span> 雾季之约。</li>
+    <li>回镇发现：雾比去年浓；当铺<b>白天半开着门</b>（百年异象第一次）。</li>
+    <li>新手引导章：新机制教学（账本页、证词概念由老板一句带过）。</li>
+    <li>章末钩子：老板说——「今年的雾，<b>有人催了</b>。」</li>
+  </ul>
+</div>
+
+<div class="chap">
+  <div class="cn"><span class="num">第2章</span>第一块漏</div>
+  <div class="meta">地点：当铺柜台 | 关键：抵押账揭示</div>
+  <ul>
+    <li>你开始<b>无故断片</b>：手里的东西不知道什么时候放下的，半条街想不起为什么走。</li>
+    <li>当铺查账：真结局那笔「完整」的抵押<b>在计息</b>——每结算一次，你身上就薄一层。</li>
+    <li>抉择建立：续当（安安稳稳地继续忘）或雾季最后一天前<b>赎清</b>。双钟首次上弦。</li>
+    <li><span class="tag f">埋</span> 账本最底行有一行不属于你的旧账：名「<b>汛</b>」，欠期一百年。</li>
+  </ul>
+</div>
+
+<div class="chap">
+  <div class="cn"><span class="num">第3章</span>忘事房</div>
+  <div class="meta">地点：镇公所·忘事房（新区域）| 新登场：档案员</div>
+  <ul>
+    <li>镇上的「二级遗忘市场」：不敢想的东西上交封存，百年份的卷册堆到房顶。</li>
+    <li>档案员耳背（装的——抄了一辈子「不该记得的事」，抄完即烧），委托玩法：替他找三卷「烧剩的账」。</li>
+    <li>镇公告栏贴出收购告示：<b>「白日当铺 · 收购雾水镇雾产」</b>。</li>
+    <li><span class="tag f">埋</span> 收购清单第一行：「雾水镇 · <b>整库</b>」。</li>
+  </ul>
+</div>
+
+<div class="chap">
+  <div class="cn"><span class="num">第4章</span>渔网与存货</div>
+  <div class="meta">地点：码头 | 新登场：（渔夫线升级）</div>
+  <ul>
+    <li>帮渔夫收网，捞上「断当实物」：一枚顶针、半张戏票、一只左脚的鞋——<b>断当的记忆会凝成物</b>。</li>
+    <li>小满摸到顶针时手一抖：她「认得」，又说不出在哪认得。</li>
+    <li><span class="tag f">埋</span> 顶针=先生批作业用的；<span class="tag f">埋</span> 小满当夜开始说梦话。</li>
+  </ul>
+</div>
+
+<div class="chap">
+  <div class="cn"><span class="num">第5章</span>替全镇做梦的人</div>
+  <div class="meta">地点：家（夜）| 玩法：守夜记录</div>
+  <ul>
+    <li>小满入夜做「别人的梦」——雾中存货向唯一从雾里回来的人托梦。</li>
+    <li>守夜玩法：按拍记录梦话，拼出重复出现的三样东西：<b>钟楼、九点三刻、没有脸的女先生在黑板写字</b>。</li>
+    <li><span class="tag f">埋</span> 黑板板书的笔迹，和小满日记<b>像得反常</b>（血脉同源， readers 此刻只觉蹊跷）。</li>
+    <li><span class="tag h">收</span> 渔夫在序章说过「听见小姑娘数数，数到七就没声了」——梦话里同样数到七就停。</li>
+  </ul>
+</div>
+
+<div class="chap act2" style="border-left-color:#e8c877">
+  <div class="cn"><span class="num">第6章</span>白日的当铺 <b class="gold">（幕终）</b></div>
+  <div class="meta">地点：镇中心广场 | 新登场：白老板</div>
+  <ul>
+    <li><b>白老板登场</b>：白西装、白天营业、明码标价——处处与老板相反。他对全镇开价：<b>签契则无痛清雾，雾季从此不来</b>，限期雾季最后一天。</li>
+    <li>老板罕见地白天走出当铺一步，被雾「烫」得退回门槛内——<b>守堰人离不开堰</b>（他连自己的铺都出不去，谈何护镇）。</li>
+    <li>你手里拿到两张纸：白老板的<b>收购契</b>、老板的<b>续当单</b>。幕终双钟同日到点。</li>
+  </ul>
+</div>
+
+<h3>第二幕 · 账（第 7–13 章）—— 一百年前的夜</h3>
+
+<div class="chap act2">
+  <div class="cn"><span class="num">第7章</span>钟楼第二层</div>
+  <div class="meta">地点：钟塔 | 玩法：拨针解谜升级</div>
+  <ul>
+    <li>序章拨针暗格的<b>更深处还有一层</b>：《潮汐簿》——林汛的字体，逐日记录钟点与潮位，「九点三刻」反复出现。</li>
+    <li>解谜：潮汐簿页码对应钟摆刻度，拨针翻页。<span class="tag h">收</span> 9:45 之谜的来历。</li>
+    <li><span class="tag f">埋</span> 簿尾签名只有一个字：「<b>汛</b>」——<b>名字碎片①</b>。</li>
+  </ul>
+</div>
+
+<div class="chap act2">
+  <div class="cn"><span class="num">第8章</span>忏悔簿</div>
+  <div class="meta">地点：教堂 | 回归：修女、诗集</div>
+  <ul>
+    <li>修女的忏悔簿最后一页是一百年前的一句集体忏悔：「<b>我们把他们忘了，求主让我们睡得好。</b>」——遗忘是全镇主动买的安眠。</li>
+    <li>白老板副手来教堂「清点资产」，要把旧祭品库折进收购。修女把忏悔簿塞给你。</li>
+    <li><span class="tag h">收</span> 诗集第41页那句「东西会没，惦记不会」——正篇的主题句第一次被回响。</li>
+    <li><span class="tag f">埋</span> 受洗名册残页上一个「<b>林</b>」字——<b>名字碎片②</b>。</li>
+  </ul>
+</div>
+
+<div class="chap act2">
+  <div class="cn"><span class="num">第9章</span>灯匠家谱</div>
+  <div class="meta">地点：灯塔 | 新登场：灯婶（守灯人三世）</div>
+  <ul>
+    <li>守灯人世家守了三代灯。家谱第一页被烟熏掉一角。</li>
+    <li>灯婶口述：第一代灯匠的女儿是学堂先生；她敲钟那晚，父亲就在塔上修灯，「<b>这是我一辈子没修好的那盏</b>」。</li>
+    <li><span class="tag h">收</span> 序章「守灯人」结局线——守灯是这一家替她守的。</li>
+    <li><span class="tag f">埋</span> 烟熏残字：名字的<b>写法</b>——「汛」还是「汎」？<b>名字碎片③（写法）</b>。</li>
+  </ul>
+</div>
+
+<div class="chap act2" style="border-left-color:#e8c877">
+  <div class="cn"><span class="num">第10章</span>那一夜 <b class="gold">（记忆旅行 · 玩法高潮）</b></div>
+  <div class="meta">地点：当铺深柜 → 记忆场景「雾潮夜」</div>
+  <ul>
+    <li>当铺最深的柜里封着「全镇之夜」整批存货。小满开路（双向通道），你进入百年前。</li>
+    <li>记忆场景三段：学堂疏散（她让孩子们先走）→ 堤上缺口（人流逆行，只有她往钟楼跑）→ <b>钟楼（你亲手替她敲完三长两短）</b>——序章里你只是「听见」，这一次由你敲。</li>
+    <li>钟声里全镇回头。她没下来。离开时，存货里的她竟「看」了你一眼——带着小满的记忆是活的。</li>
+    <li><span class="tag f">埋</span> 她黑板上的板书没擦：「<b>明日潮时，勿近海口。</b>」——课，没讲完。</li>
+  </ul>
+</div>
+
+<div class="chap act2">
+  <div class="cn"><span class="num">第11章</span>催当帖</div>
+  <div class="meta">地点：全镇 | 新机制：催当/证词</div>
+  <ul>
+    <li>白老板动用「白日商律」：<b>催当</b>——全镇在当未断的记忆加速过期（顶栏出现全镇催当条）。</li>
+    <li>解法揭示：原主的「<b>惦记证词</b>」可以冻结催当。玩法转型：跑图收集证词（每个 NPC 一段口述）。</li>
+    <li>第一个冻住的是修女的诗篇——证词系统教学完成。</li>
+    <li><span class="tag f">埋</span> 催当单上圈了三个名字：小满、灯婶、老板——他们仨没有在当的记忆，<b>白老板要收的是他们本身</b>。</li>
+  </ul>
+</div>
+
+<div class="chap act2">
+  <div class="cn"><span class="num">第12章</span>老板的真名</div>
+  <div class="meta">地点：当铺柜台 | 回归：规矩的来历</div>
+  <ul>
+    <li>总账里每代守堰人的交接页，名字都是糊的——<b>入柜先交名字</b>，这是规矩。现任老板的入职页几乎全糊：他快当完了。</li>
+    <li>他交出《开柜三律》原稿，第三律被虫蛀去一半：「不收＿＿，不收名与命」——蛀掉的那个词是「<b>不收信</b>」。<span class="tag h">收</span> 序章老板说过「她的东西不是回忆，是信——信，不能当」。</li>
+    <li>他求你一件事：在他空掉之前，<b>替他把该还的还完</b>。接下「代柜权」。</li>
+    <li><span class="tag h">收</span> 空白结局的伏：「卖太多的客人，就成了柜台后的人」——他正在现场演示这个轮回。</li>
+  </ul>
+</div>
+
+<div class="chap act2" style="border-left-color:#e8c877">
+  <div class="cn"><span class="num">第13章</span>堰动 <b class="gold">（幕终）</b></div>
+  <div class="meta">地点：家 → 海口方向 | 转折</div>
+  <ul>
+    <li>小满梦游出走，径直走向海口堰芯方向；雾第一次<b>成股倒灌进镇</b>（三条街）——堰在松。</li>
+    <li>救回小满，她清醒后说出梦里的原话：「<b>姐姐说，还差三个名字。</b>」</li>
+    <li>全镇恐慌，白老板的收购支持率飙升：「看，雾已经进镇了。」幕终抉择压力拉满。</li>
+  </ul>
+</div>
+
+<h3>第三幕 · 赎（第 14–20 章）—— 发还日</h3>
+
+<div class="chap act3">
+  <div class="cn"><span class="num">第14章</span>该还的东西</div>
+  <div class="meta">地点：全镇支线网 | 核心玩法章</div>
+  <ul>
+    <li>发还计划启动：<b>把百年的存货一袋一袋还回去</b>。全镇每人一件「该还的东西」，每件需收集证词开启。</li>
+    <li>支线网全开：渔夫-他父亲的烟斗 / 孩子-母亲的铃铛 / 修女-初版诗集 / 灯婶-家谱残页 / 档案员-他唯一没烧的一页 / 老板-第一代守堰人的名签 / 小满-桂花糖罐。</li>
+    <li><span class="tag h">收</span> 桂花：学堂门口那棵桂树是林汛手植——桂花糖罐是她的学生传下来的。</li>
+  </ul>
+</div>
+
+<div class="chap act3">
+  <div class="cn"><span class="num">第15章</span>速销夜</div>
+  <div class="meta">地点：码头船坞 | 玩法：夜探/竞速</div>
+  <ul>
+    <li>白老板抢在发还日前夜宣布「<b>整库速销</b>」——雾大退，存货被连夜装船。夜探码头，截下一船。</li>
+    <li>船舱里有一格<b>空笼子，笼门从里面开的</b>——她不肯被当货运走（白老板不知道：堰不是货，动不了）。</li>
+    <li>白老板改主意：「收不了库，就<b>收堰</b>。」他要让全镇签「永久忘契」。</li>
+  </ul>
+</div>
+
+<div class="chap act3" style="border-left-color:#e8c877">
+  <div class="cn"><span class="num">第16章</span>堰上 <b class="gold">（全篇最重要的回收）</b></div>
+  <div class="meta">地点：堰芯 | 关卡：雾最深处，以证词为灯</div>
+  <ul>
+    <li>下堰芯。雾浓到以证词点灯照明（收集度即能见度——支线完成度决定这一关好不好走）。</li>
+    <li>见到林汛：<b>百年数数，数到七就停。</b>那晚她敲到第七声，钟裂了——第七声是哑的，第八声没能落下。</li>
+    <li><span class="tag h">收</span> 序章钟塔谜题「哪一声是哑的？——第七声」：玩家在序章就摸过她的伤口，只是当时不知道。</li>
+    <li>你在堰上替她补上<b>第八声</b>。她第一次回头，看你，像看一个迟到了一百年的学生。</li>
+  </ul>
+</div>
+
+<div class="chap act3" style="border-left-color:#e8c877">
+  <div class="cn"><span class="num">第17章</span>她的三句话</div>
+  <div class="meta">地点：堰芯 | 机制：三连问 · 升维版</div>
+  <ul>
+    <li>她的三问，问的不是「你记不记得」，是「<b>你们配不配记起</b>」：
+      ① 孩子背不出书，先生该罚吗？
+      ② 那一夜是被雾收走的，还是被你们卖掉的？（主语之问）
+      ③ 第八声，该由谁来敲？</li>
+    <li>答错即散（本局终止，可回档）——回顾档案此时成为玩家的复习资料。</li>
+    <li>全对，她说出真正的赎金：「我要的从来不是出去。<b>我要的是有人把课讲完。</b>」</li>
+  </ul>
+</div>
+
+<div class="chap act3">
+  <div class="cn"><span class="num">第18章</span>名字归位</div>
+  <div class="meta">地点：当铺里屋 | 玩法：写名仪式</div>
+  <ul>
+    <li>三处笔迹合一：潮汐簿的「汛」+ 名册的「林」+ 小满的手（学生后人执笔）。</li>
+    <li>选字谜题：「汛」还是「汎」？——写错即契不生效（呼应三连问机制，用第9章的碎片）。</li>
+    <li>名字落入空抽屉。同一刻，<b>全镇同时记起那一夜</b>：所有 NPC 对话替换成「记起版」，地图开始下雨。</li>
+    <li>老板的入职页上，他的真名浮现。他在柜台后哭出一个守堰人的声。</li>
+  </ul>
+</div>
+
+<div class="chap act3">
+  <div class="cn"><span class="num">第19章</span>发还日</div>
+  <div class="meta">地点：全镇 · 当铺门前广场 | 终局章</div>
+  <ul>
+    <li>雾季最后一天，发还日。全镇排队认领自己的东西——当铺的灯，<b>第一次在白天亮</b>。</li>
+    <li>白老板的收购契无人再签：孩子们把告示折成纸船放走。<span class="tag h">收</span> 纸船意象的终极回收。</li>
+    <li>他翻总账才明白：整库早就有主——三律原稿第一页写着「<b>本铺存货，永为代管</b>」。当铺从不是拥有记忆，只是替人记着。</li>
+    <li>他败走前问：「记起是会疼的，你们赎得起吗？」——「<b>疼，说明还在。</b>」（主题句）</li>
+  </ul>
+</div>
+
+<div class="chap act3" style="border-left-color:#e8c877">
+  <div class="cn"><span class="num">第20章</span>白天开灯的当铺 <b class="gold">（终章）</b></div>
+  <div class="meta">地点：学堂 → 海边 | 全篇收束</div>
+  <ul>
+    <li>雾散日。当铺柜台改成「发还处」。林汛走进学堂——还是她的学堂，把那行板书擦了，写上新的：「<b>今日无潮，上课。</b>」</li>
+    <li>海边，纸船，钟声三长两短——这一次，全镇抬头听。<span class="tag h">收</span> 「很远的地方，钟敲了三长、两短。这一次，没有人应」（序章 quizFail 文案）的彻底反写。</li>
+    <li>合账：老板亲手撕掉你那张「完整」的当票——「这一笔，本店认亏。」<span class="tag h">收</span> 序章真结局「账本上你那一页被亲手撕下」。</li>
+  </ul>
+</div>
+
+<div class="chap">
+  <div class="cn"><span class="num">隐藏章</span>接柜 <span class="dim">（第12/17/19 走保守线解锁）</span></div>
+  <div class="meta">地点：当铺 | 视角反转章</div>
+  <ul>
+    <li>主角接任第八代守堰人。你体验「成为老板」的第一夜：整理抽屉、拨亮灯、坐进柜台。</li>
+    <li>门开了。一个新客人进门，怯生生问：「<b>听说，这里能当记忆？</b>」——序章的第一句话，由你亲口接下去：「客人，想典当点什么？这里只收回忆。」</li>
+    <li>温柔的好结局：镇子继续被温柔地遗忘着，她继续在岗。灯笼还亮，钟声有人敲。</li>
+  </ul>
+</div>
+
+<h2><span class="no">06</span>伏笔总账（逻辑自洽证明）</h2>
+<table>
+  <tr><th>序章埋下</th><th>正篇回收</th><th>咬合方式</th></tr>
+  <tr><td>钟塔谜题「第七声是哑的」</td><td class="c">第16章</td><td>她敲到第七声钟裂，第八声未落——玩家序章答「7」时已触到她的伤口</td></tr>
+  <tr><td>里屋正中那格<b>空抽屉</b></td><td class="c">第18章</td><td>空了百年的名签位，等的就是「林汛」二字</td></tr>
+  <tr><td>渔夫听见「数数，数到七就没声」</td><td class="c">第5/16章</td><td>百年数数：数到七就停，在等第八声</td></tr>
+  <tr><td>三长两短的暗号</td><td class="c">第9/10/20章</td><td>她临场创的钟语 → 灯匠世家代代替她敲 → 终章全镇应答</td></tr>
+  <tr><td>9:45（怀表停走的时刻）</td><td class="c">第7章</td><td>潮汐簿：那是堤溃的时刻，她停针报讯</td></tr>
+  <tr><td>「东西会没，惦记不会」（日记p2）</td><td class="c">第8/19章</td><td>发还制的思想源头：不买卖，只代管</td></tr>
+  <tr><td>「她的东西不是回忆，是信」（老板）</td><td class="c">第12章</td><td>三律第三律蛀字：「不收信，不收名与命」</td></tr>
+  <tr><td>空白结局「老板的脸是你的脸」</td><td class="c">第12章/隐藏章</td><td>守堰人轮回的明示与亲历</td></tr>
+  <tr><td>守灯人结局（序章）</td><td class="c">第9章/结局②</td><td>守灯是灯匠世家替她守的；「接柜」是守灯的全镇版</td></tr>
+  <tr><td>桂花（日记p4夹着干桂花）</td><td class="c">第14章</td><td>学堂桂树是她手植，糖罐是学生传下的</td></tr>
+  <tr><td>纸船（多处）</td><td class="c">第19章</td><td>孩子们把收购告示折成纸船放走</td></tr>
+  <tr><td>「雾季快结束了，海我说好了要看的」</td><td class="c">第1/20章</td><td>开场践约，终章同游</td></tr>
+  <tr><td>「一半的我」「空白之人」结局</td><td class="c">结局③④</td><td>分别升维为「整镇的一半」「空账」</td></tr>
+</table>
+
+<h2><span class="no">07</span>结局体系（4 + 隐藏）—— 实施版条件</h2>
+<table>
+  <tr><th>结局</th><th>达成（v14 实装）</th><th>含义</th></tr>
+  <tr><td class="gold"><b>灯再亮</b>（真结局）</td><td>终章抉择：证词 ≥ 3 且当金 ≥ 利息的一半（ceil(interest/2)◆）→ 选「替全镇把利息还清」</td><td>堰撤、雾散、全镇记起——代价是所有人一夜想起所有疼。镇子重新学「带着痛活」</td></tr>
+  <tr><td class="gold"><b>接柜</b>（隐藏好结局）</td><td>终章抉择：证词 ≥ 3 且利息 ≤ 55%（少断片、少失手）→ 选「自己留在门里守灯」</td><td>你成为第八代守堰人。温柔的遗忘继续，轮回由你续写（序章「守灯人」的升维）</td></tr>
+  <tr><td class="red"><b>整镇的一半</b></td><td>终章抉择恒可选 → 选「只还自己的账」</td><td>你的名字赎回，全镇的名字继续押在堰里——「一半的我」的全镇版</td></tr>
+  <tr><td class="red"><b>空账</b></td><td>第5章在催当帖上<b>签了契</b>（S.signed）→ 终章只剩这一个选项</td><td>你把选择权也当出去了。当铺来了个新的、忘了自己为什么来的客人</td></tr>
+</table>
+<div class="box">
+  <p class="dim"><b>利息账</b>（v14 实装）：第3/4/5章各 +5%、第6/7章各 +10%、第1章断片 +10%、小游戏失手添息（音序 +5%、敲钟 +8%）——满打满算 50% 上下。<b>接柜</b>要求利息 ≤55（少失手），<b>灯再亮</b>要花 ceil(利息/2)◆ 当金（打工/典当凑钱）——经济系统直接接入结局条件。</p>
+</div>
+
+<h2><span class="no">08</span>实施进度（v14 · 已全部落地）</h2>
+<div class="box">
+  <p><b class="gold">✔ 批一（v12–13）</b>：章节引擎、存档迁移、双钟 HUD、证词系统、新 NPC（档案员/白老板/小满立绘、镇公所建筑）、第一幕内容。</p>
+  <p><b class="gold">✔ 合并与加难（v14）</b>：21 小章蓝图合并为 10 大章 + 隐藏章；每章 2–3 个 beat；四个高难度小游戏（音序记忆 / 机芯校准 / 敲钟节拍 / 忏悔簿对账）。</p>
+  <p><b class="gold">✔ 批二 + 批三（v14）</b>：第 4–10 章全部内容（钟楼二层、灯婶家谱、那一夜记忆旅行、老板真名、该还的东西、堰上三句话、终章抉择）+ 隐藏章「接柜」+ 正篇四结局。</p>
+  <p><b class="gold">✔ 收尾</b>：存档 v4（v3 章号 chMap 迁移）、回顾档案 mn_ch 新键与迁移、93 项自动化测试全绿（数值单测 26 + DOM 冒烟 67）。</p>
+  <p class="dim">文字口味随时迭代调参——大纲不动，只打磨内容。</p>
+</div>
+
+<footer>记忆当铺 · 正篇《雾季十年》剧情设计书（v14 合并实施版） —— 序章是教玩家「当」，正篇教玩家「赎」，终章教玩家「记」。</footer>
+</div>
+</body>
+</html>
