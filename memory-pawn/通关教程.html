@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>记忆当铺 · 完整通关教程</title>
+<style>
+  :root {
+    --bg: #1b1530; --panel: #262043; --panel2: #2f2852; --line: #4a3f75;
+    --txt: #f0eaff; --dim: #b3a9dc; --gold: #e8b74a; --gold2: #ffd98a;
+    --violet: #b48ae0; --green: #7ed6a0; --red: #e0708a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.85; padding: 24px 14px 60px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 26px; }
+  header h1 { color: var(--gold2); letter-spacing: 6px; font-size: 30px; margin-bottom: 6px; }
+  header .sub { color: var(--dim); font-size: 13px; letter-spacing: 2px; }
+  section {
+    background: var(--panel); border: 2px solid var(--line); border-radius: 14px;
+    padding: 18px 22px; margin-bottom: 16px; box-shadow: 0 3px 0 rgba(0,0,0,.25);
+  }
+  h2 {
+    color: var(--gold2); font-size: 19px; letter-spacing: 2px; margin-bottom: 10px;
+    padding-bottom: 6px; border-bottom: 1px dashed var(--line);
+  }
+  h2 small { font-size: 12px; color: var(--dim); letter-spacing: 0; margin-left: 10px; font-weight: 400; }
+  p { margin-bottom: 8px; }
+  b.gold { color: var(--gold2); } b.red { color: var(--red); } b.green { color: var(--green); }
+  .dim { color: var(--dim); }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); color: var(--gold2); font-weight: 500; white-space: nowrap; }
+  td.c, th.c { text-align: center; }
+  tr:nth-child(even) td { background: rgba(47,40,82,.45); }
+  ol, ul { padding-left: 24px; margin-bottom: 8px; }
+  li { margin-bottom: 6px; }
+  .step { display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start; }
+  .step .n {
+    flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--gold);
+    color: #241a08; font-weight: 700; text-align: center; line-height: 26px; font-size: 15px; margin-top: 3px;
+  }
+  .tip {
+    background: rgba(180,138,224,.12); border: 1px solid var(--violet); border-radius: 10px;
+    padding: 10px 14px; margin: 10px 0;
+  }
+  .warn {
+    background: rgba(224,112,138,.10); border: 1px solid var(--red); border-radius: 10px;
+    padding: 10px 14px; margin: 10px 0;
+  }
+  .spoiler-line {
+    text-align: center; margin: 30px 0 22px; color: var(--gold); letter-spacing: 4px; font-size: 14px;
+  }
+  .spoiler-line::before, .spoiler-line::after {
+    content: "━━━━━━━━━━"; color: var(--line); margin: 0 12px; letter-spacing: 0;
+  }
+  kbd {
+    background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 3px;
+    border-radius: 6px; padding: 0 8px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: var(--gold2);
+  }
+  footer { text-align: center; color: var(--dim); font-size: 12.5px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>记忆当铺</h1>
+  <div class="sub">只收回忆，不收金银 —— 完整通关教程</div>
+</header>
+
+<section>
+  <h2>〇 · 一句话搞懂这游戏</h2>
+  <p>你是一个忘了为什么难过的人——妹妹<b class="gold">小满</b>在雾里消失了七夜。解开小镇谜团需要 <b class="gold">三件信物</b>，而工具和线索全都要用<b class="gold">自己的记忆</b>去当铺换。<b class="red">卖掉的记忆会真的从游戏文本里消失</b>，过期不赎回就永远断当。游戏分三幕：找信物只是第一幕——里屋的门后，故事才真正开始。</p>
+</section>
+
+<section>
+  <h2>一 · 基础操作</h2>
+  <table>
+    <tr><th>按键</th><th>作用</th></tr>
+    <tr><td><kbd>W A S D</kbd> / 方向键</td><td>走动（走一步 0.16 秒，很灵活）</td></tr>
+    <tr><td><kbd>E</kbd> / <kbd>空格</kbd> / <kbd>回车</kbd></td><td>互动——站在目标 <b class="gold">2 格以内</b>，头顶会出现金色 <b>E</b> 气泡</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>关闭当前面板</td></tr>
+    <tr><td>输入框内 <kbd>回车</kbd> 或点「敲下面板」</td><td>提交谜题答案（两条路都通）</td></tr>
+  </table>
+  <p class="dim">右侧四个标签页：「剧情」是三幕进度 + <b>剧情回顾</b>，「记忆日志」是剧情流水，「我的记忆」是全部 18 段记忆的状态，「当票行囊」是道具和信物。顶栏有「目标」提示，迷路了看它。</p>
+  <p>☆ <b>剧情回顾</b>（「剧情」页最上面一格）：你看过的每段剧情——开场、里屋字条、三件信物、五页日记、老板钉册、雾门对话、三句话与答案、四种结局——都会自动记进这一格，<b>点一下就能从头重看</b>。重开一局、通关之后都不会丢，随时回来翻。</p>
+  <p>☆ <b>正篇《雾季十年》</b>：拿到真结局「雾散」后，结局页会多一个「<b>▸ 走进次年雾季</b>」按钮——序章到此转为新手教程，正篇 <b>10 大章 + 隐藏章</b>从那里开始（三幕：漏 → 账 → 赎，已全部开放）。顶栏会多出正篇状态：<b>利息 / 雾季倒计时 / 证词</b>。开发者模式（` 键）里也有「▶ 开正篇」和逐章跳转。正篇完整攻略见<b>第十二节</b>。</p>
+  <p>☆ 正篇的新面孔都画出来了：左下角的<b>镇公所</b>（灰石楼，台阶下透灯油暖光的就是忘事房入口）、戴圆框眼镜的<b>档案员</b>、白西装白礼帽的<b>白老板</b>、灯塔下的<b>灯婶</b>（戴头巾，第 5 章现身），还有站在家门口的<b>小满</b>——她每章都有新台词（守夜那晚她自然在屋里睡觉，街上找不到她）。镇子上还能看到：当铺白天虚掩的门缝在漏光（第 1 章起）、告示牌上钉着白日当铺的收购告示（第 3 章起）、码头摊着捞上断当实物的渔网（第 2 章末起），雾也比序章更浓。</p>
+</section>
+
+<section>
+  <h2>二 · 三条铁律（比攻略更重要）</h2>
+  <ol>
+    <li><b class="gold">3 分钟赎回期</b>：典当后的记忆有 180 秒可赎回——回当铺柜台，<b>花原价</b>（当多少，赎多少）。超时即「断当」，永远散进雾里，文本变删除线。</li>
+    <li><b class="gold">完整度 30% 红线</b>：自我完整度 = 还未典当的记忆权重 ÷ 34。跌破 35% 有警告音，跌破 <b class="red">30% 立即触发坏结局「空白之人」</b>——不需要走到结局，半路就结束。</li>
+    <li><b class="gold">雾门清算断当</b>：最后进雾门时，只要有断当（哪怕 1 段），就无法到达最好的结局——典当中的记忆不算断当（花钱赎回就恢复）。<b class="red">别把当金花光</b>，留出赎回钱。</li>
+  </ol>
+  <div class="tip"><b class="gold">价格规则</b>：典当永远全价，赎回永远原价——"卖了又赎"一来一回净赚 0，<b>当金刷不动</b>。钱的正途只有一条：<b class="gold">告示牌零工</b>（3 个委托共 +4◆）。零损失通关的完整路线见下方 Step 1–7。</div>
+</section>
+
+<section>
+  <h2>三 · 开局怎么走（无剧透版，只想自己摸索就看到这里）</h2>
+  <div class="step"><div class="n">1</div><div>开局在镇中心路口。左边是<b class="gold">记忆当铺</b>（门口按 <kbd>E</kbd> 开柜台），路口旁立着<b class="gold">告示牌</b>——手头紧就先去接零工（完整路线见第四节）。</div></div>
+  <div class="step"><div class="n">2</div><div>选「典当记忆」，卖一段换◆当金（越痛的越值钱）。先卖便宜的练练手完全没问题。</div></div>
+  <div class="step"><div class="n">3</div><div>选「看看柜台」用当金买当票——<b>当票是从你卖掉的记忆里抽出来的实物</b>，所以有的商品要求你先卖掉对应的记忆。</div></div>
+  <div class="step"><div class="n">4</div><div>带道具去镇上三处旧地：<b>教堂侧门（东北）、钟塔（东北角）、码头闸门（东南）</b>，各取一件信物。谜题卡住可以花钱问 NPC（老渔夫、唱诗班孩子各 1◆），或者回家看墙。</div></div>
+  <div class="step"><div class="n">5</div><div>集齐三件信物 → 回当铺找老板「谈谈妹妹」→ 推开里屋的门——<b>故事在这里才真正开始</b>（第二幕）。结局收集跨局累计，四个都值得一拿。</div></div>
+</section>
+
+<div class="spoiler-line">以下为完整剧透攻略</div>
+
+<section>
+  <h2>四 · 第一幕：三信物与零断当路线（7 步）<small>照做即可无伤进第二幕</small></h2>
+  <div class="step"><div class="n">1</div><div>开局先去<b class="gold">告示牌</b>（镇中心路口），把 <b class="gold">3 个零工全部接下</b>——渔家的委托、教堂的求助、孩子的请求，共值 4◆。交差点恰好就是你待会儿要去的三个信物地点，顺路结算。</div></div>
+  <div class="step"><div class="n">2</div><div>进当铺柜台 →「典当记忆」卖掉<b class="gold">「井沿缺角藏钥匙」</b>（童年，+2◆）→「看看柜台」买<b class="gold">铜钥匙当票</b>（−2◆）。当金归零，但 3 分钟赎回计时开始了——别耽搁。</div></div>
+  <div class="step"><div class="n">3</div><div>往东北走到<b class="gold">教堂侧门</b>按 <kbd>E</kbd>：交「诗篇」委托 <b class="green">+1◆</b>，再用铜钥匙开锁 → <b>半张照片</b> ①。</div></div>
+  <div class="step"><div class="n">4</div><div>旁边的<b class="gold">钟塔</b>按 <kbd>E</kbd>：交「歌谱」委托 <b class="green">+2◆</b>；面板问"钟敲到第几停下不响了？"→ 输入 <b class="gold">7</b>（回车或点「敲下面板」都行）→ <b>旧怀表</b> ②。（答案在你自己的记忆里，没卖掉它等于白送；也可花 1◆ 问唱诗班孩子。）</div></div>
+  <div class="step"><div class="n">5</div><div>往东南到<b class="gold">码头闸门</b>按 <kbd>E</kbd>：交「鱼篓」委托 <b class="green">+1◆</b>；再按 <kbd>E</kbd> 敲 <b class="gold">长、长、长、短、短</b> → <b>她的发绳</b> ③。（敲错只清零无惩罚。暗号兜底：回「你的家」看墙上刻痕。）此时当金 4◆。</div></div>
+  <div class="step"><div class="n">6</div><div>赶回当铺 →「赎回记忆」→ 原价赎回「井沿缺角」（−2◆）。<b class="green">钥匙不会消失，记忆完好无损，净支出 0</b>。想看雾巷的小围巾就顺手买雾灯（−1◆）——纯剧情彩蛋，不影响结局。</div></div>
+  <div class="step"><div class="n">7</div><div>回柜台 →「谈谈妹妹」→ 老板开门 → 点<b class="gold">「推开里屋的门」</b>——里屋不是结局，是<b>第二幕的转折点</b>：你会读到她的字条，知道她叫<b class="gold">小满</b>，以及五页日记的存在。</div></div>
+  <div class="tip">时间充裕度：全图跑一圈纯移动不到 10 秒，180 秒赎回期绰绰有余。整条路线当金最低点出现在买完钥匙的 0◆——所以<b class="red">先接零工再买钥匙</b>是本路线的骨架。</div>
+</section>
+
+<section>
+  <h2>五 · 第二幕：五页日记速查表<small>她藏在"你一定会去的地方"</small></h2>
+  <table>
+    <tr><th>页</th><th>地点</th><th>获取方式</th><th>备注</th></tr>
+    <tr><td><b class="gold">页一</b></td><td>你的家 · 妹妹的房间</td><td>进第二幕后来到家按 E →「翻开抽屉夹层」</td><td>写着暗号的真正用法</td></tr>
+    <tr><td><b class="gold">页二</b></td><td>教堂长椅（新地点）</td><td>按 E →「翻开诗集第 41 页」</td><td>唱诗班孩子会给提示</td></tr>
+    <tr><td><b class="gold">页三</b></td><td>老渔夫手里</td><td><b>两步任务</b>：先去<b class="gold">仓库地板</b>（仓库上方按 E）取陈酒，再回来找渔夫换铁盒</td><td>页三里写着钟塔拨针的答案</td></tr>
+    <tr><td><b class="gold">页四</b></td><td>童年之井 · 井底</td><td>井底有微光——需要<b class="gold">雾灯</b>（当铺 1◆）才能捞上来</td><td>这页会颠覆你对"许愿"的记忆</td></tr>
+    <tr><td><b class="gold">页五</b></td><td>钟塔 · 暗格夹层</td><td>拿到怀表后来钟塔按 E → 拨针谜题，答案 <b class="gold">九点三刻</b></td><td>答案就写在页三里；也可试错（无惩罚）</td></tr>
+  </table>
+  <div class="tip">卡住了就回当铺点<b class="gold">「谈谈日记」</b>——老板会按缺的页逐条给提示。五页集齐后回当铺钉成一本，<b class="gold">雾门开启</b>。</div>
+</section>
+
+<section>
+  <h2>六 · 第三幕：雾门 · 三连问 · 最终抉择</h2>
+  <ol>
+    <li><b class="gold">进雾门</b>：雾巷深处（东北角，教堂右上方）出现发光的雾门，按 E 进入雾的那一边。</li>
+    <li><b class="gold">三连问</b>（<b class="red">答错任意一句 = 直接坏结局「一半的我」，一局作废</b>；答案全在前两幕里，进门前先确认自己记得）：</li>
+  </ol>
+  <table>
+    <tr><th>问题</th><th class="c">正确答案</th><th>答案来源</th></tr>
+    <tr><td>她最怕的不是黑、不是雾，是什么？</td><td class="c">放学一个人回家的那段路</td><td>记忆「fear」/ 日记里的她</td></tr>
+    <tr><td>雾起时的暗号是几长几短？</td><td class="c">三长，两短</td><td>记忆 / 家墙刻痕 / 渔夫</td></tr>
+    <tr><td>答应她什么时候去看海？</td><td class="c">雾季一结束</td><td>记忆「sea」/ 日记页五</td></tr>
+  </table>
+  <ol start="3">
+    <li><b class="gold">最终抉择</b>（三问全对后）：<b>带她回家</b> = 结局「雾散」；<b>让她留在雾里、自己当守灯人</b> = 隐藏结局「守灯人」。两个都值得拿。</li>
+    <li><b class="red">断当惩罚在雾门结算</b>：进雾门时只要有断当（1 段也算），她拼不出完整的你——直接进入「一半的我」。想要真结局，先去柜台原价赎回。</li>
+    <li>怕答错？两道保险：① 三段"自带答案"的记忆（fear / code / sea）别卖、或卖赎自如留着；② 侧边栏「剧情」页随时能复习三幕线索。开发者模式（` 键）里「⏭ 跳过对话」也会自动替你答对。</li>
+  </ol>
+</section>
+
+<section>
+  <h2>七 · 三件信物速查表</h2>
+  <table>
+    <tr><th>信物</th><th>地点</th><th>获取条件</th><th>线索来源（都有兜底）</th></tr>
+    <tr><td><b class="gold">半张照片</b></td><td>教堂侧门 · 东北</td><td>持有铜钥匙当票</td><td>钥匙 = 先典当「井沿藏钥匙」+ 花 2◆ 购买</td></tr>
+    <tr><td><b class="gold">旧怀表</b></td><td>钟塔 · 东北角</td><td>答对"第几声哑" → 答案 <b class="gold">7</b></td><td>① 自己的记忆「第七下是哑的」② 花 1◆ 问唱诗班孩子</td></tr>
+    <tr><td><b class="gold">她的发绳</b></td><td>码头闸门 · 东南</td><td>按顺序敲 <b class="gold">长长长短短</b></td><td>① 自己的记忆「三长两短」② 花 1◆ 问老渔夫 ③ 免费：「你的家」墙上刻痕</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>八 · 全部 18 段记忆价目表</h2>
+  <table>
+    <tr><th>记忆内容</th><th class="c">关键词</th><th class="c">当金</th><th>卖掉的后果</th></tr>
+    <tr><td>妹妹的手很暖，总在码头边等我回家</td><td class="c">妹妹</td><td class="c">3◆</td><td>无谜题依赖，纯剧情损失</td></tr>
+    <tr><td>我和妹妹的暗号：钟声三长两短</td><td class="c">妹妹</td><td class="c">3◆</td><td>码头暗号的"自带答案"没了（另有两条兜底）</td></tr>
+    <tr><td>井沿缺角里藏过一枚铜钥匙</td><td class="c">童年</td><td class="c">2◆</td><td><b class="gold">买铜钥匙的前提</b>；井的地图名变 ？？？？</td></tr>
+    <tr><td>那晚钟声第七下是哑的</td><td class="c">钟塔</td><td class="c">2◆</td><td>钟塔谜题的"自带答案"没了（可问孩子）</td></tr>
+    <tr><td>我怕黑。妹妹说黑夜是温的</td><td class="c">妹妹</td><td class="c">2◆</td><td>妹妹段 -1</td></tr>
+    <tr><td>我教妹妹认字，她把"家"写成"冢"</td><td class="c">妹妹</td><td class="c">2◆</td><td>妹妹段 -1</td></tr>
+    <tr><td>母亲厨房里总飘着桂花香</td><td class="c">家</td><td class="c">1◆</td><td>无</td></tr>
+    <tr><td>第一次喝醉是在码头酒馆</td><td class="c">码头</td><td class="c">1◆</td><td>无</td></tr>
+    <tr><td>父亲的手很大，每天牵我去学堂</td><td class="c">家</td><td class="c">1◆</td><td>无</td></tr>
+    <tr><td>钟塔每逢整点敲六下，从不曾乱</td><td class="c">钟塔</td><td class="c">1◆</td><td>无。<b class="red">注意：这是干扰项</b>——谜底是 7，别被"六下"带偏</td></tr>
+    <tr><td>我在当铺帮过工</td><td class="c">当铺</td><td class="c">1◆</td><td>无</td></tr>
+    <tr><td>妹妹生病那年，我在井边许愿</td><td class="c">童年</td><td class="c">3◆</td><td>无谜题依赖，但与日记页四呼应</td></tr>
+    <tr><td>妹妹教我折的纸船，还漂在脸盆里</td><td class="c">妹妹</td><td class="c">2◆</td><td>无（雾境里她还在折）</td></tr>
+    <tr><td>答应她雾季结束就带她去看海</td><td class="c">妹妹</td><td class="c">3◆</td><td><b class="red">雾门第三问的"自带答案"</b>（日记页五兜底）</td></tr>
+    <tr><td>她说最怕放学一个人往家走</td><td class="c">妹妹</td><td class="c">3◆</td><td><b class="red">雾门第一问的"自带答案"</b></td></tr>
+    <tr><td>妈妈走的那年，巷口桂花落了一地</td><td class="c">家</td><td class="c">2◆</td><td>无</td></tr>
+    <tr><td>钟塔落成那晚，全镇点了一夜的灯</td><td class="c">钟塔</td><td class="c">1◆</td><td>无</td></tr>
+    <tr><td>爸爸的好酒藏在码头仓库地板下</td><td class="c">码头</td><td class="c">1◆</td><td>无（页三任务的实物呼应）</td></tr>
+  </table>
+  <p><b class="gold">「妹妹」关键词共 7 段</b>（合计 18◆）：全卖光后，开场白会塌陷成「<b>？？？</b>在码头的雾里消失的第七夜」，结局与雾境文本同样失忆——想看看这个效果的话记得先存档再试。</p>
+</section>
+
+<section>
+  <h2>九 · 当金账本（含赚钱途径）</h2>
+  <table>
+    <tr><th>来路 / 去处</th><th class="c">金额</th><th>说明</th></tr>
+    <tr><td><b class="green">典当记忆</b></td><td class="c">+1 ~ +3◆</td><td>全价收购，共 18 段 34◆；赎回时原价退回</td></tr>
+    <tr><td><b class="green">告示牌零工 · 渔家的委托</b></td><td class="c">+1◆</td><td>接下后去码头闸门按 E 交差，一次性</td></tr>
+    <tr><td><b class="green">告示牌零工 · 教堂的求助</b></td><td class="c">+1◆</td><td>接下后去教堂侧门按 E 交差，一次性</td></tr>
+    <tr><td><b class="green">告示牌零工 · 孩子的请求</b></td><td class="c">+2◆</td><td>接下后去钟塔按 E 交差，一次性</td></tr>
+    <tr><td><b class="red">赎回记忆</b></td><td class="c">−原价</td><td>1◆ 的赎 1，2◆ 的赎 2，3◆ 的赎 3——当多少赎多少</td></tr>
+    <tr><td><b class="red">铜钥匙当票</b></td><td class="c">−2◆</td><td>主线必需；需先典当「井沿藏钥匙」</td></tr>
+    <tr><td><b class="red">雾灯</b></td><td class="c">−1◆</td><td>雾巷的门票，看一条她的小围巾（纯剧情）</td></tr>
+    <tr><td><b class="red">旧相册</b></td><td class="c">−3◆</td><td>剧情伏笔，当前版本不影响结局</td></tr>
+    <tr><td><b class="red">问渔夫 / 问孩子</b></td><td class="c">各 −1◆</td><td>直接买谜底（都有免费兜底）</td></tr>
+  </table>
+  <ul>
+    <li><b class="gold">经济闭环</b>：卖了再赎一来一回净赚 0——当金刷不动，每一枚都得挣。</li>
+    <li><b class="gold">零断当通关的账</b>：只卖必需的「井沿缺角」（2◆）再原价赎回，净支出 0；想体验卖记忆的话，18 段 34◆ 的当金池足够覆盖全赎回 + 雾灯 + 相册 + 情报。</li>
+    <li>赎不起正在倒计时的记忆时，赎回面板会用红字提醒你去接零工——别拖到断当，<b class="red">雾门会清算断当</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>十 · 四个结局怎么解锁</h2>
+  <table>
+    <tr><th>结局</th><th>条件</th></tr>
+    <tr><td><b class="green">雾散</b>（真结局）</td><td>走完三幕：三信物 → 五页日记 → 雾门三连问全对 → 抉择「<b>带她回家</b>」。要求：进雾门时<b class="gold">断当 0 段</b>（典当中的不算，赎回即恢复）</td></tr>
+    <tr><td><b class="gold">守灯人</b>（隐藏）</td><td>同上走到最终抉择，但选「<b>让她留在雾里</b>」。一个关于守约而非挽回的结局</td></tr>
+    <tr><td><b class="gold">一半的我</b></td><td>两条路：① 走到雾门但<b>有断当（1–4 段）</b>——她拼不出完整的你，三连问会被跳过；② 断当 0 段但<b class="red">三连问答错任意一句</b>——话没记全的人，当场散场</td></tr>
+    <tr><td><b class="red">空白之人</b></td><td>断当 ≥ 5 段，<b>或</b>完整度跌破 30%——<b class="red">随时可能触发，不需要走到雾门</b></td></tr>
+  </table>
+  <p><b>刷结局技巧</b>：</p>
+  <ul>
+    <li>拿「守灯人」：正常打到最终抉择选留下即可（速度最快的一局：接零工 → 卖井钥匙买钥匙 → 三地拿信物 → 里屋 → 五页 → 雾门）。</li>
+    <li>拿「一半的我」：随便卖一段 1◆ 的等它断当，再走完雾门（或者更快的——进雾门故意答错一题）。</li>
+    <li>拿「空白之人」：把 1◆ 的五段（桂花香 / 喝醉 / 父亲 / 钟六下 / 当铺帮工）全卖掉等 3 分钟。</li>
+    <li>结局收集存在浏览器本地，跨局累计；结局画面会显示已解锁列表。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>十一 · 冷知识与细节</h2>
+  <ul>
+    <li><b class="gold">自动存档</b>：进度每秒自动保存，关掉页面下次打开接着玩；顶栏「↺ 重开」可主动从头开始（结局收集不受影响）。</li>
+    <li>顶部 HUD 的「赎回」倒计时显示的是<b>最紧迫</b>的那条记忆。</li>
+    <li>完整度跌破 35% 时，底部操作提示会开始黑块化、伴随一声警告音——那是最后的刹车。</li>
+    <li>井的地图名「童年之井」在你卖掉那段记忆后会变成 ？？？？——地图本身也会失忆。</li>
+    <li>敲错暗号只清零进度，无任何惩罚；钟塔谜题答错也只是闪红光，可以一直试。</li>
+    <li>和老板「谈谈妹妹」在集齐信物前后台词不同；里屋的门在柜台菜单里推开（「推开里屋的门」按钮）。</li>
+    <li>告示牌上除了零工，还贴着一张寻人启事——女孩，十二岁，雾夜走失，至今七日。她是谁？</li>
+  </ul>
+</section>
+
+<section>
+  <h2>十二 · 正篇《雾季十年》攻略<small>10 大章 + 隐藏章 · 四个小游戏 · 四个新结局</small></h2>
+  <p><b class="gold">核心规则</b>：正篇里你的「完整」在<b class="red">计息</b>——每章结算都会加利息，<b>小游戏失手也会添息</b>。利息越高，终章越难拿到好结局。三件<b class="gold">证词</b>是终章的钥匙：档案员的卷宗（第2章）、渔夫的断当实物（第2章末）、灯婶的家谱（第5章）。</p>
+  <h3>章节总表</h3>
+  <table>
+    <tr><th style="width:150px">章</th><th>本章目标</th><th>关键点 / 小游戏</th></tr>
+    <tr><td><b>第1章</b> 海与灯芯</td><td>问雾 → 纪录断片 → 对账</td><td>开头<b class="red">走动时勿在门口徘徊太久</b>——第一次断片会多加 10% 利息；对账选「续当」即可推进</td></tr>
+    <tr><td><b>第2章</b> 忘事房与渔网</td><td>替档案员找 3 卷烧剩的账 → 收网</td><td>三卷宗按指引逐一点亮（井 / 长椅 / 仓库）；收网连点三次，<b>证词①②到手</b></td></tr>
+    <tr><td><b>第3章</b> 守夜与白日</td><td>守一夜小满的梦话 → 会会白老板</td><td><b class="gold">小游戏① 音序记忆</b>（3 段，5→6→7 音）；对白老板选「不签」留后路</td></tr>
+    <tr><td><b>第4章</b> 钟楼二层</td><td>校准塔钟机芯 → 查清忏悔簿</td><td><b class="gold">小游戏② 机芯校准</b>（4 段加速）+ <b class="gold">小游戏④ 忏悔簿对账</b>（纯推理，见下）</td></tr>
+    <tr><td><b>第5章</b> 灯匠家谱 · 催当帖</td><td>问灯婶家谱 → 告示牌前再见白老板</td><td><b>证词③到手</b>；催当帖前<b class="red">千万别签契</b>——签了终章只剩坏结局</td></tr>
+    <tr><td><b>第6章</b> 那一夜</td><td>记忆旅行：百年前的雾潮夜</td><td><b class="gold">小游戏③ 敲钟节拍</b>（三长两短，3 段 10/12/16 音，容错仅 2 次）</td></tr>
+    <tr><td><b>第7章</b> 老板的真名</td><td>问出守堰人真相 → 忘事房雾动</td><td>利息 +10%；听完真名，别急着消费当金</td></tr>
+    <tr><td><b>第8章</b> 该还的东西</td><td>写名签 → 截速销夜的船</td><td>剧情章，稳稳推进即可</td></tr>
+    <tr><td><b>第9章</b> 堰上 · 三句话</td><td>上堰补第八声 → 答她的三问</td><td><b class="gold">音序记忆·上堰版</b>（2 段 7 音、更快）；三句话按剧情提示选</td></tr>
+    <tr><td><b>第10章</b> 白天开灯的当铺</td><td>终章抉择</td><td>四个结局在此分岔——<b>进本章前先按下面的条件备好钱与利息</b></td></tr>
+    <tr><td><b>隐藏章</b> 接柜</td><td>守灯结局的另一半</td><td>终章满足隐藏条件后可选「自己留在门里」</td></tr>
+  </table>
+  <h3>四个小游戏怎么玩</h3>
+  <ul>
+    <li><b class="gold">① 音序记忆（守夜 / 上堰）</b>：灯板依次亮出一段曲子，你看完<b>按原顺序点回来</b>。守夜 3 段越接越长（5→6→7 音），上堰 2 段更快。技巧：嘴里跟着哼、记「颜色方位」而非音名。<b class="red">点错一次 +5% 利息</b>，可无限重试。</li>
+    <li><b class="gold">② 机芯校准（钟楼）</b>：指针在表盘上转，<b>指针走进金框弧的瞬间按 E</b>。4 段一轮比一轮快、窗口一轮比一层窄（最后一层只有 24°）。技巧：别盯指针，<b>预判它回到窗口的时机提前半拍按</b>。失手 +5% 利息。</li>
+    <li><b class="gold">③ 敲钟节拍（那一夜）</b>：光圈从外圈滑向钟线，<b>光圈压线的瞬间点</b>——按谱面敲「三长两短」，10→12→16 音逐段加长。<b class="red">容错只有 2 次、空击（点空）也算错</b>，失手 +8% 利息。技巧：长音间隔大、短音密——心里数「哒——哒——哒、哒」的节奏，别看手。</li>
+    <li><b class="gold">④ 忏悔簿对账（纯推理）</b>：5 行旧账、4 条批注规则（如「雾季三年前的账不得涂改」「赎清的行要画圈」），<b>找出同时违反两条批注的那一行</b>。答错 +5% 利息。技巧：逐条批注排除，最后剩下的就是答案——鞋匠那一行。</li>
+  </ul>
+  <h3>利息经济学</h3>
+  <ul>
+    <li>章节结算 +5%~+10%，第1章断片 +10%，小游戏失手 +5%~+8%——<b>满打满算 50% 上下</b>，想要隐藏结局就要省着点。</li>
+    <li>正篇里当金来路照旧：告示牌零工、典当记忆。终章「替全镇还息」要花 <b>利息的一半</b>◆——第9章结束后记得把当金攒够。</li>
+  </ul>
+  <h3>终章抉择 · 四个结局</h3>
+  <table>
+    <tr><th>结局</th><th>条件</th></tr>
+    <tr><td><b class="green">灯再亮</b>（真结局）</td><td>证词 ≥ 3 且<b>当金 ≥ 利息的一半</b> → 选「替全镇把利息还清」</td></tr>
+    <tr><td><b class="gold">接柜</b>（隐藏）</td><td>证词 ≥ 3 且<b class="red">利息 ≤ 55%</b>（少断片、小游戏少失手）→ 选「自己留在门里守灯」</td></tr>
+    <tr><td><b class="gold">整镇的一半</b></td><td>终章恒可选 → 选「只还自己的账」</td></tr>
+    <tr><td><b class="red">空账</b></td><td>第5章在催当帖上<b class="red">签了契</b> → 终章只剩它。想要其他结局就别签</td></tr>
+  </table>
+  <div class="tip"><b class="gold">全成就路线</b>：一局不签契、少失手 → 拿「灯再亮」；读档回终章（利息不变）再拿「整镇的一半」；另开一局故意签契 → 拿「空账」；最后打一局省息局拿「接柜」。结局收集跨局累计。</div>
+</section>
+
+<section>
+  <h2>十三 · 开发者模式<small>不想手动通关？按一下 ` 键</small></h2>
+  <ul>
+    <li><b class="gold">怎么打开</b>：点顶栏红色 <b>DEV</b> 按钮，或按键盘 <b>`</b>（Tab 上面那个键）/ <b>F2</b>。面板浮在画面右上角，不挡游戏操作，再按一次关闭。</li>
+    <li><b class="gold">资源 / 时间</b>：+10◆ / +50◆ / 清零当金；时间快进 1 分钟（测试断当用）。</li>
+    <li><b class="gold">记忆</b>：「全部恢复」可撤销一切断当与典当（含救回空白结局边缘的自己）；「全部典当」一键清仓拿全部当金。</li>
+    <li><b class="gold">行囊 / 信物</b>：铜钥匙、雾灯、旧相册、三信物一键入手，不用再去解谜买票。</li>
+    <li><b class="gold">剧情跳跃</b>：开里屋 → 进二幕 → 五页日记 → 进三幕，四步直通终局；「推雾门」直接进雾境（资格判定照常生效）；「⏭ 跳过对话」自动翻完所有剧情页并<b>自动答对三连问</b>，停在最终抉择让你自己选。</li>
+    <li><b class="gold">传送</b>：全地点 + 两个 NPC，自动落到能按 E 互动的位置。</li>
+    <li><b class="gold">选项</b>：穿墙（无视建筑碰撞）、时间冻结（赎回倒计时定格、永不超期）、移速 1x/2x/3x 循环。</li>
+    <li><b class="gold">直达结局</b>：雾散 / 守灯人 / 一半的我 / 空白之人，四结局一键解锁（正常计入结局收集）；看完点「↺ 重开一局」马上回初始状态。</li>
+    <li>DEV 开关（穿墙 / 冻结 / 移速）在重开一局后仍保留；正常通关路线完全不受影响——这是纯测试工具。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>十四 · 剧情完整梳理<small>看不懂故事再看这节——满级剧透，通关后阅读体验最佳</small></h2>
+  <p><b class="gold">一句话概括</b>：妹妹小满为了替哥哥背上"忘性"，把自己典当给了雾；你集齐她留下的三样旧物和五页日记，走进雾里用"三句话"证明你把她的活记全了，才换得她回来。</p>
+  <h3>世界观三条规矩</h3>
+  <ul>
+    <li><b>雾 = 这座镇的忘性</b>：人放不下的东西待久了会散进雾里，成了雾的一部分。所以当铺收的"回忆"，到期断当就真的归雾。</li>
+    <li><b>当铺规矩</b>：只收回忆，不收命与名字。当金=记忆的痛感结晶；赎回原价；断当归雾不归铺。老板是守规矩的"堰口"，不做好事也不做坏事。</li>
+    <li><b>惦记 ≠ 拥有</b>：日记页二里修女说"东西会没，惦记不会"。小满不信，她用整局游戏验证了这句话——惦记到了雾那边也能收到。</li>
+  </ul>
+  <h3>七夜前到底发生了什么（藏在日记里）</h3>
+  <ul>
+    <li>哥哥（你）的病越来越重，忘性大到记不住妹妹的事。</li>
+    <li>小满打听到了当铺的事，也知道了"雾门用惦记开"。她在<strong>九点三刻</strong>（钟停摆的时刻，也是你拨针谜题的答案）数完钟声，<b>自己走进了雾里</b>——她许的愿是"哥的忘性，归我背"（日记页四：井边那个愿是她许的，不是你）。</li>
+    <li>她怕你找不到她，把要紧的话写成<b>五页日记</b>，藏在你"一定会去的地方"：家、教堂、码头、井、钟塔——全是你和她有共同记忆的地方。</li>
+    <li>她走后，墙上留下<b>三长两短</b>的刻痕：那是你们兄妹的暗号"到我这里来"。整局游戏里钟声、暗号、敲门，全是这个暗号的变体。</li>
+  </ul>
+  <h3>三幕在干嘛</h3>
+  <ul>
+    <li><b>第一幕</b>：集齐三信物（照片/怀表/发绳），证明你和她的过去还在——老板才肯开里屋的门。</li>
+    <li><b>第二幕</b>：读五页日记，拼出"七夜前她为什么走、怎么走、留下了什么话"。五页钉成账本，就是你进雾门的"赎票"。</li>
+    <li><b>第三幕</b>：雾门三连问=当契作废的仪式。当铺不认眼泪只认证据：三句话全对，才承认"你把她记全了"。</li>
+  </ul>
+  <h3>四个结局各在说什么</h3>
+  <table>
+    <tr><th>结局</th><th>含义</th></tr>
+    <tr><td><b class="green">雾散</b></td><td>你用"自己的一段完整"抵了当契——她回来了，你却交出了完整（当铺账本上你的名字被撕掉）。但纸船漂进了真正的海，两讫。</td></tr>
+    <tr><td><b class="gold">守灯人</b></td><td>你不赎她了，把日记留给她做伴，自己每夜敲三长两短。她回不来，但暗号一直有人应——关于守约的结局。</td></tr>
+    <tr><td><b class="gold">一半的我</b></td><td>断当散进雾里的记忆都在她身边漂着，可你身上缺了几块，她拼不出你——不是她不肯认你，是当铺的规矩：话没记全，当契不作废。</td></tr>
+    <tr><td><b class="red">空白之人</b></td><td>你卖得太多，连"为什么来当铺"都忘了。老板转过身——那是你自己的脸。总会有下一个客人。</td></tr>
+  </table>
+  <ul>
+    <li><b class="gold">顺手回收的细节</b>：脸盆里的纸船（结局里漂向海）、桂花（井底油布包里夹着一枚干的）、"家"写成"冢"（她的字，雾门纸船船头那个字）、钟塔第七声（她数到的最后一声）。</li>
+    <li>旧相册第一页"笑得眯起眼的女孩"——是伏笔，当前版本不影响结局，留作以后剧情扩展。</li>
+  </ul>
+</section>
+
+<footer>记忆当铺 · Memory Pawn —— 教程基于当前版本（v1.4：正篇十章合并 + 四个小游戏 + 隐藏章接柜）</footer>
+</div>
+</body>
+</html>
