@@ -2785,16 +2785,31 @@
        以前 SCALE 只取 min(2, DPR)，canvas 又被 CSS 拉成另一个尺寸 —— 浏览器再采样一次，
        细线和字全是糊的（实机反馈"画质太低"就是这个）。现在按 显示宽度/VW × DPR 算，量化到 1/8 档。 */
     var dpr = global.devicePixelRatio || 1;
+    /* 先把内联尺寸清掉再量：不然上一轮写死的 px 会顶着 CSS 的 width:100%，窗口缩放就不跟手了 */
+    if (canvas.style) { canvas.style.width = ''; canvas.style.height = ''; }
     var rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
     var dispW = (rect && rect.width) ? rect.width : VW;
     var raw = (dispW / VW) * dpr;                       /* 屏幕上真实需要几倍 */
-    var want = clamp(raw, 1, SCALE_CAP);
-    SCALE = Math.round(want * 8) / 8;
-    canvas.width = Math.round(VW * SCALE); canvas.height = Math.round(VH * SCALE);
-    if (canvas.style) {
-      /* 背板跟显示对上了 → 硬边（线条干净）；还得缩放 → 交回浏览器平滑，
-         别拿 Nearest 去缩（缩采样用 pixelated 会把 1px 线打成马赛克） */
-      canvas.style.imageRendering = (Math.abs(SCALE - raw) < 0.07) ? 'pixelated' : 'auto';
+    if (raw >= 1) {
+      /* v31.2：背板直接按"屏幕上的真实设备像素"来 —— 一格背板 = 一个设备像素，
+         浏览器不再二次采样（以前量化到 1/8 档，多出来的那点余量就是一层糊）。
+         CSS 尺寸按 dpr 折回去，显示大小跟以前一样，只是不糊了。 */
+      SCALE = clamp(raw, 1, SCALE_CAP);
+      canvas.width = Math.round(VW * SCALE); canvas.height = Math.round(VH * SCALE);
+      if (canvas.style) {
+        canvas.style.width = (canvas.width / dpr) + 'px';
+        canvas.style.height = (canvas.height / dpr) + 'px';
+        canvas.style.imageRendering = 'pixelated';
+      }
+    } else {
+      /* 窗口比画布还窄（很少见）：保 1:1 会把 1px 线裁没，这里交回浏览器平滑缩，
+         宁可软一点也别丢线。 */
+      SCALE = 1;
+      canvas.width = VW; canvas.height = VH;
+      if (canvas.style) {
+        canvas.style.width = ''; canvas.style.height = '';
+        canvas.style.imageRendering = 'auto';
+      }
     }
     bg = document.createElement('canvas');
     bg.width = canvas.width; bg.height = canvas.height;
@@ -2874,18 +2889,26 @@
     ctx.restore();
     /* ③ 雾带 / 风痕：这两样是"挡光"的，得压在光上面 */
     if (sc.ambient === 'fog') {
-      for (var i = 0; i < 6; i++) {
-        var fx2 = ((t * 11 + i * 190) % (VW + 420)) - 210;
-        var gg = ctx.createRadialGradient(fx2, 110 + i * 96, 8, fx2, 110 + i * 96, 250);
-        gg.addColorStop(0, 'rgba(214,224,238,.22)'); gg.addColorStop(1, 'rgba(214,224,238,0)');
-        ctx.fillStyle = gg; ctx.fillRect(0, 0, VW, VH);
+      if (global.ART31 && ART31.paintFog) {
+        ART31.paintFog(ctx, sc, t, amb);       /* v31.2：硬边雾带（以前是 6 个 250px 渐变大团，放大全糊） */
+      } else {
+        for (var i = 0; i < 6; i++) {
+          var fx2 = ((t * 11 + i * 190) % (VW + 420)) - 210;
+          var gg = ctx.createRadialGradient(fx2, 110 + i * 96, 8, fx2, 110 + i * 96, 250);
+          gg.addColorStop(0, 'rgba(214,224,238,.22)'); gg.addColorStop(1, 'rgba(214,224,238,0)');
+          ctx.fillStyle = gg; ctx.fillRect(0, 0, VW, VH);
+        }
       }
     }
     if (sc.ambient === 'wind') {
-      ctx.strokeStyle = 'rgba(230,235,240,.16)'; ctx.lineWidth = 2;
-      for (var k = 0; k < 8; k++) {
-        var yy = ((t * 90 + k * 97) % VH);
-        ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(VW, yy + 30); ctx.stroke();
+      if (global.ART31 && ART31.paintWind) {
+        ART31.paintWind(ctx, sc, t);           /* v31.2：断续斜风痕（以前是 2px stroke 通栏直线） */
+      } else {
+        ctx.strokeStyle = 'rgba(230,235,240,.16)'; ctx.lineWidth = 2;
+        for (var k = 0; k < 8; k++) {
+          var yy = ((t * 90 + k * 97) % VH);
+          ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(VW, yy + 30); ctx.stroke();
+        }
       }
     }
     /* ③b 小怪和它们的弹丸：画在氛围层之上（雾里的东西本来就该浮在雾上） */
