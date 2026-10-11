@@ -3330,6 +3330,13 @@
         solid: function (x, y) { return solid(x, y); },
         shadow: shadowUnder,
         panelOpen: function () { return modalOpen; },      /* 面板开着：怪敢进灯圈、敢隔着面板咬 */
+        /* 例外（用户 2026-10-12）：解最后那道连环锁的时候，别让他挨打 ——
+           这道锁一百秒、五枚环，手忙脚乱的时候还被咬一口不叫难，叫欺负人。
+           只认连环锁这一个面板（PUZZLES23.current() 在面板合上时会被清空）。 */
+        grace: function () {
+          try { return !!(global.PUZZLES23 && global.PUZZLES23.current && global.PUZZLES23.current() === 'chainlink'); }
+          catch (e) { return false; }
+        },
         hit: function (K, how) {
           toast((how === 'touch' ? K.name + '贴上来摸了你一下' : K.name + '朝你吐了一口') + ' —— 咬走一段记。');
           biteFlash(K);                                    /* 面板挡着看不见画布：抖一下面板本身 */
