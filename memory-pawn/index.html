@@ -657,6 +657,46 @@ body.mp-modal #btn-e { display: none !important; }
   .leg-route { margin-top: 5px; font-size: 12.5px; color: #cbb894; letter-spacing: .3px; }
   .leg-route i { font-style: normal; color: #6b6152; padding: 0 4px; }
 </style>
+<style>
+/* ================= 像素皮 v31.4（A 线美术） =================
+   世界是硬边像素（1 美术像素 = 1 逻辑像素、限定色阶、2×2 抖动），
+   外壳原来却是圆角 + 弥散阴影 + 缓动 —— 一边像素一边 iOS。
+   这一节只覆盖观感：圆角一律归零、面板切角、阴影改硬台阶、加 2×2 抖动底、
+   动画/过渡走 steps()、等宽字。不动布局、不动尺寸、不动文案。
+   要回退：整块删掉即可（前面的规则一条没改）。 */
+*, *::before, *::after { border-radius: 0 !important; }
+
+/* ① 面板底纹：4px 一格的 2×2 抖动 —— 像素画里最省的"材质" */
+#topbar, aside#side section, #m-card, #toast, #dev-panel, .pane, .ticket-card, .tk-ico {
+  background-image: repeating-conic-gradient(rgba(255,255,255,.035) 0 25%, transparent 0 50%) !important;
+  background-size: 4px 4px !important;
+  box-shadow: 0 3px 0 rgba(0,0,0,.42) !important;
+}
+/* ② 切角：像素 UI 的角是"缺一块"，不是圆的 */
+#m-card, #toast, #dev-panel, button, .ch-lamp, .lz-cell, .ticket-card {
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px),
+                     calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+}
+/* ③ 硬边加粗 + 按下位移 1px（"咔"一下，不是渐变） */
+button, #m-card, #toast, aside#side section, #topbar { border-width: 2px !important; }
+button { transition: none !important; }
+button:active { transform: translate(1px, 1px); }
+/* ④ 进度条：分段刻度（像素仪表盘的读法） */
+.bar, .ch-bar, #hud .bar {
+  background-image: repeating-linear-gradient(90deg, rgba(0,0,0,.45) 0 1px, transparent 1px 7px) !important;
+}
+/* ⑤ 一切动画/过渡走 steps：硬跳，不缓动 */
+*, *::before, *::after {
+  animation-timing-function: steps(4, end) !important;
+  transition-timing-function: steps(4, end) !important;
+}
+/* ⑥ 等宽字：不许引字体资源，等宽是最接近代码字形的一档 */
+#app, #app button, #app input, #app textarea { font-family: Consolas, "Cascadia Mono", ui-monospace, monospace !important; }
+/* 页签是中文短词，等宽会把"世界档案"挤成两行 —— 这几个回无衬线且不折行 */
+[id^="tab-"] { font-family: inherit !important; white-space: nowrap !important; }
+/* 世界里那层 DOM 字保持无衬线（等宽挤在一起反而难读） */
+#labels .lbl { font-family: "Microsoft YaHei", system-ui, sans-serif !important; }
+</style>
 </head>
 <body>
 <div id="app">
