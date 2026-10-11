@@ -12,7 +12,7 @@
   var LEGACY_KEYS = ['mp-save-v1', 'mp-checkpoint-v1', 'mp-endings-v1', 'mp-archive-v1'];
 
   var canvas, ctx, S = null, raf = 0, lastT = 0, toastT = 0, bannerT = 0;
-  var keys = {}, moveCd = 0, portalCd = 0, dirty = { hud: 1, log: 1, tasks: 1, album: 1, arch: 1 };
+  var keys = {}, moveCd = 0, portalCd = 0, dirty = { hud: 1, log: 1, tasks: 1, album: 1, arch: 1, mem: 1 };
   var endingRun = [];
 
   function $(id) { return document.getElementById(id); }
@@ -163,7 +163,7 @@
       sfx('open');
     });
     awardPhotos();
-    dirty.hud = 1; dirty.tasks = 1; dirty.album = 1; dirty.arch = 1;
+    dirty.hud = 1; dirty.tasks = 1; dirty.album = 1; dirty.arch = 1; dirty.mem = 1;
     save();
   }
   /* 相簿四张的取得规则（写在引擎里，测试可查） */
@@ -354,7 +354,7 @@
           S.gold += m.w; sfx('coin');
           addLog('当掉了：' + m.text + '（+' + m.w + ' 枚）');
           toast('当掉 · ' + m.id + '（+' + m.w + '）');
-          markFlag('first_pawn'); dirty.hud = 1; save(); render();
+          markFlag('first_pawn'); dirty.hud = 1; dirty.mem = 1; save(); render();
         };
       });
       b.querySelectorAll('[data-redeem]').forEach(function (el) {
@@ -362,7 +362,7 @@
           var id = el.getAttribute('data-redeem'), m = D.mem23ById(id), cost = m.w;
           if (S.gold < cost) { toast('当金不够——赎回这段要 ' + cost + ' 枚。'); return; }
           S.gold -= cost; S.mem[id].state = 'held'; S.redeemed++;
-          sfx('redeem'); dirty.hud = 1; save();
+          sfx('redeem'); dirty.hud = 1; dirty.mem = 1; save();
           addLog('赎回了：' + m.text);
           var tear = !!m.pawnedFromStart;
           closeModal();
@@ -436,7 +436,7 @@
     $('end-modal').classList.add('show');
     sfx(e.true ? 'end' : 'endSad');
     music(e.true ? 'm4' : 'm5');
-    dirty.arch = 1; dirty.tasks = 1; dirty.album = 1;
+    dirty.arch = 1; dirty.tasks = 1; dirty.album = 1; dirty.mem = 1;
   }
   function doneCount() { return D.TASKS.filter(taskDone).length; }
 
@@ -484,6 +484,32 @@
     html += '<div class="arc-h">提示</div><div class="arc-item">相簿四张齐，终幕才有「把名字还给她」。</div>';
     p.innerHTML = html;
   }
+  /* 「记」面板：游戏叫记忆当铺，这一栏就是你的记
+     规矩和主题一致 —— 当出去的记，在柜台看得见（当铺替你收着），在你身上是空的 */
+  function refreshMem() {
+    var p = $('pane-mem'); if (!p) return;
+    var all = D.MEM23, held = [], pawned = [];
+    all.forEach(function (m) {
+      var st = S.mem[m.id] || { state: 'held', pawns: 0 };
+      (st.state === 'pawned' ? pawned : held).push({ m: m, st: st });
+    });
+    var html = '<div class="arc-h">在身上的（' + held.length + '/' + all.length + '）</div>';
+    html += held.map(function (x) {
+      return '<div class="arc-item"><b class="mem-tag">' + x.m.tag + '</b>' + x.m.text +
+        '<span class="mem-w">痛感 ' + x.m.w + '</span></div>';
+    }).join('') || '<div class="arc-lock">身上一段记都没有了。</div>';
+    html += '<div class="arc-h">押在柜上的（' + pawned.length + '）—— 当出去了，这儿就是空的</div>';
+    html += pawned.map(function (x) {
+      return '<div class="arc-item locked"><b class="mem-tag">' + x.m.tag + '</b>' +
+        '<span class="mem-blank">（想不起来了 · 当票 ' + x.m.w + ' 枚' +
+        (x.st.pawns > 1 ? ' · 当出去过 ' + x.st.pawns + ' 回' : '') + '）</span></div>';
+    }).join('') || '<div class="arc-lock">柜上没押着东西。</div>';
+    html += '<div class="arc-h">账</div>';
+    html += '<div class="arc-item">当金结余 <b>' + S.gold + '</b> 枚 · 赎回累计 <b>' + (S.redeemed || 0) + '</b> 次</div>';
+    html += '<div class="arc-item">当出去换钱，赎回来付原价 —— 一来一回不赚不亏，只是那段时间里，你会真的想不起它。</div>';
+    if (pawned.length) html += '<div class="arc-item">押在柜上的，到记当铺柜台能赎回来。</div>';
+    p.innerHTML = html;
+  }
   function refreshArchive() {
     var p = $('pane-archive'); if (!p) return;
     if (!S.cleared && !endingsRun().length) {
@@ -518,6 +544,7 @@
     if (dirty.tasks) { refreshTasks(); dirty.tasks = 0; }
     if (dirty.album) { refreshAlbum(); dirty.album = 0; }
     if (dirty.arch) { refreshArchive(); dirty.arch = 0; }
+    if (dirty.mem) { refreshMem(); dirty.mem = 0; }
   }
 
   /* ---------- 渲染 ---------- */
@@ -917,7 +944,7 @@
     else if (k === 'd') keys.right = 0;
   }
   function cycleTab() {
-    var tabs = ['tab-log', 'tab-tasks', 'tab-album', 'tab-archive'];
+    var tabs = ['tab-log', 'tab-mem', 'tab-tasks', 'tab-album', 'tab-archive'];
     var cur = tabs.filter(function (t) { return $(t).classList.contains('on'); })[0] || tabs[0];
     var i = (tabs.indexOf(cur) + 1) % tabs.length;
     $(tabs[i]).click();
@@ -925,11 +952,11 @@
 
   /* ---------- 面板 / DEV ---------- */
   function bindTabs() {
-    var map = { 'tab-log': 'pane-log', 'tab-tasks': 'pane-tasks', 'tab-album': 'pane-album', 'tab-archive': 'pane-archive' };
+    var map = { 'tab-log': 'pane-log', 'tab-mem': 'pane-mem', 'tab-tasks': 'pane-tasks', 'tab-album': 'pane-album', 'tab-archive': 'pane-archive' };
     Object.keys(map).forEach(function (tab) {
       $(tab).onclick = function () {
         Object.keys(map).forEach(function (t) { $(t).classList.toggle('on', t === tab); $(map[t]).classList.toggle('on', t === tab); });
-        dirty.log = dirty.tasks = dirty.album = dirty.arch = 1;
+        dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
         refreshPanels();
       };
     });
@@ -973,7 +1000,7 @@
     var first = Object.keys(D.SCENES).filter(function (s) { return D.SCENES[s].act === act; })[0];
     S.maxAct = act; S.act = act;
     enterScene(first);
-    dirty.hud = dirty.tasks = dirty.arch = 1;
+    dirty.hud = dirty.tasks = dirty.arch = 1; dirty.mem = 1;
     toggleDev();
   }
   function devAction(a) {
@@ -987,7 +1014,7 @@
     }
     if (a === 'ending') { S.act = 5; D.PHOTOS.forEach(function (p) { S.photos[p.id] = 1; }); ending('true_name'); }
     if (a === 'wipe') { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } S = freshState(); enterScene('lighthouse'); }
-    dirty.hud = dirty.tasks = dirty.album = dirty.arch = 1;
+    dirty.hud = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
     renderDev();
     save();
   }
@@ -1049,7 +1076,7 @@
       var cp = loadCheckpoint();
       confirmBox(cp ? '回到本幕开头（第 ' + (JSON.parse(cpRaw()).state.act) + ' 幕）的存档点吗？' : '还没有存档点——要删档从头来吗？',
         function () {
-          if (cp) { S = loadFrom(cp); dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; toast('回到本幕开头。'); }
+          if (cp) { S = loadFrom(cp); dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1; toast('回到本幕开头。'); }
           else restart();
         }, '回到存档点', '接着走');
     };
@@ -1076,7 +1103,7 @@
       S.introDone = true; save();
       say(D.TEXT.prologue.slice(), function () { banner(scene().name, scene().sub); }, { title: '记忆当铺 · 归潮屿', end: '点亮灯' });
     }
-    dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1;
+    dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
     raf = requestAnimationFrame(loop);
     window.PAWN_DEBUG = {
       S: S, D: D, api: {
@@ -1095,7 +1122,7 @@
     try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ }
     S = freshState(); S.introDone = true;
     enterScene('lighthouse');
-    dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1;
+    dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
   }
 
   /* 谜题层需要的宿主接口 */
@@ -1105,7 +1132,7 @@
       modalBody: modalBody, setTitle: setTitle, setBody: setBody, setBtns: setBtns,
       solve: solvePuzzle, toast: toast, sfx: sfx, close: closeModal, ending: ending,
       isOpen: function () { return modalOpen; }, openModal: openModal,
-      refresh: function () { dirty.hud = dirty.tasks = dirty.album = 1; refreshPanels(); }
+      refresh: function () { dirty.hud = dirty.tasks = dirty.album = 1; dirty.mem = 1; refreshPanels(); }
     };
   }
 
