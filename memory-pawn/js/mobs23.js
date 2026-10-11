@@ -16,7 +16,7 @@
   /* 只留一种 —— 雾里就只有这一样东西（用户：名字够好听、长相够好看、一种就够） */
   var KINDS = {
     wuyi: {
-      id: 'wuyi', name: '雾呓', desc: '雾里那声含糊的梦话 —— 它张一次嘴，你就少一个字',
+      id: 'wuyi', name: '雾呓', desc: '雾里那声含糊的梦话。它张一次嘴，你身上就少一个字',
       col: '#8f7fb8', col2: '#efe8ff', r: 16, speed: 1.05, keep: 4.4, cd: 3.6,
       shot: { col: '#d9cffb', r: 4.6, speed: 2.6, mk: 'glyph' }
     }
