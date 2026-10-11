@@ -76,7 +76,8 @@
       hold: 11000 },
 
     { id: 'oil', tag: '泼一罐灯油',
-      when: function (s) { return s.act >= 2; },
+      /* 借改（2026-10-12）：怪只在最后一个场景（雾里）—— 这课等真遇见它再上，别在镇上空讲 */
+      when: function (s) { return s.act >= 2 && mobCount() > 0; },
       base: function (s) { return s.oil == null ? 2 : s.oil; },
       mom: '它怕灯油。灯油是我们这行唯一的武器，省着用，但别留着。',
       how: '按 <b>F</b> 泼一罐灯油：定住它 15 秒（顶栏"灯油"是罐数，柜台有卖）',
