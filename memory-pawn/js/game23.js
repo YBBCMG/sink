@@ -588,8 +588,6 @@
       label(p.label || '出口', p.x, p.y, false);
     });
     sc.places.forEach(function (p) { drawPlace(p); });
-    /* 玩家 */
-    drawFigure(S.tx, S.ty, '#e6dcc8', S.face);
     /* 可交互提示 */
     var near = nearestPlace();
     if (near) { label(near.name, near.x, near.y, true); ctx.fillStyle = '#e0b25c'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('E', near.x * CELL + CELL + 8, near.y * CELL + 26); }
@@ -616,6 +614,28 @@
         ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(canvas.width, yy + 30); ctx.stroke();
       }
     }
+    /* 玩家画在氛围之后：之前被夜色/雾蒙版盖住，玩家根本找不到自己（实机反馈） */
+    drawSelf(t);
+  }
+
+  /* 「我在哪儿」：光晕 + 呼吸圈 + 头顶小箭头，怎么都能一眼看到 */
+  function drawSelf(t) {
+    var cx = S.tx * CELL + CELL / 2, cy = S.ty * CELL + CELL / 2;
+    var pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
+    var ring = ctx.createRadialGradient(cx, cy, 2, cx, cy, 30 + pulse * 6);
+    ring.addColorStop(0, 'rgba(255,232,170,' + (0.30 + 0.12 * pulse).toFixed(2) + ')');
+    ring.addColorStop(1, 'rgba(255,232,170,0)');
+    ctx.fillStyle = ring;
+    ctx.beginPath(); ctx.arc(cx, cy, 34 + pulse * 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,226,150,' + (0.35 + 0.25 * pulse).toFixed(2) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(cx, cy + 12, 13 + pulse * 2, 5 + pulse, 0, 0, Math.PI * 2); ctx.stroke();
+    drawFigure(S.tx, S.ty, '#f3ead6', S.face);
+    var bob = Math.sin(t * 3.4) * 2;
+    ctx.fillStyle = 'rgba(255,228,150,.9)';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 30 + bob); ctx.lineTo(cx - 6, cy - 40 + bob); ctx.lineTo(cx + 6, cy - 40 + bob);
+    ctx.closePath(); ctx.fill();
   }
 
   /* ---------- 循环 ---------- */
@@ -673,8 +693,27 @@
   var saveT = 5;
 
   /* ---------- 输入 ---------- */
-  function keydown(e) {
+  /* 中文输入法（微软拼音等）激活时，字母键的 e.key 会是 'Process'（keyCode 229），
+     只按 e.key 判断会导致 WASD 完全失灵——本机实测就是这样。先认物理键 e.code。 */
+  function keyNameOf(e) {
+    var c = e.code || '';
+    if (c === 'KeyW' || c === 'ArrowUp') return 'w';
+    if (c === 'KeyS' || c === 'ArrowDown') return 's';
+    if (c === 'KeyA' || c === 'ArrowLeft') return 'a';
+    if (c === 'KeyD' || c === 'ArrowRight') return 'd';
+    if (c === 'KeyE' || c === 'Space' || c === 'Enter' || c === 'NumpadEnter') return 'e';
+    if (c === 'Escape') return 'Escape';
+    if (c === 'Backquote') return '`';
+    if (c === 'F2') return 'F2';
     var k = e.key;
+    if (!k) return '';
+    if (k === ' ') return 'e';
+    if (k.length === 1) return k.toLowerCase();      /* 大写/Shift 也认 */
+    return k;
+  }
+
+  function keydown(e) {
+    var k = keyNameOf(e);
     if (k === '`' || k === 'F2') { toggleDev(); e.preventDefault(); return; }
     if (modalOpen) {
       if (k === 'Escape') { closeModal(); }
@@ -683,19 +722,19 @@
       }
       return;
     }
-    if (k === 'w' || k === 'ArrowUp') keys.up = 1;
-    else if (k === 's' || k === 'ArrowDown') keys.down = 1;
-    else if (k === 'a' || k === 'ArrowLeft') keys.left = 1;
-    else if (k === 'd' || k === 'ArrowRight') keys.right = 1;
-    else if (k === 'e' || k === 'E' || k === ' ' || k === 'Enter') { interact(); e.preventDefault(); }
+    if (k === 'w') keys.up = 1;
+    else if (k === 's') keys.down = 1;
+    else if (k === 'a') keys.left = 1;
+    else if (k === 'd') keys.right = 1;
+    else if (k === 'e') { interact(); e.preventDefault(); }
     else if (k === 'Tab') { e.preventDefault(); cycleTab(); }
   }
   function keyup(e) {
-    var k = e.key;
-    if (k === 'w' || k === 'ArrowUp') keys.up = 0;
-    else if (k === 's' || k === 'ArrowDown') keys.down = 0;
-    else if (k === 'a' || k === 'ArrowLeft') keys.left = 0;
-    else if (k === 'd' || k === 'ArrowRight') keys.right = 0;
+    var k = keyNameOf(e);        /* 必须和 keydown 用同一套：否则输入法下会"抬起认不出"→ 人一直走 */
+    if (k === 'w') keys.up = 0;
+    else if (k === 's') keys.down = 0;
+    else if (k === 'a') keys.left = 0;
+    else if (k === 'd') keys.right = 0;
   }
   function cycleTab() {
     var tabs = ['tab-log', 'tab-tasks', 'tab-album', 'tab-archive'];
