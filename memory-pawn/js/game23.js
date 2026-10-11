@@ -11,7 +11,7 @@
   var SAVE_KEY = 'mp23-save-v1', CHECK_KEY = 'mp23-check-v1', END_KEY = 'mp23-endings-v1';
   var LEGACY_KEYS = ['mp-save-v1', 'mp-checkpoint-v1', 'mp-endings-v1', 'mp-archive-v1'];
 
-  var canvas, ctx, S = null, raf = 0, lastT = 0, toastT = 0, bannerT = 0;
+  var canvas, ctx, S = null, raf = 0, lastT = 0, toastT = 0, bannerT = 0, actCardT = 0, lockCd = 0;
   var keys = {}, moveCd = 0, portalCd = 0, dirty = { hud: 1, log: 1, tasks: 1, album: 1, arch: 1, mem: 1 };
   var endingRun = [];
 
@@ -86,6 +86,39 @@
     b.innerHTML = main + '<small>' + (sub || '') + '</small>';
     b.classList.add('on'); bannerT = 2.4;
   }
+  /* 幕间卡：进了新的一幕就把幕号 / 幕名 / 一句引子摊在画面中间（3.4 秒后自己淡掉） */
+  function actCard(act) {
+    var el = $('act-card'); if (!el) return;
+    var info = (D.ACT_TITLES && D.ACT_TITLES[act]) || {};
+    el.innerHTML = '<div class="ac-rule"></div><div class="ac-no">第 ' + act + ' 幕</div>' +
+      '<div class="ac-name">' + (info.name || '') + '</div>' +
+      '<div class="ac-line">' + (info.line || '') + '</div><div class="ac-rule"></div>';
+    el.classList.add('on'); actCardT = 3.4;
+  }
+  /* 门禁：门上的 need 没兑现就走不了 —— 提示要说清"差哪件事" */
+  function needText(flag) {
+    var t = D.TASKS.filter(function (x) { return x.flag === flag; })[0];
+    return t ? '「' + t.title + '」' : '前面那件事';
+  }
+  function lockedBy(p) { return (p && p.need && !S.flags[p.need]) ? p.need : null; }
+  function lockToast(need, door) {
+    if (lockCd > 0) return;
+    lockCd = 1.8;
+    var what = door ? '这扇门还锁着' : '还不行';
+    toast(what + ' —— 先把' + needText(need) + '做完。');
+    addLog('走不过去：还差 ' + needText(need));
+  }
+  /* 哪个旗标一置，就把哪几扇门打开（置旗标时当面告诉玩家） */
+  function doorsOpenedBy(flag) {
+    var names = [];
+    Object.keys(D.SCENES).forEach(function (sid) {
+      var sc = D.SCENES[sid];
+      sc.portals.concat(sc.places).forEach(function (q) {
+        if (q.need === flag && q.to) names.push(q.label || q.name || '那扇门');
+      });
+    });
+    return names;
+  }
 
   /* ---------- 场景 ---------- */
   function scene() { return D.SCENES[S.scene]; }
@@ -109,6 +142,8 @@
     if (act > S.maxAct) {
       S.maxAct = act; S.act = act;
       saveCheckpoint();
+      actCard(act);
+      addLog('—— 第 ' + act + ' 幕 · ' + ((D.ACT_TITLES[act] || {}).name || '') + ' ——');
       var open = (D.TEXT.actOpen && D.TEXT.actOpen[act]) || [];
       if (open.length) say(open, null);
       music('m' + Math.min(act, 5));
@@ -162,6 +197,8 @@
       addLog('✓ 任务完成：' + t.title + '（' + t.brief + '）');
       sfx('open');
     });
+    var opened = doorsOpenedBy(flag);
+    if (opened.length) { toast('门开了 · ' + opened.join('、')); addLog('门开了：' + opened.join('、')); }
     awardPhotos();
     dirty.hud = 1; dirty.tasks = 1; dirty.album = 1; dirty.arch = 1; dirty.mem = 1;
     save();
@@ -251,7 +288,7 @@
     if (modalOpen || dlg) return;
     var p = nearestPlace();
     if (!p) { toast('这里没什么可看的。'); return; }
-    if (p.need && !S.flags[p.need]) { toast('还不行——先把前面那件事做完。'); return; }
+    if (p.need && !S.flags[p.need]) { lockToast(p.need, p.kind === 'portal'); return; }
     sfx('select');
     var first = !S.seen[p.id];
     S.seen[p.id] = 1;
@@ -458,19 +495,44 @@
       return '<div class="arc-item">' + l.raw + '</div>';
     }).join('') || '<div class="arc-lock">还没有发生什么。</div>';
   }
+  /* 任务页只回答一件事：**现在我该干什么**。
+     以前把五幕 46 条一次摊开 —— 后面的幕次既剧透又干扰，看到的是目录不是待办。
+     现在：只列当前这一幕还没做的（下一条主线顶在"现在"），本幕了掉的一行带过，
+     过去几幕只留一行账；**后面几幕的标题一个字都不出现**（有测试钉着）。 */
   function refreshTasks() {
     var p = $('pane-tasks'); if (!p) return;
-    var html = '';
-    for (var a = 1; a <= 5; a++) {
-      var list = D.tasksOfAct(a);
-      html += '<div class="arc-h">第 ' + a + ' 幕（' + list.filter(taskDone).length + '/' + list.length + '）</div>';
-      list.forEach(function (t) {
-        var done = taskDone(t);
-        html += '<div class="arc-item' + (done ? '' : (t.act === S.act ? '' : ' locked')) + '">' +
-          (done ? '✓ ' : '○ ') + '<b>' + t.title + '</b>' + t.brief +
-          (done ? '' : '<br><span style="color:var(--dim)">线索：' + t.hint + '</span>') + '</div>';
-      });
+    var list = D.tasksOfAct(S.act);
+    var todo = list.filter(function (t) { return !taskDone(t); });
+    var done = list.filter(function (t) { return taskDone(t); });
+    var next = todo.filter(function (t) { return t.kind === 'main'; })[0] || todo[0] || null;
+    var lastAct = 1; D.TASKS.forEach(function (t) { if (t.act > lastAct) lastAct = t.act; });
+    var html = '<div class="arc-h">第 ' + S.act + ' 幕 · 现在（还差 ' + todo.length + ' 项）</div>';
+    if (next) {
+      html += '<div class="arc-item task-now"><span class="tn-tag">现在</span><b>' + next.title + '</b>' + next.brief +
+        '<br><span style="color:var(--dim)">线索：' + next.hint + '</span></div>';
     }
+    todo.filter(function (t) { return !next || t.id !== next.id; }).forEach(function (t) {
+      html += '<div class="arc-item">' + (t.kind === 'main' ? '◆ ' : '○ ') + '<b>' + t.title + '</b>' + t.brief +
+        '<br><span style="color:var(--dim)">线索：' + t.hint + '</span></div>';
+    });
+    if (!todo.length) html += '<div class="arc-item">这一幕该做的都做了 —— 往前走，下一幕自己会来。</div>';
+    if (done.length) {
+      html += '<div class="arc-h">本幕已了（' + done.length + '）</div>' + done.map(function (t) {
+        return '<div class="arc-item done-line">✓ ' + t.title + '</div>';
+      }).join('');
+    }
+    var past = [];
+    for (var a = 1; a < S.act; a++) {
+      var pl = D.tasksOfAct(a);
+      if (pl.length) past.push('第 ' + a + ' 幕 ' + pl.filter(taskDone).length + '/' + pl.length);
+    }
+    var shut = [];
+    scene().portals.concat(scene().places).forEach(function (q) {
+      if (q.to && q.need && !S.flags[q.need]) shut.push('<b>' + (q.label || q.name) + '</b> —— 要先做完' + needText(q.need));
+    });
+    if (shut.length) html += '<div class="arc-h">这里出不去（' + shut.length + '）</div><div class="arc-item locked">' + shut.join('<br>') + '</div>';
+    html += '<div class="arc-note">' + (past.length ? past.join(' · ') + ' · 过去了<br>' : '') +
+      (lastAct > S.act ? '后面还有 ' + (lastAct - S.act) + ' 幕 —— 到那一幕，才轮到你操心。' : '这是最后一幕了。') + '</div>';
     p.innerHTML = html;
   }
   function refreshAlbum() {
@@ -569,6 +631,14 @@
     else { r *= 1 + amt; g *= 1 + amt; b *= 1 + amt; }
     return 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
   }
+  /* 两个颜色按比例混（只吃 #rrggbb）—— 房子要的是"材质色"，不能把近黑的 solid 一路提亮 */
+  function mix(a, b, t) {
+    var A = /^#([0-9a-fA-F]{6})$/.exec(String(a || '')), B = /^#([0-9a-fA-F]{6})$/.exec(String(b || ''));
+    if (!A || !B) return String(a || b || '#000');
+    var va = parseInt(A[1], 16), vb = parseInt(B[1], 16), out = [];
+    for (var sh = 16; sh >= 0; sh -= 8) out.push(Math.round(((va >> sh) & 255) + (((vb >> sh) & 255) - ((va >> sh) & 255)) * t));
+    return 'rgb(' + out[0] + ',' + out[1] + ',' + out[2] + ')';
+  }
   function shadowUnder(c, px, py, rx, ry) {
     c.fillStyle = 'rgba(0,0,0,.30)';
     c.beginPath(); c.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); c.fill();
@@ -579,8 +649,9 @@
     for (var y = 0; y < GRID_H; y++) for (var x = 0; x < GRID_W; x++) {
       var px = x * CELL, py = y * CELL;
       var n1 = hash(x, y, 1), n2 = hash(x, y, 2), n3 = hash(x, y, 3);
-      var base = ((x + y) % 2 === 0) ? pal.ground : pal.ground2;
-      c.fillStyle = shade(base, (n1 - 0.5) * 0.22);
+      /* 四格一档的大斑 + 每格微差：以前是逐格明暗交替，铺出来就是一张棋盘（最像 8bit 的地方） */
+      var macro = hash(x >> 2, y >> 2, 9);
+      c.fillStyle = shade(pal.ground, (macro - 0.5) * 0.20 + (n1 - 0.5) * 0.10);
       c.fillRect(px, py, CELL, CELL);
       if (style === 'stone') {
         c.strokeStyle = 'rgba(0,0,0,.20)'; c.lineWidth = 1;
@@ -592,7 +663,7 @@
         }
       } else if (style === 'plank' || style === 'wood') {
         var seam = style === 'wood' ? 12 : 16;
-        c.strokeStyle = 'rgba(0,0,0,.26)'; c.lineWidth = 1;
+        c.strokeStyle = 'rgba(0,0,0,.20)'; c.lineWidth = 1;
         c.beginPath(); c.moveTo(px, py + seam + 0.5); c.lineTo(px + CELL, py + seam + 0.5); c.stroke();
         c.strokeStyle = 'rgba(255,255,255,.05)';
         c.beginPath(); c.moveTo(px, py + seam - 0.5); c.lineTo(px + CELL, py + seam - 0.5); c.stroke();
@@ -627,21 +698,104 @@
       c.fillStyle = g; c.fillRect(gx - gr, gy - gr, gr * 2, gr * 2);
     }
   }
-  /* 障碍：投影 + 上下渐变 + 砖缝，做出厚度（原来是纯色方块） */
+  /* 建筑：从上看是屋顶（屋脊 + 瓦楞 + 檐），底下露出墙面（错缝砖 + 暖窗），脚下落影。
+     一次烘焙，细节随便加都不吃帧率；每块的差别全由 hash 决定，刷新也不会变。 */
   function paintSolids(c, sc, pal) {
+    var style = GROUND[sc.id] || 'stone';
+    var lit = (sc.ambient === 'night' || sc.ambient === 'lamp' || sc.ambient === 'dusk');
+    var vert = (style === 'stone' || style === 'tile' || style === 'salt');   /* 瓦楞竖着排；木板屋横着来 */
     sc.solids.forEach(function (s) {
       var x = s[0] * CELL, y = s[1] * CELL, w = s[2] * CELL, h = s[3] * CELL;
-      c.fillStyle = 'rgba(0,0,0,.30)';
-      c.fillRect(x + 3, y + h - 4, w, 7);
-      var g = c.createLinearGradient(0, y, 0, y + h);
-      g.addColorStop(0, shade(pal.solid, 0.18));
-      g.addColorStop(0.55, pal.solid);
-      g.addColorStop(1, shade(pal.solid, -0.28));
-      c.fillStyle = g; c.fillRect(x, y, w, h);
-      c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(x, y, w, 5);
-      c.strokeStyle = 'rgba(0,0,0,.28)'; c.lineWidth = 1;
-      for (var sx = x + 24; sx < x + w - 2; sx += 24) { c.beginPath(); c.moveTo(sx + 0.5, y + 6); c.lineTo(sx + 0.5, y + h - 2); c.stroke(); }
-      for (var sy = y + 22; sy < y + h - 2; sy += 22) { c.beginPath(); c.moveTo(x + 1, sy + 0.5); c.lineTo(x + w - 1, sy + 0.5); c.stroke(); }
+      var thin = (s[2] <= 1 || s[3] <= 1);        /* 一格宽 = 围墙 / 礁带，不是房子 */
+      var wallH = thin ? h : Math.min(h - 6, Math.max(10, h * 0.38));
+      var wallY = thin ? y : y + h - wallH;
+      var i, k;
+      /* 落影：三层错位，方块"立"在格子上 */
+      for (i = 3; i >= 1; i--) {
+        c.fillStyle = 'rgba(0,0,0,' + (0.07 + i * 0.04).toFixed(2) + ')';
+        c.fillRect(x + i * 1.6, y + h - 4 + i * 1.8, w, 3 + i * 1.6);
+      }
+      if (!thin) {
+        /* ---- 屋顶：双坡（中间一道屋脊）+ 瓦楞 + 瓦行 + 受光檐口 ---- */
+        var roofTone = mix(pal.solid, (style === 'plank' || style === 'wood') ? '#8a7150' : '#6b7784', 0.52);
+        var rx = x - 3, rw = w + 6, ry = y - 3, rh = h - wallH + 3;
+        var rg = c.createLinearGradient(0, ry, 0, ry + rh);
+        rg.addColorStop(0, shade(roofTone, 0.26));
+        rg.addColorStop(0.46, shade(roofTone, 0.14));
+        rg.addColorStop(0.54, shade(roofTone, -0.04));
+        rg.addColorStop(1, shade(roofTone, -0.26));
+        c.fillStyle = rg; c.fillRect(rx, ry, rw, rh);
+        /* 瓦楞（顺坡）+ 瓦行（横档）：两个方向都有，才像一片瓦而不是一块板 */
+        c.strokeStyle = 'rgba(0,0,0,.26)'; c.lineWidth = 1;
+        for (i = (vert ? rx + 7 : ry + 6); i < (vert ? rx + rw : ry + rh) - 1; i += (vert ? 7 : 6)) {
+          c.beginPath();
+          if (vert) { c.moveTo(i + 0.5, ry + 1); c.lineTo(i + 0.5, ry + rh - 1); }
+          else { c.moveTo(rx + 1, i + 0.5); c.lineTo(rx + rw - 1, i + 0.5); }
+          c.stroke();
+        }
+        c.strokeStyle = 'rgba(0,0,0,.14)';
+        for (i = ry + 8; i < ry + rh - 2; i += 8) {
+          c.beginPath(); c.moveTo(rx + 1, i + 0.5); c.lineTo(rx + rw - 1, i + 0.5); c.stroke();
+        }
+        c.fillStyle = shade(roofTone, 0.52); c.fillRect(rx + 1, ry + rh * 0.46, rw - 2, 3);
+        c.fillStyle = 'rgba(255,255,255,.16)'; c.fillRect(rx, ry, rw, 2);
+        c.fillStyle = 'rgba(0,0,0,.40)'; c.fillRect(x, wallY - 4, w, 4);
+        c.strokeStyle = 'rgba(0,0,0,.50)'; c.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
+        /* 大屋顶上立一根烟囱（按 seed 决定有没有） */
+        if (s[2] >= 3 && rh > 16 && hash(s[0], s[1], 41) > 0.45) {
+          var chx = rx + 7 + hash(s[0], s[1], 43) * Math.max(1, rw - 22);
+          c.fillStyle = shade(roofTone, -0.42); c.fillRect(chx, ry + 4, 7, 11);
+          c.fillStyle = shade(roofTone, 0.34); c.fillRect(chx - 2, ry + 3, 11, 3.5);
+          if (lit) { c.fillStyle = 'rgba(255,198,120,.22)'; c.fillRect(chx - 2, ry + 14, 11, 4); }
+        }
+      }
+      /* ---- 墙身：错缝砖 + 墙脚压暗 ---- */
+      var wallTone = mix(pal.solid, '#7c6c50', thin ? 0.34 : 0.42);
+      var wg = c.createLinearGradient(0, wallY, 0, wallY + wallH);
+      wg.addColorStop(0, shade(wallTone, 0.16));
+      wg.addColorStop(1, shade(wallTone, -0.34));
+      c.fillStyle = wg; c.fillRect(x, wallY, w, wallH);
+      c.strokeStyle = 'rgba(0,0,0,.26)'; c.lineWidth = 1;
+      var bn = 0;
+      for (var by = wallY + 8; by < wallY + wallH - 2; by += 8, bn++) {
+        c.beginPath(); c.moveTo(x + 1, by + 0.5); c.lineTo(x + w - 1, by + 0.5); c.stroke();
+        for (var bx = x + (bn % 2 ? 12 : 4); bx < x + w - 2; bx += 16) {
+          c.beginPath(); c.moveTo(bx + 0.5, by - 7); c.lineTo(bx + 0.5, by); c.stroke();
+        }
+      }
+      c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(x, wallY, w, 1.6);
+      c.fillStyle = 'rgba(0,0,0,.30)'; c.fillRect(x, wallY + wallH - 3, w, 3);
+      if (thin) {
+        /* 围墙 / 礁带：压顶石 + 竖缝，别看起来像一条纯色 */
+        c.fillStyle = shade(wallTone, 0.34); c.fillRect(x, y, w, 3);
+        c.fillStyle = 'rgba(255,255,255,.09)'; c.fillRect(x, y + 3, w, 1);
+        c.strokeStyle = 'rgba(0,0,0,.24)'; c.lineWidth = 1;
+        for (k = x + CELL; k < x + w - 1; k += CELL) { c.beginPath(); c.moveTo(k + 0.5, y + 4); c.lineTo(k + 0.5, y + h - 2); c.stroke(); }
+      } else if (wallH >= 12) {
+        /* ---- 窗：夜里点着灯就是暖的，没人就冷着 ---- */
+        var wn = Math.floor((w - 12) / 26);
+        for (k = 0; k < wn; k++) {
+          var wx = x + 9 + k * 26 + hash(s[0] + k, s[1], 51) * 5;
+          if (wx + 14 > x + w - 4) break;
+          var wy = wallY + Math.max(3, Math.min(wallH - 17, wallH * 0.28));
+          c.fillStyle = '#1c1a16'; c.fillRect(wx - 2, wy - 2, 16, 17);
+          var wgd = c.createLinearGradient(wx, wy, wx, wy + 13);
+          if (lit) { wgd.addColorStop(0, '#fff0c8'); wgd.addColorStop(0.55, '#ffcf78'); wgd.addColorStop(1, '#e08a24'); }
+          else { wgd.addColorStop(0, '#8fa2b4'); wgd.addColorStop(1, '#465360'); }
+          c.fillStyle = wgd; c.fillRect(wx, wy, 12, 13);
+          c.strokeStyle = 'rgba(20,18,14,.75)'; c.lineWidth = 1;
+          c.beginPath(); c.moveTo(wx + 6, wy); c.lineTo(wx + 6, wy + 13); c.stroke();
+          c.beginPath(); c.moveTo(wx, wy + 4); c.lineTo(wx + 12, wy + 4); c.stroke();
+          c.beginPath(); c.moveTo(wx, wy + 9); c.lineTo(wx + 12, wy + 9); c.stroke();
+          c.fillStyle = 'rgba(255,255,255,.22)'; c.fillRect(wx, wy, 12, 1.6);
+          if (lit) {
+            c.fillStyle = 'rgba(255,206,132,.18)'; c.fillRect(wx - 6, wy + 13, 24, 9);
+            var wgl = c.createRadialGradient(wx + 6, wy + 6, 2, wx + 6, wy + 6, 26);
+            wgl.addColorStop(0, 'rgba(255,206,132,.18)'); wgl.addColorStop(1, 'rgba(255,206,132,0)');
+            c.fillStyle = wgl; c.beginPath(); c.arc(wx + 6, wy + 6, 26, 0, Math.PI * 2); c.fill();
+          }
+        }
+      }
       c.strokeStyle = 'rgba(0,0,0,.45)'; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     });
   }
@@ -731,43 +885,290 @@
     c.restore();
   }
 
+  /* ---------- 可交互点：每种点有自己的"建模"，不再是一块灰方块 / 一个白点 ---------- */
+  function softGlow(c, px, py, r, rgb, a) {
+    var g = c.createRadialGradient(px, py, 1, px, py, r);
+    g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')');
+    g.addColorStop(1, 'rgba(' + rgb + ',0)');
+    c.fillStyle = g; c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.fill();
+  }
+  /* 一块木料：底色 + 上缘受光 + 描边 */
+  function plank(c, x, y, w, h) {
+    c.fillStyle = '#6b5327'; c.fillRect(x, y, w, h);
+    c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(x + 1, y + 1, w - 2, 2);
+    c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  }
+  /* 一块石料 / 台阶：底色 + 上缘受光 + 描边 */
+  function slab(c, x, y, w, h, fill, line) {
+    c.fillStyle = fill; c.fillRect(x, y, w, h);
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(x, y, w, 1.6);
+    c.strokeStyle = line || 'rgba(0,0,0,.45)'; c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  }
+  /* 谁是谁：NPC 各有各的颜色，别一水儿青蓝 */
+  var NPC_COL = { hai: '#8fb8c8', chen: '#c8a08f', keeper: '#a9a2c4', awang: '#c2b184', liu: '#9fb0a8', her: '#c9b0c8' };
+  /* 谜题类型 → 家伙什（没列进去的落回通用石台） */
+  var PROP_OF = { lampcode: 'lamp', dial: 'clock', read_book: 'book', ledger: 'book', diary: 'book',
+    search: 'shelf', sluice: 'sluice', scales: 'scale', name: 'stele' };
+
+  function drawProp(c, kind, px, py, col, lit) {
+    var warm = lit ? '255,206,132' : '178,200,216';
+    var lg, i;
+    if (kind === 'lamp') {
+      /* 望归灯：石座 + 灯柱 + 玻璃罩 */
+      shadowUnder(c, px, py + 15, 11, 4.5);
+      slab(c, px - 8, py + 9, 16, 7, '#2b3546');
+      c.fillStyle = '#3c4655'; c.fillRect(px - 2.5, py - 6, 5, 16);
+      c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(px + 0.5, py - 6, 2, 16);
+      softGlow(c, px, py - 8, 24, warm, lit ? 0.42 : 0.18);
+      lg = c.createLinearGradient(px, py - 15, px, py - 1);
+      lg.addColorStop(0, lit ? '#fff3cf' : '#cfe0ea'); lg.addColorStop(1, lit ? '#efa63c' : '#6d7c88');
+      c.fillStyle = lg; c.beginPath();
+      c.moveTo(px - 5.5, py - 1); c.lineTo(px - 4, py - 14); c.lineTo(px + 4, py - 14); c.lineTo(px + 5.5, py - 1);
+      c.closePath(); c.fill();
+      slab(c, px - 6.5, py - 17, 13, 3.4, '#2b3546');
+      slab(c, px - 5, py - 1.6, 10, 2.6, '#2b3546');
+    } else if (kind === 'clock') {
+      /* 灯楼的旧钟：木箱 + 钟面 + 指针 */
+      shadowUnder(c, px, py + 14, 12, 5);
+      plank(c, px - 11, py - 8, 22, 22);
+      c.fillStyle = '#efe3c6'; c.beginPath(); c.arc(px, py + 1, 7.6, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#8a6b2f'; c.lineWidth = 1.2; c.stroke();
+      c.strokeStyle = '#3a2f18'; c.lineWidth = 1.4;
+      c.beginPath(); c.moveTo(px, py + 1); c.lineTo(px, py - 3.6); c.stroke();
+      c.beginPath(); c.moveTo(px, py + 1); c.lineTo(px + 3.8, py + 2.4); c.stroke();
+      c.fillStyle = '#c9a227'; c.beginPath(); c.arc(px, py + 1, 1.1, 0, Math.PI * 2); c.fill();
+      for (i = 0; i < 12; i++) {
+        var tan = i * Math.PI / 6;
+        c.fillStyle = 'rgba(58,47,24,.7)';
+        c.fillRect(px + Math.sin(tan) * 6.4 - 0.4, py + 1 - Math.cos(tan) * 6.4 - 0.4, 0.9, 0.9);
+      }
+    } else if (kind === 'book') {
+      /* 摊开的账本 / 抄本：两张纸 + 书脊 */
+      shadowUnder(c, px, py + 12, 14, 5);
+      plank(c, px - 15, py - 1, 30, 13);
+      c.fillStyle = '#efe6d0';
+      c.beginPath(); c.moveTo(px - 12, py - 9); c.lineTo(px - 0.6, py - 5.5); c.lineTo(px - 0.6, py + 2); c.lineTo(px - 12, py - 1.5); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(px + 12, py - 9); c.lineTo(px + 0.6, py - 5.5); c.lineTo(px + 0.6, py + 2); c.lineTo(px + 12, py - 1.5); c.closePath(); c.fill();
+      c.strokeStyle = 'rgba(96,76,42,.65)'; c.lineWidth = 0.8;
+      for (i = 0; i < 3; i++) {
+        c.beginPath(); c.moveTo(px - 10.5, py - 6.6 + i * 2.1); c.lineTo(px - 2, py - 4.6 + i * 2.1); c.stroke();
+        c.beginPath(); c.moveTo(px + 10.5, py - 6.6 + i * 2.1); c.lineTo(px + 2, py - 4.6 + i * 2.1); c.stroke();
+      }
+      c.fillStyle = '#4a3a20'; c.fillRect(px - 0.8, py - 6, 1.6, 8.4);
+    } else if (kind === 'shelf') {
+      /* 卷宗架：三层，塞着卷宗 */
+      shadowUnder(c, px, py + 14, 13, 5);
+      plank(c, px - 13, py - 14, 26, 28);
+      for (i = 0; i < 3; i++) {
+        var sy2 = py - 11 + i * 9, j;
+        c.fillStyle = 'rgba(0,0,0,.30)'; c.fillRect(px - 11, sy2 + 6.5, 22, 1.6);
+        for (j = 0; j < 4; j++) {
+          var sh2 = 5 + hash(i + 1, j + 1, 61) * 3;
+          c.fillStyle = ['#b9a06a', '#8f7a48', '#d8c48e', '#7d6a44'][(i + j) % 4];
+          c.fillRect(px - 10 + j * 5.4, sy2 + 6.5 - sh2, 4, sh2);
+        }
+      }
+    } else if (kind === 'sluice') {
+      /* 潮堤闸门：铁框 + 闸板 + 手轮 */
+      shadowUnder(c, px, py + 15, 14, 5);
+      slab(c, px - 13, py - 13, 26, 27, '#39424e');
+      c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = 1;
+      for (i = 0; i < 3; i++) { c.beginPath(); c.moveTo(px - 9 + i * 9, py - 12); c.lineTo(px - 9 + i * 9, py + 13); c.stroke(); }
+      c.fillStyle = '#8c99a6'; c.beginPath(); c.arc(px, py + 1, 5.6, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#2b3546'; c.lineWidth = 1.6;
+      for (i = 0; i < 4; i++) {
+        var an = i * Math.PI / 2 + 0.4;
+        c.beginPath(); c.moveTo(px, py + 1); c.lineTo(px + Math.cos(an) * 5.6, py + 1 + Math.sin(an) * 5.6); c.stroke();
+      }
+    } else if (kind === 'scale') {
+      /* 秤：立柱 + 横梁 + 两只秤盘 */
+      shadowUnder(c, px, py + 13, 11, 4);
+      c.fillStyle = '#6b5327'; c.fillRect(px - 2, py - 6, 4, 19); c.fillRect(px - 9, py + 11, 18, 3);
+      c.strokeStyle = '#c9a227'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(px - 13, py - 7); c.lineTo(px + 13, py - 6); c.stroke();
+      c.fillStyle = '#c9a227'; c.beginPath(); c.arc(px, py - 7, 2, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = 'rgba(201,162,39,.8)'; c.lineWidth = 1;
+      for (var sd = -1; sd <= 1; sd += 2) {
+        var dx2 = px + sd * 12;
+        c.beginPath(); c.moveTo(dx2, py - 6.5); c.lineTo(dx2 - 4, py - 1); c.moveTo(dx2, py - 6.5); c.lineTo(dx2 + 4, py - 1); c.stroke();
+        c.fillStyle = 'rgba(201,162,39,.5)';
+        c.beginPath(); c.ellipse(dx2, py - 0.6, 4.6, 1.7, 0, 0, Math.PI * 2); c.fill();
+      }
+    } else if (kind === 'stele') {
+      /* 名字碑：石面 + 刻痕 + 底座 */
+      shadowUnder(c, px, py + 15, 11, 4.5);
+      slab(c, px - 10, py - 17, 20, 32, '#3b3f45');
+      c.fillStyle = 'rgba(255,255,255,.06)'; c.fillRect(px - 10, py - 17, 4, 32);
+      c.fillStyle = '#2b2620'; c.fillRect(px - 6.5, py - 13, 13, 24);
+      c.strokeStyle = 'rgba(232,222,198,.55)'; c.lineWidth = 0.8;
+      for (i = 0; i < 4; i++) { c.beginPath(); c.moveTo(px - 4.5, py - 10 + i * 5); c.lineTo(px + 4.5, py - 10 + i * 5); c.stroke(); }
+      softGlow(c, px, py - 2, 20, warm, lit ? 0.16 : 0.07);
+    } else {
+      /* 通用谜题：石台 + 记忆的光 */
+      shadowUnder(c, px, py + 14, 12, 5);
+      slab(c, px - 12, py - 11, 24, 25, '#5b4a26', shade(col, -0.2));
+      c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(px - 10, py - 9, 20, 5);
+      softGlow(c, px, py + 1, 24, warm, 0.26);
+      c.fillStyle = col; c.font = '20px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('\u2726', px, py + 2);
+    }
+  }
+
+  function drawChest(c, px, py) {
+    /* 铁盒：箱体 + 弧盖 + 铜扣 */
+    shadowUnder(c, px, py + 13, 14, 5);
+    c.fillStyle = '#5a5240'; c.fillRect(px - 14, py - 4, 28, 17);
+    var cg = c.createLinearGradient(px, py - 14, px, py - 3);
+    cg.addColorStop(0, '#5f5542'); cg.addColorStop(1, '#3a3327');
+    c.fillStyle = cg;
+    c.beginPath(); c.moveTo(px - 14, py - 4); c.lineTo(px - 14, py - 9);
+    c.quadraticCurveTo(px, py - 19, px + 14, py - 9); c.lineTo(px + 14, py - 4); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.55)'; c.lineWidth = 1; c.strokeRect(px - 13.5, py - 4.5, 27, 17);
+    c.fillStyle = '#c9a227'; c.fillRect(px - 3, py - 6, 6, 9);
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px - 12, py - 3, 24, 2);
+    softGlow(c, px, py - 2, 22, '255,206,132', 0.18);
+  }
+
+  function drawGoods(c, px, py) {
+    /* 寄售架：三层小格，摆着东西 */
+    shadowUnder(c, px, py + 14, 13, 5);
+    plank(c, px - 14, py - 15, 28, 30);
+    for (var r2 = 0; r2 < 3; r2++) {
+      var ry2 = py - 12 + r2 * 10, q2;
+      c.fillStyle = 'rgba(0,0,0,.32)'; c.fillRect(px - 12, ry2 + 7, 24, 2);
+      for (q2 = 0; q2 < 3; q2++) {
+        var hh = 4 + hash(r2 + 3, q2 + 5, 71) * 4;
+        c.fillStyle = ['#b9a06a', '#8f7a48', '#d8c48e'][(r2 + q2) % 3];
+        c.fillRect(px - 10 + q2 * 8, ry2 + 7 - hh, 5, hh);
+      }
+    }
+    softGlow(c, px, py, 24, '255,206,132', 0.10);
+  }
+
+  function drawBoard(c, px, py) {
+    /* 告示牌：两根柱 + 板 + 钉着的纸 */
+    shadowUnder(c, px, py + 14, 13, 5);
+    c.fillStyle = '#6b5327'; c.fillRect(px - 9, py + 5, 3, 9); c.fillRect(px + 6, py + 5, 3, 9);
+    plank(c, px - 14, py - 14, 28, 21);
+    var papers = [[-10, -11, 8, 7], [0, -12, 8, 6], [-7, -2, 9, 6], [4, -3, 7, 5]];
+    papers.forEach(function (pp, i) {
+      c.fillStyle = i % 2 ? '#e7dcc0' : '#dbcfae';
+      c.fillRect(px + pp[0], py + pp[1], pp[2], pp[3]);
+      c.fillStyle = 'rgba(60,50,30,.45)';
+      c.fillRect(px + pp[0] + 1, py + pp[1] + 2, pp[2] - 3, 0.9);
+      c.fillRect(px + pp[0] + 1, py + pp[1] + 4.5, pp[2] - 4.5, 0.9);
+    });
+  }
+
+  function drawSite(c, px, py, id) {
+    /* 干活点：油桶 + 木板（潮堤那处换成沙袋 + 木桩） */
+    var b2;
+    shadowUnder(c, px, py + 14, 14, 5);
+    if (id === 'dike') {
+      for (b2 = 0; b2 < 3; b2++) {
+        slab(c, px - 14 + b2 * 9, py + 1 - b2 * 3, 13, 12, b2 % 2 ? '#8d8574' : '#9c9482');
+      }
+      c.fillStyle = '#6b5327'; c.fillRect(px + 3, py - 14, 4, 26);
+      c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px + 3, py - 14, 4, 2);
+      c.fillStyle = '#f2f5fa'; c.beginPath(); c.ellipse(px + 5, py - 6, 8, 3, 0, 0, Math.PI * 2); c.fill();
+    } else {
+      c.fillStyle = '#6b5327'; c.fillRect(px - 15, py - 6, 13, 18);
+      c.fillStyle = 'rgba(0,0,0,.28)'; c.fillRect(px - 15, py + 1, 13, 2); c.fillRect(px - 15, py + 8, 13, 2);
+      c.fillStyle = '#6b5327'; c.beginPath(); c.ellipse(px - 8.5, py - 6, 6.5, 2.6, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = 'rgba(255,206,132,.5)'; c.beginPath(); c.ellipse(px - 8.5, py - 6, 4.6, 1.7, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#8a733f'; c.lineWidth = 3;
+      c.beginPath(); c.moveTo(px + 2, py + 11); c.lineTo(px + 14, py - 3); c.stroke();
+      c.strokeStyle = '#6b5327'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(px + 3, py - 4); c.lineTo(px + 13, py + 10); c.stroke();
+      softGlow(c, px - 2, py, 20, '255,206,132', 0.10);
+    }
+  }
+
+  function drawTrace(c, p, px, py) {
+    /* "细看"类：地上留一道痕迹 + 一点若有若无的光，别只放个白点 */
+    c.fillStyle = 'rgba(255,255,255,.09)';
+    c.beginPath(); c.ellipse(px, py - 2, 12, 5.5, hash(p.x, p.y, 21) * 3, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.18)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px - 9, py + 4); c.lineTo(px + 8, py - 3); c.stroke();
+    c.beginPath(); c.moveTo(px - 5, py + 6); c.lineTo(px + 4, py + 1); c.stroke();
+    softGlow(c, px, py - 2, 16, '226,232,240', 0.06);
+  }
+
+  /* 出发位置：门楼 + 台阶 + 一盏灯笼，地上还有朝外的脚印 */
+  function drawPortal(c, p, col) {
+    var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
+    var side = (p.x <= 0) ? -1 : (p.x >= GRID_W - 1 ? 1 : 0);      /* 左右边缘 = 横着出门 */
+    var j, bx;
+    softGlow(c, px, py, 30, '255,208,132', 0.15);
+    if (!side) {
+      /* 正面门：门楣 + 两根柱，门洞里是黑的，三级台阶在门前 */
+      var cy = (p.y >= GRID_H - 1) ? py - 9 : py;                  /* 贴下沿就整体上提，别让台阶被裁掉 */
+      slab(c, px - 17, cy - 20, 34, 5, '#77828f');
+      slab(c, px - 15, cy - 15, 4, 30, '#5c6673');
+      slab(c, px + 11, cy - 15, 4, 30, '#5c6673');
+      var og = c.createLinearGradient(0, cy - 15, 0, cy + 11);
+      og.addColorStop(0, 'rgba(6,9,14,.30)'); og.addColorStop(0.75, 'rgba(8,11,17,.78)'); og.addColorStop(1, 'rgba(255,196,110,.22)');
+      c.fillStyle = og; c.fillRect(px - 11, cy - 15, 22, 26);
+      c.strokeStyle = 'rgba(255,208,132,.30)'; c.lineWidth = 1.4;
+      c.strokeRect(px - 10, cy - 14, 20, 24);
+      c.fillStyle = '#2b3546'; c.fillRect(px + 12.6, cy - 14, 1.6, 5);
+      softGlow(c, px + 13.4, cy - 7, 16, '255,196,110', 0.38);
+      c.fillStyle = '#c9542f'; c.beginPath(); c.ellipse(px + 13.4, cy - 7, 4, 5.2, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#f0c46a'; c.fillRect(px + 11, cy - 2.6, 4.8, 1.6);
+      for (j = 0; j < 3; j++) {
+        var sw = 26 + j * 6;
+        slab(c, px - sw / 2, cy + 11 + j * 4.6, sw, 4.6, j % 2 ? '#6a7684' : '#7d8a99', 'rgba(0,0,0,.42)');
+      }
+      c.fillStyle = 'rgba(255,214,140,.26)';
+      for (j = 0; j < 2; j++) { c.beginPath(); c.ellipse(px - 3 + j * 6, cy + 25 + j * 1.2, 2, 3, 0, 0, Math.PI * 2); c.fill(); }
+      softGlow(c, px, cy + 8, 30, '255,206,132', 0.22);          /* 门口那片暖光池 */
+    } else {
+      /* 侧门：门洞朝地图外，台阶横着往外三级 */
+      var s3 = side;
+      slab(c, px - 10, py - 17, 20, 4.4, '#77828f');
+      slab(c, px - 10, py + 12.6, 20, 4.4, '#5c6673');
+      var og2 = c.createLinearGradient(px, 0, px + s3 * 15, 0);
+      og2.addColorStop(0, 'rgba(6,9,14,.32)'); og2.addColorStop(1, 'rgba(6,9,14,.82)');
+      c.fillStyle = og2; c.fillRect(px - 9, py - 13, 18, 26);
+      c.strokeStyle = 'rgba(255,208,132,.28)'; c.lineWidth = 1.4;
+      c.strokeRect(px - 8, py - 12, 16, 24);
+      for (j = 0; j < 3; j++) {
+        var hj = 22 + j * 4, xj = px + s3 * (1.5 + j * 5.4) - (s3 > 0 ? 0 : 5.4);
+        slab(c, xj, py - hj / 2, 5.4, hj, j % 2 ? '#6a7684' : '#7d8a99', 'rgba(0,0,0,.42)');
+      }
+      c.fillStyle = 'rgba(255,214,140,.26)';
+      for (j = 0; j < 3; j++) {
+        bx = px + s3 * (16 + j * 6);
+        c.beginPath(); c.ellipse(bx, py - 3 + (j % 2) * 6, 3, 1.9, 0, 0, Math.PI * 2); c.fill();
+      }
+      softGlow(c, px, py - 15, 20, '255,196,110', 0.34);
+      c.fillStyle = '#d9683c'; c.beginPath(); c.ellipse(px, py - 15, 4, 5, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#f5cf7a'; c.fillRect(px - 2.6, py - 10.4, 5.2, 1.8);
+    }
+  }
+
   function drawPlace(c, p) {
     var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
-    var col = scene().palette.accent;
+    var sc = scene(), col = sc.palette.accent;
+    var lit = (sc.ambient === 'night' || sc.ambient === 'lamp' || sc.ambient === 'dusk');
     c.save();
-    if (p.kind === 'npc') {
-      drawFigure(c, p.x, p.y, '#8fb8c8', -1, 0);
-    } else if (p.kind === 'puzzle') {
-      shadowUnder(c, px, py + 15, 16, 6);
-      c.fillStyle = '#2a2416'; c.fillRect(px - 16, py - 4, 32, 18);
-      c.fillStyle = '#3a2f18'; c.strokeStyle = shade(col, -0.20); c.lineWidth = 2;
-      c.beginPath(); c.rect(px - 15, py - 15, 30, 30); c.fill(); c.stroke();
-      c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(px - 13, py - 13, 26, 6);
-      var g = c.createRadialGradient(px, py, 2, px, py, 26);
-      g.addColorStop(0, 'rgba(255,226,150,.26)'); g.addColorStop(1, 'rgba(255,226,150,0)');
-      c.fillStyle = g; c.beginPath(); c.arc(px, py, 26, 0, Math.PI * 2); c.fill();
-      c.fillStyle = col; c.font = '20px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillText('\u2726', px, py + 1);
-    } else if (p.kind === 'item' || p.kind === 'buy') {
-      shadowUnder(c, px, py + 13, 15, 5);
-      c.fillStyle = '#4a3a20'; c.strokeStyle = shade(col, -0.15); c.lineWidth = 2;
-      c.beginPath(); c.rect(px - 14, py - 11, 28, 22); c.fill(); c.stroke();
-      c.fillStyle = 'rgba(255,255,255,.09)'; c.fillRect(px - 12, py - 9, 24, 5);
-      c.beginPath(); c.moveTo(px - 14, py - 3); c.lineTo(px + 14, py - 3); c.stroke();
-      c.fillStyle = shade(col, 0.10); c.fillRect(px - 3, py - 8, 6, 5);
+    if (p.npc) {
+      /* 有身份的 NPC 一律画人（祁掌柜 / 柳先生 / 阿罔以前只是地上的一团灰印） */
+      drawFigure(c, p.x, p.y, NPC_COL[p.id] || '#8fb8c8', -1, 0);
     } else if (p.kind === 'portal') {
-      c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 1;
-      for (var i = 0; i < 3; i++) {
-        c.fillStyle = shade('#2b3546', 0.12 - i * 0.07);
-        c.fillRect(px - 16 + i * 5, py + 12 - i * 9, 32 - i * 10, 9);
-        c.strokeRect(px - 16 + i * 5 + 0.5, py + 12 - i * 9 + 0.5, 32 - i * 10 - 1, 8);
-      }
+      drawPortal(c, p, col);
+    } else if (p.kind === 'puzzle') {
+      drawProp(c, PROP_OF[p.puz] || 'spark', px, py, col, lit);
+    } else if (p.kind === 'item') {
+      drawChest(c, px, py);
+    } else if (p.kind === 'buy') {
+      drawGoods(c, px, py);
+    } else if (p.kind === 'jobs') {
+      drawBoard(c, px, py);
+    } else if (p.kind === 'work') {
+      drawSite(c, px, py, p.id);
     } else {
-      /* "细看"类：地上留一道痕迹，别只放个白点 */
-      c.fillStyle = 'rgba(255,255,255,.10)';
-      c.beginPath(); c.ellipse(px, py - 2, 11, 5, hash(p.x, p.y, 21) * 3, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 1;
-      c.beginPath(); c.moveTo(px - 8, py + 4); c.lineTo(px + 7, py - 2); c.stroke();
+      drawTrace(c, p, px, py);
     }
     c.restore();
   }
@@ -782,8 +1183,11 @@
     var sc = scene(), pal = sc.palette;
     paintGround(c, pal, GROUND[S.scene] || 'stone');
     paintSolids(c, sc, pal);
-    sc.portals.forEach(function (p) { drawPlace(c, { x: p.x, y: p.y, kind: 'portal' }); });
-    sc.places.forEach(function (p) { if (p.kind !== 'portal') drawPlace(c, p); });
+    /* 出口格画门楼；places 里那些 kind='portal' 的（镇上的记当铺 / 岛史馆 / 盐埕口）
+       以前被这一行整批跳过 —— 三扇门从来没画出来过，玩家只能靠互动标签猜。 */
+    var exitHere = {};
+    sc.portals.forEach(function (p) { exitHere[p.x + ',' + p.y] = 1; drawPlace(c, { x: p.x, y: p.y, kind: 'portal' }); });
+    sc.places.forEach(function (p) { if (!exitHere[p.x + ',' + p.y]) drawPlace(c, p); });
     bgDirty = false;
   }
   function setupCanvas() {
@@ -809,11 +1213,14 @@
     if (bgDirty) bake();
     ctx.fillStyle = pal.sky; ctx.fillRect(0, 0, VW, VH);
     if (bg) ctx.drawImage(bg, 0, 0, VW, VH);
-    /* 出口：脉冲高亮 + 标签 */
+    /* 出口：门楼脚下那口气在呼吸（硬方块会压掉台阶的层次） + 标签 */
     sc.portals.forEach(function (p) {
       var pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
-      ctx.fillStyle = 'rgba(201,162,39,' + (0.10 + 0.10 * pulse).toFixed(2) + ')';
-      ctx.fillRect((p.x - 1) * CELL, (p.y - 1) * CELL, CELL * 3, CELL * 3);
+      var gx = p.x * CELL + CELL / 2, gy = p.y * CELL + CELL / 2;
+      var pg = ctx.createRadialGradient(gx, gy, 3, gx, gy, 44);
+      pg.addColorStop(0, 'rgba(255,206,132,' + (0.14 + 0.11 * pulse).toFixed(2) + ')');
+      pg.addColorStop(1, 'rgba(255,206,132,0)');
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(gx, gy, 44, 0, Math.PI * 2); ctx.fill();
       label(p.label || '\u51fa\u53e3', p.x, p.y, false);
     });
     /* 可交互提示 */
@@ -897,6 +1304,8 @@
     S.t += dt;
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
     if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) $('scene-banner').classList.remove('on'); }
+    if (actCardT > 0) { actCardT -= dt; if (actCardT <= 0) $('act-card').classList.remove('on'); }
+    if (lockCd > 0) lockCd -= dt;
     if (moveCd > 0) moveCd -= dt;
     if (portalCd > 0) portalCd -= dt;
     /* 平滑位移：mx/my 是"眼睛看到的位置"（浮点格坐标），x/y 是"落定的格子"。
@@ -917,7 +1326,11 @@
     /* 站在出口上就换场景（不是只在"刚走完一步"那瞬间才判） */
     if (portalCd <= 0 && !modalOpen && !dlg) {
       var pp = D.portalAt(S.scene, S.x, S.y);
-      if (pp) { enterScene(pp.to, pp.tx, pp.ty); return; }
+      if (pp) {
+        var lk = lockedBy(pp);
+        if (lk) lockToast(lk, true);
+        else { enterScene(pp.to, pp.tx, pp.ty); return; }
+      }
     }
     if (!modalOpen && !dlg && !$('dev-panel').classList.contains('show') && !$('end-modal').classList.contains('show')) {
       var dx = 0, dy = 0;
@@ -933,7 +1346,11 @@
     if (dx) S.face = dx;
     var nx = clamp(S.tx + dx, 0, GRID_W - 1), ny = clamp(S.ty + dy, 0, GRID_H - 1);
     var p = D.portalAt(S.scene, nx, ny);
-    if (p && portalCd <= 0) { enterScene(p.to, p.tx, p.ty); return; }
+    if (p && portalCd <= 0) {
+      var lk = lockedBy(p);
+      if (lk) { lockToast(lk, true); return; }        /* 锁着的门：人被挡住，但门得说话 */
+      enterScene(p.to, p.tx, p.ty); return;
+    }
     if (solid(nx, ny)) {
       var hit = null;
       scene().places.forEach(function (q) { if (q.x === nx && q.y === ny) hit = q; });
