@@ -1099,10 +1099,12 @@
     lights: lights, count: abacus, toggles: switches, shift: cipher, pair: halves, chain: chainlink
   };
 
+  var openId = null;      /* 现在开着的是哪个谜题（引擎的 sfx('wrong') 反噬靠它认门） */
   function open(id) {
     var p = H.D.PUZZLES[id];
     if (!p) return;
     var impl = IMPL[p.kind];
+    openId = id;
     /* 打开谜题必须同时告诉引擎"面板开着"：否则 modalOpen 还是 false，
        弹窗只靠 class 显示——之前靠调用方手动加 class 绕过，实测会引出难查的时序 bug */
     if (H.openModal) H.openModal();
@@ -1121,7 +1123,8 @@
     /* 引擎每帧喂 dt：连环锁的表靠它走（关着面板也走 —— 机关不会等你） */
     tick: function (dt) { CHAIN.tick(dt); },
     /* 引擎关面板时通知谜题层：机关面板合上了，表照样走；旧的定时器一律作废 */
-    onModalClose: function () { CHAIN.leave(); },
+    onModalClose: function () { openId = null; CHAIN.leave(); },
+    current: function () { return openId; },
     /* 给单测用：不经过 DOM 也能验的纯逻辑 */
     _logic: { makeLedger: makeLedger, LEDGER_RULES: LEDGER_RULES, SHAPES: SHAPES, SLUICE: SLUICE, conns: conns, flood: flood, DIARY_ORDER: DIARY_ORDER, PIECES: PIECES, SEARCH: SEARCH,
       LIGHTS: LIGHTS, makeBill: makeBill, makeGates: makeGates, makeCipher: makeCipher, CIPHER_TABLE: CIPHER_TABLE, shuffle: shuffle, CHAIN: CHAIN }
