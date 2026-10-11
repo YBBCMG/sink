@@ -403,50 +403,62 @@
   }
 
   /* ============ 9. 名字重建（部件拼字：阿 + 隐） ============ */
-  var PIECES = ['阝', '可', '阝', '急', '木', '日', '心', '目', '刂'];
+  /* 能拼出名字的四片（阝 可 阝 急）故意打散在别人的笔画里：位置不给暗示，提示也不报数。
+     判题只认一种排法 —— 左"阝"右"可"＝阿、左"阝"右"急"＝隐；同一批碎片换个位置就念不出那个名字。
+     picked 里存的是"第几片"的下标，不是字：两块"阝"各算各的（按字高亮会让选一片亮两片）。 */
+  var PIECES = ['日', '阝', '木', '急', '目', '阝', '心', '可', '刂'];
+  var NAME_ANS = ['阝', '可', '阝', '急'];
+  var NAME_PAIRS = { '阝可': '阿', '阝急': '隐', '木目': '相' };   /* 左＋右拼得出字的组合 */
   function name_(p) {
-    var picked = [];
+    var picked = [], tries = 0;
     H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
-      '<div class="pz-clue">碑上凿掉的是两个字。石碑脚下捡到的笔画碎片里，只有四个能拼出那个名字。</div>' +
+      '<div class="pz-clue">碑上凿掉的是两个字 —— 一个字两片，左一片、右一片。碎片是在碑脚下捡的，里面混着别处来的笔画。</div>' +
       '<div class="nm-grid" id="pz-pieces">' + PIECES.map(function (c, i) {
         return '<button class="nm-pc" data-i="' + i + '">' + c + '</button>';
       }).join('') + '</div>' +
-      '<div class="pz-slots" id="pz-slots"></div>' +
-      '<div class="pz-progress" id="pz-prog">选四个部件</div>');
+      '<div class="pz-slots nm-slots" id="pz-slots"></div>' +
+      '<div class="pz-progress" id="pz-prog">选四片</div>');
+    function chAt(i) { return picked[i] === undefined ? '' : PIECES[picked[i]]; }
+    function word(i) {                       /* 第 i 个字的读法：拼得出就显示，拼不出就是「？」 */
+      var a = chAt(i * 2), b = chAt(i * 2 + 1);
+      if (!a || !b) return '';
+      return NAME_PAIRS[a + b] || '？';
+    }
+    function slot(i) { return '<div class="pz-slot' + (chAt(i) ? ' filled' : '') + '">' + chAt(i) + '</div>'; }
     function draw() {
-      var s = q('#pz-slots');
-      s.innerHTML = ['', '', '', ''].map(function (_, i) {
-        return '<div class="pz-slot' + (picked[i] ? ' filled' : '') + '">' + (picked[i] || '') + '</div>';
-      }).join('') + '<div class="pz-slot" style="width:auto;padding:0 12px;border-style:none;font-size:13px;color:var(--dim)">= 「' +
-        (picked.length ? picked.slice(0, 2).join('') + '」' : '？') + '</div>';
+      q('#pz-slots').innerHTML =
+        '<div class="pz-pair">' + slot(0) + '<i>＋</i>' + slot(1) + '</div>' +
+        '<div class="pz-pair">' + slot(2) + '<i>＋</i>' + slot(3) + '</div>' +
+        '<div class="pz-glue">＝ 「' + (word(0) || '？') + (word(1) || '？') + '」</div>';
       qa('.nm-pc').forEach(function (b) {
         var i = +b.getAttribute('data-i');
-        b.classList.toggle('sel', picked.indexOf(PIECES[i]) >= 0 && usedCount(PIECES[i]) > 0);
-        b.disabled = picked.length >= 4 && picked.indexOf(PIECES[i]) < 0;
+        b.classList.toggle('sel', picked.indexOf(i) >= 0);        /* 按"哪一片"高亮：一片只能用一次 */
+        b.disabled = picked.length >= 4 && picked.indexOf(i) < 0;
       });
       q('#pz-prog').textContent = picked.length + '/4';
     }
-    function usedCount(ch) { return picked.filter(function (c) { return c === ch; }).length; }
     qa('.nm-pc').forEach(function (b) {
       b.onclick = function () {
         var i = +b.getAttribute('data-i');
-        if (picked.length >= 4) return;
-        if (usedCount(PIECES[i]) >= PIECES.filter(function (c) { return c === PIECES[i]; }).length) return;
-        picked.push(PIECES[i]); H.sfx('select'); draw();
+        if (picked.length >= 4 || picked.indexOf(i) >= 0) return;
+        picked.push(i); H.sfx('select'); draw();
         if (picked.length === 4) check();
       };
     });
     function check() {
-      var need = { '阝': 2, '可': 1, '急': 1 };
-      var got = {};
-      picked.forEach(function (c) { got[c] = (got[c] || 0) + 1; });
-      var same = Object.keys(need).length === Object.keys(got).length && Object.keys(need).every(function (k) { return got[k] === need[k]; });
-      if (same) { H.solve('name'); }
-      else {
-        H.sfx('wrong');
-        q('#pz-prog').textContent = '拼不出名字——再拆一遍。';
-        setTimeout(function () { picked = []; draw(); }, 700);
-      }
+      var got = picked.map(function (i) { return PIECES[i]; });
+      if (got.join('') === NAME_ANS.join('')) { H.solve('name'); return; }
+      tries++;
+      H.sfx('wrong');
+      var four = got.slice().sort().join('') === NAME_ANS.slice().sort().join('');
+      var w0 = word(0), w1 = word(1), msg;
+      if (four) msg = '四片都对了 —— 可这两个字不是这么站队的。谁在左、谁在右？';
+      else if (w0 && !w1) msg = '第一个字出来了（' + w0 + '），第二个还散着。';
+      else if (w0 && w1) msg = '「' + w0 + w1 + '」念是念得出，可不是碑上那个名字。';
+      else msg = '拼不出字 —— 再拆一遍。';
+      if (tries >= 3) msg += '（那个名字，你在礁石刻痕上见过。）';
+      q('#pz-prog').textContent = msg;
+      setTimeout(function () { picked = []; draw(); }, 900);
     }
     H.setBtns([{ label: '算了', fn: function () { H.close(); } }]);
     draw();
