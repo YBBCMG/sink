@@ -83,7 +83,7 @@
   /* ============ 3. 残页复原（三个空） ============ */
   function read_book(p) {
     var picks = {};
-    var html = '<p class="pz-tip">' + p.brief + '</p><div class="pz-clue">「戊戌年冬。小儿热了七天。______ 去了镇上，回来时袖子里揣着一张契。」</div>';
+    var html = '<p class="pz-tip">' + p.brief + '</p><div class="pz-clue">「戊戌年冬。小儿热了七天。______ 去了镇上，回来时袖子鼓着一角，是张契。」</div>';
     p.blanks.forEach(function (b, i) {
       html += '<div class="qa-q">' + b.label + '</div><div class="qa-opt" data-blank="' + i + '">' +
         b.options.map(function (o) { return '<button class="pz-opt" data-v="' + o + '">' + o + '</button>'; }).join('') + '</div>';
