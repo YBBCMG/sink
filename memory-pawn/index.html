@@ -495,6 +495,63 @@ body.mp-modal #btn-e { display: none !important; }
 }
 .qa-opt { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
 
+/* 灯阵（九宫翻灯） */
+.lz-grid { display: grid; grid-template-columns: repeat(3, 60px); gap: 10px; justify-content: center; margin: 12px 0; }
+.lz-cell { height: 60px; border-radius: 12px; cursor: pointer; background: #171b22; border: 1px solid var(--line, #3a3226); }
+.lz-cell.on { background: radial-gradient(circle at 50% 45%, #ffe6ab, #e0a63c 60%, #7a5313); border-color: var(--gold, #c9a227); box-shadow: 0 0 14px rgba(255,206,132,.35); }
+
+/* 算盘（当金算账） */
+.ab-table { margin: 8px 0; }
+.ab-row { display: grid; grid-template-columns: 1.4fr .7fr 1fr .5fr; gap: 6px; align-items: center; font-size: 13px;
+  color: var(--txt, #e6e0d6); padding: 6px 8px; border-radius: 8px; background: var(--panel2, #221c14);
+  border: 1px solid var(--line, #3a3226); margin-bottom: 6px; }
+.ab-row .ab-q { color: var(--gold2, #e0b25c); text-align: right; }
+.ab-in { width: 170px; font-family: inherit; font-size: 15px; padding: 8px 10px; border-radius: 10px; text-align: center;
+  background: var(--panel2, #221c14); color: var(--txt, #e6e0d6); border: 1px solid var(--line, #3a3226); }
+.ab-unit { color: var(--dim, #9a9a9a); font-size: 13px; }
+
+/* 换过字的契（字表） */
+.ci-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; width: 30px; padding: 3px 0;
+  margin: 2px; border-radius: 8px; cursor: pointer; background: var(--panel2, #221c14);
+  border: 1px solid var(--line, #3a3226); font-size: 13px; }
+.ci-cell b { font-size: 9px; color: var(--dim, #9a9a9a); font-weight: 400; }
+.ci-cell:hover { border-color: var(--gold2, #e0b25c); }
+
+/* 配对（对牌 / 断句） */
+.hp-wrap { display: flex; gap: 14px; justify-content: center; align-items: flex-start; margin: 10px 0; }
+.hp-col { display: flex; flex-direction: column; gap: 8px; flex: 1 1 0; min-width: 0; }
+.hp-col .pz-opt { width: 100%; text-align: left; font-size: 13px; }
+
+/* 连环锁（幕五 · 五道环 · 一百秒） */
+.ch-clock { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 13px; }
+.ch-clock .ch-lab { color: var(--dim, #9a9a9a); }
+.ch-clock b { color: var(--gold2, #e0b25c); font-variant-numeric: tabular-nums; }
+.ch-bar { flex: 1 1 auto; height: 8px; border-radius: 4px; background: #1b2029; overflow: hidden; }
+.ch-bar i { display: block; height: 100%; background: linear-gradient(90deg, #c9a227, #e0b25c); }
+.ch-clock .ch-try { color: var(--dim, #9a9a9a); font-size: 11.5px; }
+.ch-rings { display: flex; gap: 10px; justify-content: center; margin: 12px 0; }
+.ch-ring { width: 64px; height: 64px; border-radius: 50%; cursor: default; background: #171b22;
+  border: 2px solid var(--line, #3a3226); color: var(--dim, #9a9a9a); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; }
+.ch-ring small { font-size: 10px; }
+.ch-ring.now { border-color: var(--gold, #c9a227); color: var(--gold2, #e0b25c); cursor: pointer; box-shadow: 0 0 14px rgba(255,206,132,.25); }
+.ch-ring.done { border-color: #6f7f5a; color: #9fd08a; background: #1c2418; }
+.ch-ring.off { opacity: .55; }
+.ch-big { width: 118px; height: 118px; border-radius: 50%; margin: 14px auto; display: flex; align-items: center;
+  justify-content: center; font-size: 22px; cursor: pointer; background: radial-gradient(circle at 50% 40%, #2a2f38, #14171d);
+  border: 2px solid var(--line, #3a3226); color: var(--dim, #9a9a9a); }
+.ch-big:active, .ch-big.lit { border-color: var(--gold, #c9a227); color: #fff; box-shadow: 0 0 22px rgba(255,206,132,.4);
+  background: radial-gradient(circle at 50% 40%, #6a5320, #2a2213); }
+.ch-marks { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 12px 0; }
+.ch-mark { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  background: var(--panel2, #221c14); border: 1px solid var(--line, #3a3226); color: var(--txt, #e6e0d6); font-size: 15px; }
+.ch-mark.now { border-color: var(--gold, #c9a227); color: #fff; box-shadow: 0 0 12px rgba(255,206,132,.3); }
+.ch-lamps { display: flex; gap: 12px; justify-content: center; margin: 14px 0; }
+.ch-lamp { width: 54px; height: 54px; border-radius: 12px; cursor: pointer; font-size: 16px;
+  background: var(--panel2, #221c14); color: var(--txt, #e6e0d6); border: 1px solid var(--line, #3a3226); }
+.ch-lamp.lit { background: #3a2f18; border-color: var(--gold, #c9a227); color: #fff; }
+.ch-seq { text-align: center; font-size: 14px; letter-spacing: 3px; color: var(--gold2, #e0b25c); min-height: 20px; }
+
 /* 档案页 */
 .arc-h { font-size: 14px; color: var(--gold2, #e0b25c); margin: 12px 0 6px; letter-spacing: 1px; }
 .arc-item { font-size: 12.5px; color: var(--txt, #e6e0d6); background: var(--panel2, #221c14);
@@ -590,10 +647,10 @@ body.mp-modal #btn-e { display: none !important; }
   </main>
   <div id="footer-tips">WASD / 方向键 走动 · E 互动 · 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式</div>
 </div>
-<script src="js/story23.js?v=27"></script>
-<script src="js/audio.js?v=27"></script>
-<script src="js/music.js?v=27"></script>
-<script src="js/puzzles23.js?v=27"></script>
-<script src="js/game23.js?v=27"></script>
+<script src="js/story23.js?v=28"></script>
+<script src="js/audio.js?v=28"></script>
+<script src="js/music.js?v=28"></script>
+<script src="js/puzzles23.js?v=28"></script>
+<script src="js/game23.js?v=28"></script>
 </body>
 </html>
