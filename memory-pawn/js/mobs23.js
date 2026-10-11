@@ -1,9 +1,13 @@
 /* 记忆当铺 - mobs23.js：雾里的东西（一个场景一只 · 低移速 · 远程 · 不打血只咬记忆）
  *
- * 三条规矩（照用户原话定的）：
+ * 四条规矩（照用户原话定的）：
  *   ① 低移速、远程 —— 追得上人，但追不死人；保持距离吐东西，贴近了反而退；
  *   ② 被摸到不掉血，掉记忆 —— 撞上或吃到弹丸都算一次"咬"，咬完就退回雾里消失；
- *   ③ 一个场景只留一只 —— 多了不是难，是恶心。
+ *   ③ 一个场景只留一只 —— 多了不是难，是恶心；
+ *   ④ **只在最后一个场景（雾里）出现** —— 别的场景有怪不合理（用户 2026-10-12 定）：
+ *      镇上、当铺、盐田、灯塔、岛史馆都不刷，走到岛里面（雾里）才遇见它。
+ *   ⑤ **解最后那道连环锁的时候，它不咬也不吐**（用户 2026-10-12 定）—— 一百秒里转五枚环，
+ *      还要躲它，那不叫难，叫欺负人。只认连环锁这一个面板（引擎用 grace 钩子告它）。
  * 名字：**雾呓** —— 雾里那声含糊的梦话；只此一种，别的不刷。
  * 反制：**灯油**（oil）—— 泼一罐，圈里的东西被定住十几秒，圈外的不敢进；再加上"怕灯"，
  *       所以灯下与油圈是两处安全区。名字与长相都换成海雾/记当铺这一路的东西。
@@ -22,14 +26,10 @@
     }
   };
 
-  /* 一个场景一只：第几幕开始出现、落在哪一格、是哪一种 */
+  /* 只在最后一个场景刷（雾里 · 第 5 幕）：第几幕开始出现、落在哪一格、是哪一种
+     其余场景一条都不留 —— 镇上/当铺/盐田/灯塔/岛史馆的旧刷点已按用户 2026-10-12 的话撤掉 */
   var SPAWN = {
-    town:       { act: 2, spots: [[5, 9]] },
-    pawnshop:   { act: 2, spots: [[4, 6]] },
-    saltflats:  { act: 3, spots: [[9, 6]] },
-    lighthouse: { act: 3, spots: [[13, 12]] },
-    archive:    { act: 4, spots: [[9, 11]] },
-    mist:       { act: 5, spots: [[8, 3]] }
+    mist: { act: 5, spots: [[8, 3]] }
   };
 
   var AWAKE = 8.5;          /* 多远开始盯上你 */
@@ -109,6 +109,10 @@
     /* 面板（谜题 / 柜台 / 日志）开着 = 人站住了不动 —— 这时候"灯下安全"不该再白送：
        它们敢踏进灯圈、敢隔着面板咬。看菜单不是暂停键。（灯油那层保护不受影响） */
     var inPanel = !!(hook.panelOpen && hook.panelOpen());
+    /* 解最后那道连环锁的时候除外（用户 2026-10-12）：它不咬、不吐、吐出来的也不再算数 ——
+       一百秒里手忙脚乱地转五枚环，还要躲它，那不叫难，叫欺负人。 */
+    var grace = false;
+    try { grace = !!(hook.grace && hook.grace()); } catch (e) { grace = false; }
     for (i = list.length - 1; i >= 0; i--) {
       var m = list[i], K = KINDS[m.kind];
       m.t += dt;
@@ -141,14 +145,14 @@
       else if (d < K.keep - 0.8) step(m, -ux, -uy, K.speed * 0.9, dt);
       if (!inPanel && lightNear(m.x, m.y)) step(m, -ux, -uy, 1.4, dt);   /* 蹭到灯圈：退回暗处（面板开着时它们不退） */
 
-      if (d < TOUCH_D && m.cool <= 0) {                           /* 被摸到 */
+      if (d < TOUCH_D && m.cool <= 0 && !grace) {                 /* 被摸到（解连环锁时不摸） */
         m.cool = 1.2;
         if (hook.hit) hook.hit(K, 'touch', m);
         m.state = 'flee'; m.fled = 0;
         continue;
       }
       /* 灯下与油圈里都不挨打 —— 但你开着面板站在原地时，灯下那层保护撤掉 */
-      if (d <= K.keep + 0.6 && m.cool <= 0 && !lightNear(m.x, m.y) && (inPanel || !lightNear(p.x, p.y)) && !zoneAt(p.x, p.y)) {
+      if (d <= K.keep + 0.6 && m.cool <= 0 && !grace && !lightNear(m.x, m.y) && (inPanel || !lightNear(p.x, p.y)) && !zoneAt(p.x, p.y)) {
         m.cool = K.cd;
         shots.push({
           x: m.x, y: m.y, vx: ux * K.shot.speed, vy: uy * K.shot.speed,
@@ -162,7 +166,7 @@
       s.life -= dt;
       s.x += s.vx * dt; s.y += s.vy * dt;
       var sx = p.x - s.x, sy = p.y - s.y;
-      if (sx * sx + sy * sy < SHOT_D * SHOT_D) {
+      if (!grace && sx * sx + sy * sy < SHOT_D * SHOT_D) {   /* 解连环锁时：擦过去也不咬 */
         shots.splice(j, 1);
         if (hook.hit) hook.hit(KINDS[s.kind], 'shot', s);
         continue;
