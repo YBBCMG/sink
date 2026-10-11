@@ -1528,12 +1528,225 @@
     return 1;
   }
 
+  /* ============================================================
+     五、人物：六个 NPC + 玩家（v31.3）
+     旧画法是一套平滑矢量小人 + 六种颜色（渐变大衣、quadratic 曲线、圆头笔触），
+     跟像素建筑差一个画质档。这里一人一套：身形高低、衣色四阶、随身物、发型/帽子。
+     落点口径跟老画法对齐：脚底在 py+16、身高 32~36 逻辑像素（一格 48 装得下）。
+     ============================================================ */
+  var FIG = {
+    hai: {
+      name: '阿海', role: '引灯人', h: 34, skin: '#d9ab80', hair: '#2b2419',
+      coat: '#2f6f7a', trim: '#8fd0d8', boot: '#3a2b22', hat: 'straw', prop: 'pole'
+    },
+    chen: {
+      name: '陈婶', role: '盐仓邻居', h: 32, skin: '#e2b78f', hair: '#4a3b32',
+      coat: '#a85f56', trim: '#e8d5ba', boot: '#4a3a30', hat: 'kerchief', apron: '#d9c7a6', prop: 'basket'
+    },
+    keeper: {
+      name: '祁掌柜', role: '当铺掌柜', h: 36, skin: '#dcb48c', hair: '#7b7b86',
+      coat: '#5b5384', trim: '#cfc8e6', boot: '#2f2a3a', collar: 1, prop: 'ledger'
+    },
+    awang: {
+      name: '阿罔', role: '老盐工', h: 32, skin: '#c99a6e', hair: '#cfc8ba',
+      coat: '#8a7a3c', trim: '#dccd90', boot: '#4a3a26', build: 'stout', hat: 'strawFlat', prop: 'rake'
+    },
+    liu: {
+      name: '柳先生', role: '岛史馆馆守', h: 36, skin: '#dcc09c', hair: '#b0b0ab',
+      coat: '#4f6b62', trim: '#c2d8cc', boot: '#33302c', robe: 1, glasses: 1, prop: 'book'
+    },
+    her: {
+      name: '她', role: '雾客', h: 33, skin: '#ead9e4', hair: '#3a3446',
+      coat: '#a695c4', trim: '#ddd4ee', boot: '#5f5674', robe: 1, back: 1, hairLong: 1
+    },
+    you: {
+      name: '你', role: '替记人', h: 34, skin: '#e8c8a0', hair: '#3a3128',
+      coat: '#f3ead6', trim: '#cdc3ac', boot: '#4a3f33', prop: 'handLamp'
+    }
+  };
+  /* 随身物：都在人物右手边，硬边小件 */
+  function figProp(c, F, px, gy) {
+    var i;
+    if (F.prop === 'pole') {                        /* 引灯人的挑灯杆：杆 + 灯箱 + 灯火 */
+      VL(c, px + 8, gy - 30, 28, '#5a4630');
+      R(c, px + 5, gy - 33, 7, 6, '#3d3a44');
+      R(c, px + 6, gy - 32, 5, 4, '#ffd58a');
+      R(c, px + 7, gy - 31, 3, 2, '#fff3d0');
+      SPECK(c, px + 4, gy - 36, 9, 3, 'rgba(255,214,150,.22)', 1, 0);
+      SPECK(c, px + 4, gy - 27, 9, 2, 'rgba(255,214,150,.16)', 1, 1);
+      return 8;
+    }
+    if (F.prop === 'basket') {                      /* 陈婶的提篮：编纹 + 提手 */
+      R(c, px + 6, gy - 8, 8, 7, '#9a7c4e');
+      HL(c, px + 6, gy - 8, 8, '#c0a06a');
+      HL(c, px + 6, gy - 6, 8, '#7d6339');
+      HL(c, px + 6, gy - 4, 8, '#7d6339');
+      R(c, px + 7, gy - 11, 1, 3, '#7d6339'); R(c, px + 12, gy - 11, 1, 3, '#7d6339');
+      HL(c, px + 7, gy - 11, 6, '#7d6339');
+      return 7;
+    }
+    if (F.prop === 'ledger') {                      /* 祁掌柜的账册：夹在左手 + 一根铜扣 */
+      R(c, px - 12, gy - 14, 6, 8, '#5a4530');
+      VL(c, px - 12, gy - 14, 8, '#e8e2d0');
+      HL(c, px - 11, gy - 11, 5, '#c9b98c');
+      R(c, px - 8, gy - 13, 2, 2, '#c9a227');
+      return 5;
+    }
+    if (F.prop === 'rake') {                        /* 盐耙：斜杆（阶梯）+ 三齿 —— 扛在肩侧，别从脸上穿过去 */
+      for (i = 0; i < 8; i++) R(c, px + 8 + i, gy - 20 + i, 2, 2, '#6a5233');
+      R(c, px + 14, gy - 13, 7, 2, '#8a7a5c');
+      for (i = 0; i < 3; i++) R(c, px + 14 + i * 3, gy - 11, 1, 3, '#8a7a5c');
+      return 8;
+    }
+    if (F.prop === 'book') {                        /* 柳先生手里的册子 + 书签 */
+      R(c, px - 11, gy - 14, 5, 7, '#6d5a3e');
+      VL(c, px - 11, gy - 14, 7, '#e6dfc8');
+      VL(c, px - 9, gy - 13, 5, '#c9a227');
+      return 4;
+    }
+    if (F.prop === 'handLamp') {                    /* 玩家手里的灯：铜框 + 亮芯 + 抖开的光 */
+      R(c, px + 7, gy - 15, 5, 7, '#7a6338');
+      R(c, px + 8, gy - 14, 3, 5, '#ffd58a');
+      R(c, px + 9, gy - 13, 1, 3, '#fff6dc');
+      HL(c, px + 7, gy - 16, 5, '#a8894a');
+      SPECK(c, px + 5, gy - 19, 8, 3, 'rgba(255,214,150,.20)', 1, 0);
+      return 5;
+    }
+    return 0;
+  }
+  function paintFigure(c, id, x, y, face, lift, phase) {
+    if (!c || !c.fillRect) return 0;
+    var F = FIG[id] || FIG.you;
+    var px = snap(x * CELL + CELL / 2), pby = snap(y * CELL + CELL / 2 - (lift || 0));
+    var ph = (phase === undefined ? 0 : phase);
+    var mv = (lift || 0) > 0.02;
+    var sw = mv ? (Math.sin(ph) >= 0 ? 1 : -1) : 0;
+    var bob = mv ? (Math.abs(Math.sin(ph)) > 0.45 ? 1 : 0) : (Math.sin(ph * 0.4) > 0.62 ? 1 : 0);
+    var gy = pby + 16 - bob;
+    var dir = face > 0 ? 1 : (face < 0 ? -1 : 0);
+    var wide = F.build === 'stout' ? 1 : 0;
+    var cr = ramp(F.coat, 4), sr = ramp(F.skin, 3), hr = ramp(F.hair, 3);
+    var dark = cr[0], mid = cr[1], base = cr[2], lite = cr[3];
+    /* 描边口径：整幅人物靠 1px 暗边立住（旧画法是渐变 + 圆头笔触，放大就散） */
+    var oc = blend(F.coat, '#0d1018', 0.66);
+    var hc = blend(F.hair, '#0b0d13', 0.5);
+    var made = 0, i, j, t, w2, x0, yy;
+    OVAL(c, px, gy + 2, 11 + wide, 3, 'rgba(0,0,0,.34)', 'rgba(0,0,0,.20)', 'rgba(0,0,0,.08)');
+    made++;
+    /* 腿 + 靴：先铺 1px 描边，再铺本色 */
+    for (i = 0; i < 2; i++) {
+      var sg = i ? 1 : -1, off = sg * (2 + wide) + (mv ? sw * sg * 2 : 0);
+      R(c, px + off - 2, gy - 11, 5, 9, oc);
+      R(c, px + off - 1, gy - 10, 3, 8, shade(F.boot, 0.26));
+      R(c, px + off - 3, gy - 4, 6, 4, oc);
+      R(c, px + off - 2, gy - 3, 4, 3, F.boot);
+      made += 4;
+    }
+    /* 身子：一行一行铺（下摆比肩宽），左亮右暗 + 右侧 2×2 抖过渡 */
+    var top = gy - F.h + 11, bot = F.robe ? gy - 2 : gy - 7, nrow = bot - top;
+    var shW = 11 + wide * 2;
+    for (i = 0; i < nrow; i++) {
+      yy = top + i; t = nrow > 1 ? i / (nrow - 1) : 0;
+      w2 = snap(shW + t * (F.robe ? 7 : 4));
+      x0 = px - (w2 >> 1);
+      R(c, x0 - 1, yy, w2 + 2, 1, oc);
+      R(c, x0, yy, w2, 1, base);
+      VL(c, x0, yy, 1, lite);
+      VL(c, x0 + w2 - 1, yy, 1, mid);
+      if ((i & 1) === 0) VL(c, x0 + w2 - 2, yy, 1, mid);     /* 跟右暗边咬成 2×2 抖 */
+      made += 5;
+    }
+    /* 围裙 / 高领 / 长衫门襟 */
+    if (F.apron) {
+      R(c, px - 4, gy - 16, 9, 9, F.apron);
+      VL(c, px - 4, gy - 16, 9, shade(F.apron, 0.34));
+      VL(c, px + 4, gy - 16, 9, shade(F.apron, -0.34));
+      HL(c, px - 4, gy - 8, 9, shade(F.apron, -0.45));
+      made += 4;
+    }
+    if (F.collar) { R(c, px - 5, top - 2, 11, 3, F.trim); R(c, px - 5, top - 2, 11, 1, shade(F.trim, 0.3)); made += 2; }
+    if (F.robe) { VL(c, px, top + 4, bot - top - 6, mid); made++; }
+    /* 手：袖子跟身子之间留一道描边，别糊成一坨 */
+    var armY = top + 2, armH = (F.robe ? 14 : 11);
+    var ax = px - (shW >> 1) - 3, bx = px + (shW >> 1) + 2;
+    R(c, ax - 1, armY - 1, 4, armH + 3, oc);
+    R(c, ax + (mv && sw > 0 ? 0 : 0), armY, 2, armH, mid);
+    R(c, ax, armY + armH, 2, 2, sr[2]);
+    R(c, bx - 1, armY - 1, 4, armH + 3, oc);
+    R(c, bx, armY, 2, armH, dark);
+    R(c, bx, armY + armH, 2, 2, sr[1]);
+    made += 6;
+    /* 头：外描边一块，里面再分头发/脸（8×9，眼睛才读得出来） */
+    var hw = 8, hh = 9, hx = px - 4, hy = gy - F.h + 2;
+    R(c, hx - 1, hy, hw + 2, hh + 2, hc);
+    if (F.back) {                                   /* 背对：整颗头都是头发 */
+      R(c, hx, hy + 1, hw, hh, hr[1]);
+      VL(c, hx, hy + 1, hh, hr[2]);
+      VL(c, hx + hw - 1, hy + 1, hh, hr[0]);
+      HL(c, hx, hy + hh, hw, hr[0]);
+      made += 4;
+    } else {
+      R(c, hx, hy + 1, hw, hh, hr[1]);              /* 头发打底 */
+      R(c, hx + 1, hy + 4, hw - 2, hh - 3, sr[2]); /* 脸 */
+      VL(c, hx + 1, hy + 4, hh - 3, sr[1]);
+      VL(c, hx + hw - 2, hy + 4, hh - 3, sr[0]);
+      R(c, hx, hy + 1, hw, 3, hr[1]);               /* 顶发再压一遍（额头齐） */
+      VL(c, hx, hy + 4, 4, hr[1]);                  /* 鬓角 */
+      VL(c, hx + hw - 1, hy + 4, 4, hr[0]);
+      var ex = hx + 2 + (dir > 0 ? 1 : 0);
+      if (dir <= 0) R(c, ex, hy + 6, 1, 2, '#20191a');
+      if (dir >= 0) R(c, ex + 3, hy + 6, 1, 2, '#20191a');
+      made += 8;
+      if (F.glasses) { R(c, hx + 1, hy + 5, 3, 3, 'rgba(222,234,244,.55)'); R(c, hx + 5, hy + 5, 3, 3, 'rgba(222,234,244,.55)'); made += 2; }
+    }
+    if (F.hairLong) {                               /* 背上长发披到腰，发梢抖着收口 */
+      var hly = hy + hh, hlh = (gy - 15) - hly;
+      if (hlh > 3) {
+        R(c, hx - 1, hly, hw + 2, hlh, hc);
+        R(c, hx, hly, hw, hlh, hr[1]);
+        VL(c, hx, hly, hlh, hr[2]);
+        VL(c, hx + hw - 1, hly, hlh, hr[0]);
+        SPECK(c, hx, hly + hlh - 4, hw, 4, hr[1], 2, 1);
+        made += 5;
+      }
+    }
+    /* 帽子 */
+    if (F.hat === 'straw') {                        /* 斗笠：三层梯形 + 帽檐暗边 */
+      R(c, hx + 2, hy - 4, hw - 4, 3, '#b3904f');
+      R(c, hx, hy - 2, hw, 2, '#c9a86a');
+      R(c, hx - 3, hy, hw + 6, 2, '#d3b478');
+      HL(c, hx - 3, hy + 2, hw + 6, '#8a6c38');
+      VL(c, hx - 3, hy, 1, '#e2c68e');
+      made += 5;
+    } else if (F.hat === 'strawFlat') {             /* 平顶草帽 */
+      R(c, hx + 1, hy - 4, hw - 2, 3, '#d3b478');
+      R(c, hx - 2, hy - 1, hw + 4, 2, '#c2a367');
+      HL(c, hx - 2, hy + 1, hw + 4, '#8a6c38');
+      made += 3;
+    } else if (F.hat === 'kerchief') {              /* 头巾 + 脑后结 */
+      R(c, hx, hy, hw, 3, '#e6e4d6');
+      VL(c, hx, hy + 3, 5, '#e6e4d6');
+      VL(c, hx + hw - 1, hy + 3, 5, '#cfcdbe');
+      R(c, hx - 2, hy + 3, 3, 2, '#cfcdbe');
+      R(c, hx - 3, hy + 4, 2, 4, '#cfcdbe');
+      made += 5;
+    }
+    made += figProp(c, F, px, gy);
+    /* 雾客：下摆 25% 抖着化进雾里（只用衣色的抖点，掺浅色就成蕾丝裙了） */
+    if (F.fade) {
+      for (j = 0; j < 5; j++) SPECK(c, px - 8, gy - 6 + j, 16, 1, F.coat, 1, j & 1);
+      made += 5;
+    }
+    return made;
+  }
+
   var ART31 = {
-    version: '31.2',
+    version: '31.3',
     CELL: CELL, VW: VW, VH: VH,
     setup: function (o) { if (o && o.cell) { CELL = o.cell; } },
     plan: PLAN, paintSolids: paintSolids, paintGround: paintGround,
     paintFog: paintFog, paintWind: paintWind,
+    paintFigure: paintFigure, FIG: FIG,
     BUILDING: BUILDING, MAT: MAT, PAINT: PAINT, GROUND_OF: GROUND_OF, GROUND_FN: GROUND_FN, BLOT: BLOT,
     /* 下面这些暴露给单测 / 渲染工具用 */
     _u: { shade: shade, mix: mix, blend: blend, ramp: ramp, snap: snap, parseCol: parseCol, rngAt: rngAt, moodOf: moodOf, tonesOf: tonesOf }
