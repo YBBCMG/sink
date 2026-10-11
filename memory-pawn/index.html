@@ -582,8 +582,21 @@ body.mp-modal #btn-e { display: none !important; }
   body.mp-threat #world-wrap { box-shadow: 0 0 0 2px rgba(255,90,90,.5), 0 0 22px rgba(255,60,60,.3) inset; }
   /* 面板开着的时候：世界的红边看不见了，就把红边挪到面板本体上 */
   body.mp-threat #m-card { box-shadow: 0 0 0 2px rgba(255,90,90,.5), 0 0 26px rgba(255,60,60,.28); }
+  /* 被咬的那一下：画布在面板后头看不见，抖的得是面板本体 —— 否则"掉记"是无感的 */
+  @keyframes biteShake { 0%, 100% { transform: translateX(0); } 18% { transform: translateX(-7px); } 42% { transform: translateX(6px); } 68% { transform: translateX(-3px); } }
+  #m-card.mp-bite { animation: biteShake .46s ease; box-shadow: 0 0 0 2px rgba(255,80,80,.9), 0 0 30px rgba(255,50,50,.45); }
+  body.mp-modal #toast { z-index: 72; }            /* 面板开着时的提示要压在面板上头，不然看不见 */
+  /* 名字重建：两片拼一个字 —— 窄屏整体折行，别把网格挤出去 */
+  .pz-pair { display: flex; align-items: center; gap: 6px; }
+  .pz-pair i { font-style: normal; color: var(--dim, #9a9a9a); font-size: 13px; }
+  .pz-glue { color: var(--gold2, #e0b25c); font-size: 14px; letter-spacing: 1px; }
+  .nm-slots { flex-wrap: wrap; }
+  .nm-slots .pz-slot { width: 46px; height: 46px; font-size: 20px; }
   .arc-item.mem-hurt { border-left: 3px solid rgba(226,131,111,.85); color: #e8c9c0; }
   .arc-item.mem-hurt .mem-tag { color: #e2836f; }
+  /* 跑腿任务的路线条：✓ 走过 / ● 这一段 / ○ 还没到 */
+  .leg-route { margin-top: 5px; font-size: 12.5px; color: #cbb894; letter-spacing: .3px; }
+  .leg-route i { font-style: normal; color: #6b6152; padding: 0 4px; }
 </style>
 </head>
 <body>
@@ -595,6 +608,7 @@ body.mp-modal #btn-e { display: none !important; }
       <span class="hitem">相簿 <span class="bar"><i id="hud-album-bar"></i></span> <b id="hud-album">0/4</b></span>
       <span class="hitem">任务 <b id="hud-tasks" style="color:var(--gold2)">0/32</b></span>
       <span class="hitem" id="hud-hurt-wrap" style="display:none">记伤 <b id="hud-hurt" style="color:#e2836f">0</b></span>
+      <span class="hitem" title="泼一罐灯油：雾里的东西定住 15 秒（F 键）">灯油 <b id="hud-oil" style="color:#f0c46a">2</b></span>
       <span class="hitem">第 <b id="hud-act">1</b> 幕 · <b id="hud-scene">望归灯</b></span>
       <span class="hitem">目标 <b id="hud-goal" style="color:var(--gold2)">—</b></span>
       <button id="btn-restart" title="回到本幕开头自动记下的存档点（每幕开头记一次）">↺ 存档点</button>
@@ -666,13 +680,13 @@ body.mp-modal #btn-e { display: none !important; }
       </section>
     </aside>
   </main>
-  <div id="footer-tips">WASD / 方向键 走动 · E 互动 · 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式</div>
+  <div id="footer-tips">WASD / 方向键 走动 · E 互动 · <b>F 泼灯油</b>（雾里的东西定住 15 秒）· 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式</div>
 </div>
-<script src="js/story23.js?v=29"></script>
-<script src="js/audio.js?v=29"></script>
-<script src="js/music.js?v=29"></script>
-<script src="js/mobs23.js?v=29"></script>
-<script src="js/puzzles23.js?v=29"></script>
-<script src="js/game23.js?v=29"></script>
+<script src="js/story23.js?v=30"></script>
+<script src="js/audio.js?v=30"></script>
+<script src="js/music.js?v=30"></script>
+<script src="js/mobs23.js?v=30"></script>
+<script src="js/puzzles23.js?v=30"></script>
+<script src="js/game23.js?v=30"></script>
 </body>
 </html>
