@@ -271,6 +271,8 @@
     if (document.body) document.body.classList.remove('mp-modal');
     modalOpen = false;
     var b = $('m-btns'); if (b) b.innerHTML = '';
+    /* 谜题层要知道"面板合上了"：连环锁的表关着也走，旧的定时器一律作废 */
+    try { if (global.PUZZLES23 && global.PUZZLES23.onModalClose) global.PUZZLES23.onModalClose(); } catch (e) { /* ignore */ }
   }
   function modalBody() { return $('m-body'); }
 
@@ -908,7 +910,8 @@
   var NPC_COL = { hai: '#8fb8c8', chen: '#c8a08f', keeper: '#a9a2c4', awang: '#c2b184', liu: '#9fb0a8', her: '#c9b0c8' };
   /* 谜题类型 → 家伙什（没列进去的落回通用石台） */
   var PROP_OF = { lampcode: 'lamp', dial: 'clock', read_book: 'book', ledger: 'book', diary: 'book',
-    search: 'shelf', sluice: 'sluice', scales: 'scale', name: 'stele' };
+    search: 'shelf', sluice: 'sluice', scales: 'scale', name: 'stele',
+    lights: 'lanterns', abacus: 'abacus', switches: 'gates', cipher: 'slab', halves: 'papers', chainlink: 'chain' };
 
   function drawProp(c, kind, px, py, col, lit) {
     var warm = lit ? '255,206,132' : '178,200,216';
@@ -1008,6 +1011,87 @@
       c.fillStyle = 'rgba(236,228,204,.7)';
       c.fillRect(px - 5.5, py - 11, 11, 1); c.fillRect(px - 3.5, py - 6, 7, 1);
       softGlow(c, px, py - 2, 22, warm, lit ? 0.22 : 0.12);
+    } else if (kind === 'lanterns') {
+      /* 灯阵：铁架上三个小灯罩，好的一盏泛暖光 */
+      shadowUnder(c, px, py + 15, 13, 5);
+      plank(c, px - 12, py + 8, 24, 7);
+      c.fillStyle = '#3a4450'; c.fillRect(px - 13, py - 12, 26, 3.4);
+      for (i = 0; i < 3; i++) {
+        var lx = px - 8 + i * 8, on = (i % 2 === 0);
+        c.fillStyle = on ? '#f0c471' : '#4a545f';
+        c.fillRect(lx - 2.4, py - 9, 4.8, 8);
+        softGlow(c, lx, py - 5, on ? 12 : 6, warm, on ? 0.32 : 0.10);
+      }
+      c.fillStyle = '#2b3546'; c.fillRect(px - 2.4, py - 8, 4.8, 16);
+      softGlow(c, px, py - 2, 20, warm, 0.2);
+    } else if (kind === 'abacus') {
+      /* 算盘：木框 + 横梁 + 两排珠子 */
+      shadowUnder(c, px, py + 14, 12, 5);
+      plank(c, px - 13, py - 10, 26, 22);
+      c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = 1; c.strokeRect(px - 12.5, py - 9.5, 25, 21);
+      c.fillStyle = '#6b5636'; c.fillRect(px - 12, py - 1, 24, 2);
+      for (i = 0; i < 5; i++) {
+        var bx2 = px - 10 + i * 5;
+        c.fillStyle = '#c9a227'; c.beginPath(); c.arc(bx2, py - 5, 2, 0, Math.PI * 2); c.fill();
+        if (i < 3) { c.fillStyle = '#a3862c'; c.beginPath(); c.arc(bx2, py + 4, 2, 0, Math.PI * 2); c.fill(); }
+      }
+      softGlow(c, px, py - 4, 18, warm, 0.16);
+    } else if (kind === 'gates') {
+      /* 闸板：四块木板插在石槽里，两块提起来 */
+      shadowUnder(c, px, py + 15, 14, 5);
+      slab(c, px - 13, py + 8, 26, 7, '#3b3f45');
+      for (i = 0; i < 4; i++) {
+        var gx = px - 11 + i * 7, up = (i === 1 || i === 3);
+        plank(c, gx - 2.6, py - (up ? 14 : 6), 5.2, (up ? 20 : 18));
+        c.fillStyle = up ? 'rgba(0,0,0,.28)' : 'rgba(255,255,255,.10)';
+        c.fillRect(gx - 2.6, py - (up ? 14 : 6), 5.2, 2);
+      }
+      softGlow(c, px, py + 2, 20, warm, 0.14);
+    } else if (kind === 'slab') {
+      /* 契文石板：斜靠的石板 + 四行刻字 */
+      shadowUnder(c, px, py + 15, 12, 5);
+      slab(c, px - 12, py + 9, 24, 6, '#4a5058');
+      slab(c, px - 10, py - 17, 20, 27, '#6f7883');
+      c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(px - 10, py - 17, 4, 27);
+      c.strokeStyle = 'rgba(38,34,28,.7)'; c.lineWidth = 0.8;
+      for (i = 0; i < 4; i++) { c.beginPath(); c.moveTo(px - 5, py - 12 + i * 5); c.lineTo(px + (i % 2 ? 5 : 6), py - 12 + i * 5); c.stroke(); }
+      softGlow(c, px, py - 4, 20, warm, 0.16);
+    } else if (kind === 'papers') {
+      /* 撕成两半的纸：两片摊在石上 */
+      shadowUnder(c, px, py + 14, 13, 5);
+      slab(c, px - 12, py + 8, 24, 6, '#454b53');
+      c.save(); c.translate(px - 7, py - 4); c.rotate(-0.09);
+      c.fillStyle = '#d9d2bb'; c.fillRect(-7, -8, 14, 17); c.restore();
+      c.save(); c.translate(px + 8, py + 1); c.rotate(0.12);
+      c.fillStyle = '#cfc7ad'; c.fillRect(-7, -8, 14, 16); c.restore();
+      c.strokeStyle = 'rgba(60,54,42,.5)'; c.lineWidth = 0.8;
+      c.beginPath(); c.moveTo(px - 13, py - 10); c.lineTo(px - 1, py - 6); c.stroke();
+      softGlow(c, px, py - 2, 20, warm, 0.18);
+    } else if (kind === 'chain') {
+      /* 连环锁：一整道铁闸（跨两格）+ 五枚铜环 + 闸后漏出来的灯光
+         —— 幕五最后一关的家伙，得比旁边任何一处都大（第一版只有一格，复核时嫌小） */
+      var gw = 46;
+      shadowUnder(c, px, py + 22, gw - 6, 7);
+      softGlow(c, px, py - 2, 46, '255,206,132', lit ? 0.30 : 0.18);
+      slab(c, px - gw, py - 30, 2 * gw, 6, '#39414b');
+      c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px - gw, py - 30, 2 * gw, 1.6);
+      c.fillStyle = '#2f363f';
+      c.fillRect(px - gw, py - 25, 5, 46);
+      c.fillRect(px + gw - 5, py - 25, 5, 46);
+      for (i = 0; i < 5; i++) {                            /* 五根竖栅 */
+        var bx3 = px - gw + 12 + i * ((2 * gw - 24) / 4);
+        c.fillStyle = (i % 2) ? '#3a424c' : '#333b44';
+        c.fillRect(bx3 - 1.6, py - 22, 3.2, 42);
+      }
+      c.fillStyle = '#4a525c';
+      c.fillRect(px - gw + 4, py - 18, 2 * gw - 8, 3);
+      c.fillRect(px - gw + 4, py + 8, 2 * gw - 8, 3);
+      for (i = 0; i < 5; i++) {                            /* 五枚铜环 */
+        var rx3 = px - gw + 16 + i * ((2 * gw - 32) / 4), on3 = (i % 2 === 0);
+        c.strokeStyle = on3 ? '#e6c477' : '#8a7a52'; c.lineWidth = 2.4;
+        c.beginPath(); c.arc(rx3, py + 15, 4.4, 0, Math.PI * 2); c.stroke();
+        if (on3) softGlow(c, rx3, py + 15, 9, '255,206,132', 0.35);
+      }
     } else {
       /* 通用谜题：石台 + 记忆的光 */
       shadowUnder(c, px, py + 14, 12, 5);
@@ -2160,6 +2244,68 @@
   }
 
   /* id → 模型；没登记的落回老路子（谜题 → drawProp，痕迹 → drawTrace） */
+  /* 灯台的记事簿：硬皮簿 + 灯油渍 + 露出来的纸边 */
+  function artLogBook(c, px, py) {
+    shadowUnder(c, px, py + 13, 14, 5);
+    slab(c, px - 13, py - 3, 26, 16, '#5a4a33', 'rgba(30,24,16,.6)');
+    c.fillStyle = '#7a6543'; c.fillRect(px - 13, py - 3, 26, 3);
+    c.fillStyle = 'rgba(240,226,196,.9)'; c.fillRect(px - 10, py + 1, 20, 10);
+    c.strokeStyle = 'rgba(90,74,51,.6)'; c.lineWidth = 0.8;
+    for (var i = 0; i < 3; i++) { c.beginPath(); c.moveTo(px - 9, py + 3 + i * 2.4); c.lineTo(px + 9, py + 3 + i * 2.4); c.stroke(); }
+    c.fillStyle = 'rgba(60,44,20,.32)'; c.beginPath(); c.arc(px + 5, py + 6, 4.6, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(60,44,20,.5)'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px - 13, py - 3, 26, 1.4);
+  }
+  /* 当票背面的暗记：一沓小票扇开，票背上有圈、两道杠、替字头 */
+  function artPawnTickets(c, px, py) {
+    shadowUnder(c, px, py + 13, 15, 5);
+    for (var i = 0; i < 4; i++) {
+      c.save(); c.translate(px - 9 + i * 6, py - 6 + i * 4); c.rotate(-0.09 + i * 0.05);
+      c.fillStyle = i % 2 ? '#cfc2a0' : '#ded2b2';
+      c.fillRect(-7, -9, 14, 18);
+      c.strokeStyle = 'rgba(70,58,34,.45)'; c.lineWidth = 0.7; c.strokeRect(-6.6, -8.6, 13.2, 17.2);
+      c.strokeStyle = 'rgba(60,50,32,.7)'; c.fillStyle = 'rgba(60,50,32,.7)';
+      if (i === 3) { c.fillRect(-2.4, -3, 4.8, 1.2); c.fillRect(-2.4, -0.6, 4.8, 1.2); }
+      else if (i === 2) { c.beginPath(); c.arc(0, -1, 2.4, 0, Math.PI * 2); c.stroke(); }
+      else { c.fillRect(-2.6, -1.6, 5.2, 1); c.fillRect(-0.9, -3.6, 1.8, 3.6); }
+      c.restore();
+    }
+    softGlow(c, px, py + 2, 20, '255,206,132', 0.12);
+  }
+  /* 退潮露出的池底：湿砖 + 砖缝 + 刻到一半的名字 */
+  function artPoolFloor(c, px, py) {
+    shadowUnder(c, px, py + 14, 16, 6);
+    slab(c, px - 15, py - 4, 30, 18, '#b9c2c9', 'rgba(120,132,142,.55)');
+    c.fillStyle = 'rgba(150,162,172,.7)';
+    for (var i = 0; i < 3; i++) c.fillRect(px - 15, py - 1 + i * 5, 30, 0.9);
+    c.fillStyle = 'rgba(255,255,255,.28)'; c.fillRect(px - 14, py - 3, 28, 2);
+    c.strokeStyle = 'rgba(70,84,94,.85)'; c.lineWidth = 1.3;
+    c.beginPath(); c.moveTo(px - 4, py - 1); c.lineTo(px + 3, py + 1); c.stroke();
+    c.beginPath(); c.moveTo(px + 3, py - 4); c.lineTo(px + 1, py + 5); c.stroke();
+    c.beginPath(); c.moveTo(px + 1, py + 5); c.lineTo(px + 6, py + 6); c.stroke();
+    softGlow(c, px, py, 22, '178,200,216', 0.16);
+  }
+  /* 停在三点四十五的钟：木壳挂钟 + 停住的指针 + 壳底的烟熏印 */
+  function artStoppedClock(c, px, py) {
+    shadowUnder(c, px, py + 14, 12, 5);
+    plank(c, px - 11, py - 20, 22, 34);
+    c.fillStyle = 'rgba(0,0,0,.32)'; c.fillRect(px - 11, py + 6, 22, 8);
+    c.fillStyle = '#efe3c6'; c.beginPath(); c.arc(px, py - 3, 8.4, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#8a6b2f'; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = 'rgba(90,74,45,.7)';
+    for (var i = 0; i < 12; i++) {
+      var a = i * Math.PI / 6;
+      c.fillRect(px + Math.sin(a) * 6.6 - 0.5, py - 3 - Math.cos(a) * 6.6 - 0.5, 1, 1);
+    }
+    var h = (3 + 45 / 60) * Math.PI / 6;
+    c.strokeStyle = '#4a3a20'; c.lineWidth = 1.8; c.beginPath();
+    c.moveTo(px, py - 3); c.lineTo(px + Math.sin(h) * 4.2, py - 3 - Math.cos(h) * 4.2); c.stroke();
+    c.lineWidth = 1.4; c.beginPath();
+    c.moveTo(px, py - 3); c.lineTo(px + Math.sin(Math.PI * 1.5) * 6.2, py - 3 - Math.cos(Math.PI * 1.5) * 6.2); c.stroke();
+    c.fillStyle = '#4a3a20'; c.beginPath(); c.arc(px, py - 3, 1.2, 0, Math.PI * 2); c.fill();
+    softGlow(c, px, py - 4, 20, '255,206,132', 0.1);
+  }
+
   var PLACE_ART = {
     carve: 'rockCarve', copy2: 'stackBooks', tin: 'sewBox', ashes: 'ashPile', oil: 'oilRig', sea: 'lookout',
     dock: 'fogBell', notice: 'noticeStone', sea_lamp: 'lampSeat',
@@ -2167,7 +2313,8 @@
     saltbook: 'saltRegister', saltpile: 'saltHeap', gauge: 'tideGauge', post: 'tidePost', wrack: 'driftWrack',
     inbook: 'lecternBook', shelfrow: 'emptyShelf', northwin: 'northWindow', burn: 'burnWall',
     her_words: 'fogWords', othlamp: 'fogLantern', boatshape: 'boatShadow',
-    song: 'songChime', ask: 'threeAsks', return: 'returnStele', chest2: 'barnacleChest'
+    song: 'songChime', ask: 'threeAsks', return: 'returnStele', chest2: 'barnacleChest',
+    logbook: 'logBook', pawnsig: 'pawnTickets', saltnames: 'poolFloor', stillclock: 'stoppedClock'
   };
   var ART_FN = {
     rockCarve: artRockCarve, stackBooks: artStackBooks, sewBox: artSewBox, ashPile: artAshPile,
@@ -2177,7 +2324,8 @@
     tidePost: artTidePost, driftWrack: artDriftWrack, lecternBook: artLecternBook, emptyShelf: artEmptyShelf,
     northWindow: artNorthWindow, burnWall: artBurnWall, fogWords: artFogWords, fogLantern: artFogLantern,
     boatShadow: artBoatShadow, songChime: artSongChime, threeAsks: artThreeAsks, returnStele: artReturnStele,
-    barnacleChest: artBarnacleChest
+    barnacleChest: artBarnacleChest, logBook: artLogBook, pawnTickets: artPawnTickets,
+    poolFloor: artPoolFloor, stoppedClock: artStoppedClock
   };
 
   function drawPlace(c, p) {
@@ -2414,6 +2562,8 @@
     update(dt);
     render();
     refreshPanels();
+    /* 谜题层的表（连环锁）：关着面板也走 —— 机关不会等你 */
+    if (global.PUZZLES23 && global.PUZZLES23.tick) { try { global.PUZZLES23.tick(dt); } catch (e) { /* ignore */ } }
     if (saveT > 0) { saveT -= dt; if (saveT <= 0) { save(); saveT = 5; } }
   }
   var saveT = 5;
