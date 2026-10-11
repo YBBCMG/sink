@@ -898,20 +898,26 @@
   function paintLightTower(c, b, E) {                /* 望归灯：礁岩基座 + 塔身收分 + 点着的灯室 */
     var T = E.T, x = b.x, y = b.y, w = b.w, h = b.h, rnd = E.rnd;
     groundShadow(c, x, y + h - 8, w, 6);
-    /* 礁岩基座：占底下 1/3，逐行收分 + 层理 + 苔 + 白浪 */
+    BLOT(c, x - 8, y + h - 13, w + 16, 13, 'rgba(0,0,0,.30)', 2, 1);   /* 塔基一片湿暗：石头塔得从石头地里立出来 */
+    /* 礁岩基座：占底下 1/3，逐行收分 + 层理 + 苔 + 白浪。
+       石头塔站在石头地上 —— 基岩必须比铺地暗一档，不然整座塔糊进地面。 */
+    var wet = ramp(blend(MAT.granite, (E.pal && E.pal.solid) || '#000000', 0.36), 6);
     var rockH = snap(h * 0.34), rockY = y + h - rockH, j;
+    R(c, x + 2, rockY - 2, w - 4, rockH + 4, 'rgba(0,0,0,.34)');       /* 落地暗圈 */
     for (j = 0; j < rockH; j++) {
       var ins = snap(7 * Math.pow(1 - j / rockH, 1.3) + rnd() * 2);
-      R(c, x + ins, rockY + j, w - ins * 2, 1, j < rockH * 0.18 ? T.granite[4] : (j < rockH * 0.55 ? T.granite[2] : T.granite[1]));
+      R(c, x + ins, rockY + j, w - ins * 2, 1, j < rockH * 0.18 ? wet[5] : (j < rockH * 0.55 ? wet[3] : wet[2]));
     }
     for (j = 8; j < rockH - 4; j += 14) {
       var i2 = snap(7 * Math.pow(1 - j / rockH, 1.3));
-      HL(c, x + i2, rockY + j, w - i2 * 2, T.granite[0]);
-      HL(c, x + i2, rockY + j + 1, w - i2 * 2, T.granite[4]);
+      HL(c, x + i2, rockY + j, w - i2 * 2, wet[0]);
+      HL(c, x + i2, rockY + j + 1, w - i2 * 2, wet[4]);
     }
     SPECK(c, x + 8, rockY + 5, w - 16, snap(rockH * 0.34), T.foliage[1], 1, 2);
-    HL(c, x + 8, rockY, w - 16, T.granite[4]);
-    SPECK(c, x + 6, rockY + rockH - 7, w - 12, 7, 'rgba(255,255,255,.5)', 2, 1);
+    HL(c, x + 8, rockY, w - 16, wet[5]);
+    VL(c, x + 2, rockY, rockH, wet[0]);
+    VL(c, x + w - 3, rockY, rockH, wet[0]);
+    SPECK(c, x + 6, rockY + rockH - 7, w - 12, 7, 'rgba(255,255,255,.55)', 2, 1);
     /* 灯室（先定位置，塔身从它下面长出来） */
     var lw = snap(w * 0.66), lx = x + ((w - lw) >> 1), ly = y + snap(h * 0.16);
     /* 塔身：上细下粗 */
@@ -929,8 +935,11 @@
       HL(c, tx + in3 - 1, yy, tw - in3 * 2 + 2, T.stone[4]);
       HL(c, tx + in3 - 1, yy + 4, tw - in3 * 2 + 2, T.stone[0]);
     });
-    VL(c, tx, tTop, tH, T.stone[0]);                  /* 两侧勾边：跟礁岩分开 */
-    VL(c, tx + tw - 1, tTop, tH, T.stone[0]);
+    /* 两侧勾一道重边 + 塔基压黑：石头塔要在石头地上"立"起来 */
+    VL(c, tx, tTop, tH, shade(T.stone[0], -0.40));
+    VL(c, tx + tw - 1, tTop, tH, shade(T.stone[0], -0.40));
+    R(c, tx - 4, tBot - 2, tw + 8, 6, 'rgba(0,0,0,.34)');
+    HL(c, tx - 4, tBot - 2, tw + 8, shade(T.stone[0], -0.20));
     /* 塔门 + 旧钟（都在南面，玩家看得见） */
     var dx = tx + ((tw >> 1) | 0) - 9;
     doorway(c, dx, tBot - 34, 18, 34, E, { lamp: 0 });
@@ -964,37 +973,52 @@
     }
   }
 
-  function paintCarveRock(c, b, E) {                 /* 刻痕礁石：三道刻痕 + 水线 */
-    var T = E.T, x = b.x, y = b.y, w = b.w, h = b.h;
-    rock(c, x + 6, y + 10, w - 12, h - 14, T.granite, E.rnd, T.foliage[2]);
-    SPECK(c, x + 10, y + 12, w - 20, 6, T.foliage[2], 1, 1);
-    var i;
-    for (i = 0; i < 3; i++) {
-      HL(c, x + 18 + i * 3, y + 18 + i * 5, w - 40 - i * 6, 'rgba(240,246,255,.75)');
-      HL(c, x + 18 + i * 3, y + 19 + i * 5, w - 40 - i * 6, 'rgba(40,52,66,.55)');
+  function paintCarveRock(c, b, E) {                 /* 刻痕礁石：湿岩 + 晒白的干顶 + 白浪 + 三道刻痕 */
+    var T = E.T, x = b.x, y = b.y, w = b.w, h = b.h, i;
+    var wet = ramp(blend(MAT.granite, (E.pal && E.pal.solid) || '#000000', 0.52), 6);
+    var dry = ramp(blend(MAT.granite, '#dfe8f4', 0.26), 6);
+    groundShadow(c, x + 4, y + h - 6, w - 8, 5);
+    BLOT(c, x + 2, y + h - 9, w - 4, 8, 'rgba(226,238,250,.30)', 2, 1);   /* 脚底浪 */
+    rock(c, x + 3, y + 3, w - 6, h - 6, wet, E.rnd, T.foliage[2]);        /* 湿岩主体：自带不规则轮廓 */
+    /* 干顶：贴着岩顶的弧线走，越往下越宽 —— 拉成直条就成了箱子 */
+    for (i = 0; i < 17; i++) {
+      var t = i / 17, dw = snap((w - 22) * Math.min(1, 0.42 + t * 0.95));
+      R(c, x + ((w - dw) >> 1) + snap((rngAt(i, 1, 99)() - 0.5) * 3), y + 3 + i, dw, 1, i < 8 ? dry[4] : dry[3]);
     }
-    SPECK(c, x + 8, y + h - 8, w - 16, 6, 'rgba(255,255,255,.40)', 2, 2);
+    HL(c, x + 11, y + 20, w - 28, dry[0]);                               /* 潮线：干湿交界 */
+    for (i = 0; i < w - 24; i++) {                                        /* 白浪：浪线 + 飞沫，不要等距点阵 */
+      if (rngAt(x + i, y, 44)() > 0.45) R(c, x + 12 + i, y + h - 8 + snap(Math.sin(i * 0.35) * 1.6), 1, 2, 'rgba(240,248,255,.55)');
+    }
+    HL(c, x + 12, y + 9, w - 30, 'rgba(226,238,250,.36)');               /* 顶沿受光 */
+    SPECK(c, x + 10, y + 8, w - 26, 8, T.foliage[2], 1, 1);              /* 苔 */
+    for (i = 0; i < 3; i++) {                                            /* 三道刻痕 */
+      HL(c, x + 18 + i * 3, y + 14 + i * 5, w - 40 - i * 6, 'rgba(240,246,255,.55)');
+      HL(c, x + 18 + i * 3, y + 15 + i * 5, w - 40 - i * 6, 'rgba(24,34,46,.55)');
+    }
   }
 
-  function paintLampBase(c, b, E) {                  /* 九宫灯阵基座：3×3 铜灯 */
-    var T = E.T, x = b.x, y = b.y, w = b.w, h = b.h;
-    groundShadow(c, x, y + h - 6, w, 4);
-    R(c, x + 2, y + h - 22, w - 4, 20, T.stone[2]);
-    HL(c, x + 2, y + h - 22, w - 4, T.stone[4]);
-    HL(c, x + 2, y + h - 3, w - 4, T.stone[0]);
-    var i, j, k = 0;
+  function paintLampBase(c, b, E) {                  /* 九宫灯阵基座：九盏铜灯坐在石台上，铺满占格 */
+    var T = E.T, x = b.x, y = b.y, w = b.w, h = b.h, i, j, k = 0, lx, ly, on;
+    groundShadow(c, x, y + h - 6, w, 5);
+    R(c, x, y + h - 11, w, 11, T.stone[1]);                     /* 石台铺满整格宽 */
+    HL(c, x, y + h - 11, w, T.stone[3]);
+    VL(c, x, y + h - 11, 11, T.stone[0]);
+    VL(c, x + w - 1, y + h - 11, 11, T.stone[0]);
+    HL(c, x + 2, y + h - 2, w - 4, shade(T.stone[0], -0.3));    /* 台脚压黑 */
+    R(c, x + 4, y + 2, w - 8, h - 12, T.brass[0]);              /* 背板 */
+    HL(c, x + 4, y + 2, w - 8, T.brass[2]);
     for (j = 0; j < 3; j++) {
       for (i = 0; i < 3; i++) {
-        var lx = x + 12 + i * 26, ly = y + h - 44 + j * 9;
-        var on = (k === 0 || k === 4 || k === 5 || k === 8);
-        R(c, lx - 5, ly + 6, 11, 3, T.brass[1]);
-        R(c, lx - 4, ly, 9, 7, on ? T.lamp[3] : T.metal[0]);
-        if (on) { R(c, lx - 4, ly, 9, 2, T.cream[4]); glowAt(c, lx, ly + 3, 15, '255,206,132', 0.8); }
+        lx = x + 14 + i * 28; ly = y + 4 + j * 11;
+        on = (k === 0 || k === 4 || k === 5 || k === 8);
+        R(c, lx - 7, ly + 8, 15, 3, T.brass[1]);                 /* 灯座 */
+        R(c, lx - 6, ly, 13, 8, on ? T.lamp[2] : T.metal[0]);    /* 灯身 */
+        R(c, lx - 6, ly, 13, 2, on ? T.cream[4] : T.metal[2]);   /* 灯罩亮口 */
+        HL(c, lx - 6, ly + 8, 13, on ? T.lamp[4] : T.metal[0]);
+        if (on) glowAt(c, lx, ly + 4, 13, '255,206,132', 0.7);
         k++;
       }
     }
-    R(c, x + 2, y + h - 50, w - 4, 8, T.brass[2]);
-    HL(c, x + 2, y + h - 50, w - 4, T.brass[4]);
   }
 
   function paintShed(c, b, E) {                      /* 灯台工具棚：斜棚 + 油桶 + 绳圈 */
@@ -1221,12 +1245,248 @@
     return done;
   }
 
+  /* ============================================================
+     三、地面层（v31.1）：六种铺法各有各的材质语言
+     口径同上：只用 fillStyle/fillRect、整数像素、限色阶、2×2 抖动，不用渐变
+     （以前那版是 strokeRect + createRadialGradient，放大一圈全是灰糊边）
+     ============================================================ */
+  var GROUND_OF = {
+    lighthouse: 'stone', town: 'plank', pawnshop: 'wood',
+    saltflats: 'salt', archive: 'tile', mist: 'gravel'
+  };
+  function BLOT(c, x, y, w, h, col, amount, ph) {   /* 2×2 块抖动：大面积的脏斑/水汽用它，比逐像素省 4 倍 */
+    x = snap(x); y = snap(y); w = snap(w); h = snap(h);
+    if (x < 0) { w += x; x = 0; }                    /* 裁到画布内：出血的斑块不留无效笔触 */
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > VW) w = VW - x;
+    if (y + h > VH) h = VH - y;
+    if (w < 2 || h < 2 || !col) return;
+    ph = (ph || 0) & 1;
+    var i, j;
+    amount = amount || 1;
+    c.fillStyle = col;
+    for (j = 0; j + 1 < h; j += 2) {
+      for (i = 0; i + 1 < w; i += 2) {
+        if (amount >= 3 || BAY[(j >> 1) & 1][(i >> 1) & 1] < amount) c.fillRect(x + i, y + j, 2, 2);
+      }
+    }
+  }
+  function PATCH(c, x, y, w, h, col) {              /* 不规则大斑：几块错位矩形拼出来 */
+    x = snap(x); y = snap(y); w = snap(w); h = snap(h);
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > VW) w = VW - x;
+    if (y + h > VH) h = VH - y;
+    if (w < 2 || h < 2) return;
+    /* 直边整矩形一看就是贴图残留；四块错位矩形拼出来才像"这一片跟别处不一样" */
+    if (w < 26 || h < 26) { R(c, x, y, w, h, col); return; }
+    R(c, x + snap(w * 0.10), y, snap(w * 0.80), h, col);
+    R(c, x, y + snap(h * 0.16), w, snap(h * 0.68), col);
+    R(c, x + snap(w * 0.04), y + snap(h * 0.22), snap(w * 0.62), snap(h * 0.74), col);
+    R(c, x + snap(w * 0.30), y + snap(h * 0.06), snap(w * 0.66), snap(h * 0.60), col);
+  }
+  function BLOB(c, cx, cy, rx, ry, col, rnd) {      /* 不规则块：每行宽窄抖一点，比正椭圆自然（水洼/盐斑） */
+    rx = Math.max(1, snap(rx)); ry = Math.max(1, snap(ry));
+    cx = snap(cx); cy = snap(cy);
+    var j, t, dx;
+    for (j = -ry; j <= ry; j++) {
+      t = j / ry;
+      dx = rx * Math.sqrt(Math.max(0, 1 - t * t)) * (0.80 + rnd() * 0.40);
+      R(c, cx - dx, cy + j, dx * 2, 1, col);
+    }
+  }
+  function CRACK(c, x, y, len, dir, col, rnd) {      /* 随机游走裂缝：盐壳/石缝要的是"不齐"，等距网格最假 */
+    var i, a = dir;
+    for (i = 0; i < len; i++) {
+      a += (rnd() - 0.5) * 0.7;
+      x += Math.cos(a); y += Math.sin(a);
+      R(c, x, y, 1, 1, col);
+      if (rnd() > 0.9) R(c, x + 1, y, 2, 1, col);
+    }
+  }
+  function groundTones(pal, style, mood) {
+    var g0 = (pal && pal.ground) || '#1d2733';
+    var g1 = (pal && pal.ground2) || g0;
+    var mat = { stone: MAT.stone, plank: MAT.plank, wood: MAT.wood, salt: MAT.salt, tile: MAT.stone, gravel: MAT.granite }[style] || MAT.stone;
+    var k = { stone: 0.34, plank: 0.42, wood: 0.36, salt: 0.52, tile: 0.28, gravel: 0.30 }[style] || 0.3;
+    var base = blend(blend(g0, g1, 0.45), mat, k);
+    return ramp(blend(base, (pal && pal.solid) || '#000000', (mood ? mood.t : 0.2) * 0.8), 6);   /* 0 最暗 → 5 最亮 */
+  }
+  function groundBase(c, T) {
+    var i, bx, by, bw, bh, tone, soft;
+    R(c, 0, 0, VW, VH, T[2]);
+    /* 大尺度定调：几块台阶色斑（平色），只在边上咬一道 2×2 抖把台阶化开。
+       振幅只给一档：地面是背景，它一跳，建筑就淹了（第一版深色斑撒满整幅，像迷彩）。 */
+    soft = blend(T[1], T[2], 0.5);
+    for (i = 0; i < 9; i++) {
+      bx = snap(rngAt(i, 1, 21)() * VW) - 80; by = snap(rngAt(i, 2, 22)() * VH) - 70;
+      bw = 200 + snap(rngAt(i, 3, 23)() * 300); bh = 140 + snap(rngAt(i, 4, 24)() * 220);
+      tone = rngAt(i, 5, 25)() > 0.45 ? T[3] : soft;
+      PATCH(c, bx, by, bw, bh, tone);
+      BLOT(c, bx + 8, by + 6, bw - 16, 10, tone, 1, i & 1);
+      BLOT(c, bx + 8, by + bh - 16, bw - 16, 10, tone, 1, (i + 1) & 1);
+    }
+  }
+  function groundStone(c, T) {                       /* 望归灯：海码头石板，行高/板长都不齐，缝错开，苔成簇 */
+    var y = -20, rowH, off, x, fw, n, i, j, mx, mw;
+    while (y < VH) {
+      rowH = 22 + snap(rngAt(0, y, 31)() * 14);
+      off = snap(rngAt(1, y, 32)() * 60);
+      x = -off;
+      while (x < VW) {
+        fw = 44 + snap(rngAt(x, y, 33)() * 40);
+        n = rngAt(x, y, 34)();
+        R(c, x + 1, y + 1, fw - 2, rowH - 2, n > 0.72 ? T[3] : T[2]);   /* 只差一档：石板地是背景，不是迷彩 */
+        HL(c, x + 1, y + rowH - 1, fw - 1, T[1]);       /* 缝：压到一档，别拉成黑白格 */
+        VL(c, x + fw - 1, y + 1, rowH - 1, T[1]);
+        if (n > 0.62) HL(c, x + 3 + snap(rngAt(x, y, 39)() * (fw * 0.5)), y + 1, snap(fw * 0.22), T[3]);   /* 受光只占一小段 */
+        if (n > 0.90) {                                  /* 裂：一成石板有，两段暗线 */
+          j = x + 12 + snap(rngAt(x, y, 35)() * Math.max(6, fw - 30));
+          for (i = 0; i < 8; i++) R(c, j + (i > 4 ? 1 : 0), y + 4 + i, 1, 1, T[1]);
+          for (i = 0; i < 6; i++) R(c, j + (i > 4 ? 1 : 0) + i, y + 12 + i, 1, 1, T[1]);
+        }
+        x += fw;
+      }
+      /* 潮缝：一行里连着几块石板的缝间长苔 —— 短而密的一段，不是虚线尺 */
+      if (rngAt(2, y, 36)() > 0.62) {
+        mx = snap(rngAt(3, y, 37)() * (VW - 130)); mw = 36 + snap(rngAt(4, y, 38)() * 46);
+        for (i = 0; i < mw; i++) {
+          if (rngAt(mx + i, y, 41)() > 0.12) R(c, mx + i, y + rowH - 2, 1, 2, T[0]);
+          if (rngAt(mx + i, y, 42)() > 0.55) R(c, mx + i, y + rowH - 4, 1, 2, T[1]);
+        }
+      }
+      y += rowH;
+    }
+  }
+  function groundPlank(c, T) {                       /* 盐埕镇：码头船板，长板通铺，缝压一档，木纹长而淡 */
+    var y = 0, bh, x, n, i, gx, gw;
+    while (y < VH) {
+      bh = 14 + snap(rngAt(0, y, 41)() * 7);
+      n = rngAt(1, y, 42)();
+      R(c, 0, y, VW, bh, n > 0.78 ? T[4] : (n > 0.28 ? T[3] : T[2]));
+      HL(c, 0, y, VW, T[4]);
+      HL(c, 0, y + bh - 1, VW, T[1]);
+      x = snap(rngAt(2, y, 43)() * 200);
+      while (x < VW) {                                /* 断口：缝要看得见，钉才不是凭空冒出来的黑点 */
+        VL(c, x, y + 1, bh - 2, T[0]);
+        R(c, x + 3, y + 3, 1, 1, T[0]);
+        x += 220 + snap(rngAt(y, x, 44)() * 200);
+      }
+      for (i = 0; i < 2; i++) {
+        gx = snap(rngAt(i, y, 45)() * 700); gw = 90 + snap(rngAt(i, y, 46)() * 260);
+        HL(c, gx, y + 3 + snap(rngAt(i, y, 47)() * Math.max(2, bh - 6)), gw, T[2]);
+      }
+      if (n > 0.88) R(c, snap(rngAt(3, y, 48)() * (VW - 20)), y + (bh >> 1), 2, 2, T[1]);   /* 节疤：一个小点，别画成虫子 */
+      y += bh;
+    }
+  }
+  function groundWood(c, T) {                        /* 记当铺：室内木地板，柜台前踩白一条（靠板色提亮，不铺点阵） */
+    var y = 0, bh, x, i, gx, gw, n, wear;
+    while (y < VH) {
+      bh = 11 + snap(rngAt(0, y, 61)() * 4);
+      n = rngAt(1, y, 62)();
+      wear = (y > 258 && y < 372);                   /* 走道：这一段板子整体亮一档 */
+      R(c, 0, y, VW, bh, wear ? (n > 0.5 ? T[4] : T[3]) : (n > 0.72 ? T[3] : T[2]));
+      HL(c, 0, y, VW, T[4]);
+      HL(c, 0, y + bh - 1, VW, T[1]);
+      x = snap(rngAt(2, y, 63)() * 160);
+      while (x < VW) { VL(c, x, y + 1, bh - 2, T[1]); x += 180 + snap(rngAt(y, x, 64)() * 190); }
+      for (i = 0; i < 3; i++) {
+        gx = snap(rngAt(i, y, 65)() * 620); gw = 120 + snap(rngAt(i, y, 66)() * 280);
+        HL(c, gx, y + 2 + snap(rngAt(i, y, 67)() * Math.max(2, bh - 4)), gw, T[1]);
+      }
+      if (n > 0.93) OVAL(c, snap(rngAt(4, y, 68)() * VW), y + (bh >> 1), 3, 2, T[1], T[0], T[1]);
+      y += bh;
+    }
+    for (i = 0; i < 8; i++) {                        /* 走道中段各踩亮一道（不铺横向点阵 —— 那是"拉链"） */
+      HL(c, snap(rngAt(i, 2, 70)() * 700), 262 + snap(rngAt(i, 1, 69)() * 104),
+        80 + snap(rngAt(i, 3, 71)() * 220), T[4]);
+    }
+  }
+  function groundSalt(c, T) {                        /* 盐田：盐壳裂纹网（随机游走）+ 稀疏晶粒，不是等距瓷砖 */
+    var i, cx, cy, len, a, rx, ry, damp;
+    var crack = blend(T[0], T[1], 0.55);             /* 盐壳的裂纹要看得见：暗一档半，不能只是"隐约" */
+    for (i = 0; i < 16; i++) {
+      cx = snap(rngAt(i, 6, 56)() * VW); cy = snap(rngAt(i, 7, 57)() * VH);
+      len = 60 + snap(rngAt(i, 8, 58)() * 120); a = rngAt(i, 9, 59)() * 6.283;
+      CRACK(c, cx, cy, len, a, crack, rngAt(i, 10, 60));
+      if (rngAt(i, 11, 61)() > 0.55) {               /* 主缝上分一支 */
+        CRACK(c, cx + 20, cy + 12, snap(len * 0.45), a + 1.3, crack, rngAt(i, 12, 62));
+      }
+    }
+    damp = blend(T[1], T[2], 0.62);                  /* 湿痕：只比盐壳暗一点点 */
+    for (i = 0; i < 3; i++) {
+      cx = snap(90 + rngAt(i, 13, 63)() * (VW - 220)); cy = snap(70 + rngAt(i, 14, 64)() * (VH - 180));
+      rx = 40 + snap(rngAt(i, 15, 65)() * 30); ry = 24 + snap(rngAt(i, 16, 66)() * 18);
+      BLOB(c, cx, cy, rx, ry, damp, rngAt(i, 17, 67));
+    }
+    for (i = 0; i < 90; i++) {                       /* 晶粒：一颗颗点，不是白方块 */
+      cx = snap(rngAt(i, 20, 69)() * VW); cy = snap(rngAt(i, 21, 70)() * VH);
+      R(c, cx, cy, 1, 1, rngAt(i, 22, 71)() > 0.5 ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.35)');
+    }
+  }
+  function groundTile(c, T) {                        /* 岛史馆：大方砖错缝，砖色只差一档，磨旧成片 */
+    var y, x, off, n, i, cx, cy;
+    for (i = 0; i < 4; i++) {                        /* 磨旧 / 落灰成片（少而大，别铺成补丁） */
+      cx = snap(rngAt(i, 1, 71)() * VW) - 90; cy = snap(rngAt(i, 2, 72)() * VH) - 70;
+      PATCH(c, cx, cy, 240 + snap(rngAt(i, 3, 73)() * 280), 170 + snap(rngAt(i, 4, 74)() * 220),
+        rngAt(i, 5, 75)() > 0.5 ? T[3] : T[1]);
+    }
+    for (y = 0; y < VH; y += 24) {
+      off = (((y / 24) | 0) % 2) ? 12 : 0;
+      for (x = -24 + off; x < VW; x += 24) {
+        HL(c, x + 1, y + 23, 23, T[1]);              /* 只有缝，不逐砖变色：变色就成了棋盘 / 像掉了砖 */
+        VL(c, x + 23, y + 1, 23, T[1]);
+        if (rngAt(x, y, 76)() > 0.86) HL(c, x + 3, y + 20, 18, T[3]);   /* 砖沿磨亮一小段 */
+      }
+    }
+    for (i = 0; i < 70; i++) {                       /* 灰：稀疏散点 */
+      cx = snap(rngAt(i, 6, 77)() * VW); cy = snap(rngAt(i, 7, 78)() * VH);
+      R(c, cx, cy, 1, 1, 'rgba(226,232,240,.16)');
+    }
+  }
+  function groundGravel(c, T) {                      /* 雾里：碎石滩（成堆）+ 水洼，不铺横向条带 */
+    var i, j, cx, cy, rx, ry, n, gx, gy;
+    for (i = 0; i < 8; i++) {
+      cx = snap(rngAt(i, 1, 81)() * VW) - 100; cy = snap(rngAt(i, 2, 82)() * VH) - 80;
+      PATCH(c, cx, cy, 200 + snap(rngAt(i, 3, 83)() * 300), 150 + snap(rngAt(i, 4, 84)() * 200),
+        rngAt(i, 5, 85)() > 0.5 ? T[3] : T[1]);
+    }
+    for (i = 0; i < 9; i++) {                        /* 碎石成堆：一堆一堆，不是满地芝麻 */
+      cx = snap(rngAt(i, 6, 86)() * VW); cy = snap(rngAt(i, 7, 87)() * VH);
+      rx = 40 + snap(rngAt(i, 8, 88)() * 60); ry = 28 + snap(rngAt(i, 9, 89)() * 40);
+      for (j = 0; j < 80; j++) {
+        gx = cx + snap((rngAt(i * 100 + j, 10, 90)() - 0.5) * rx * 2);
+        gy = cy + snap((rngAt(i * 100 + j, 11, 91)() - 0.5) * ry * 2);
+        n = rngAt(i * 100 + j, 12, 92)();
+        R(c, gx, gy, 1 + (n > 0.6 ? 1 : 0), 1 + (n > 0.85 ? 1 : 0), n > 0.5 ? T[4] : T[1]);
+      }
+    }
+    for (i = 0; i < 5; i++) {                        /* 水洼：不规则块 + 一道亮边 */
+      cx = snap(80 + rngAt(i, 13, 93)() * (VW - 200)); cy = snap(70 + rngAt(i, 14, 94)() * (VH - 170));
+      rx = 54 + snap(rngAt(i, 15, 95)() * 50); ry = 26 + snap(rngAt(i, 16, 96)() * 22);
+      BLOB(c, cx, cy, rx, ry, T[1], rngAt(i, 17, 97));
+      BLOB(c, cx, cy - 1, rx - 3, ry - 3, 'rgba(196,216,232,.16)', rngAt(i, 18, 98));
+      HL(c, cx - rx + 12, cy - ry + 3, rx, 'rgba(255,255,255,.14)');
+    }
+  }
+  var GROUND_FN = { stone: groundStone, plank: groundPlank, wood: groundWood, salt: groundSalt, tile: groundTile, gravel: groundGravel };
+  function paintGround(c, sc, pal) {
+    if (!c || !c.fillRect) return 0;
+    var style = GROUND_OF[(sc && sc.id) || ''] || 'stone';
+    var T = groundTones(pal || (sc && sc.palette), style, moodOf(sc));
+    groundBase(c, T);
+    var fn = GROUND_FN[style] || groundStone;
+    fn(c, T);
+    return 1;
+  }
+
   var ART31 = {
-    version: '31.0',
+    version: '31.1',
     CELL: CELL, VW: VW, VH: VH,
     setup: function (o) { if (o && o.cell) { CELL = o.cell; } },
-    plan: PLAN, paintSolids: paintSolids,
-    BUILDING: BUILDING, MAT: MAT, PAINT: PAINT,
+    plan: PLAN, paintSolids: paintSolids, paintGround: paintGround,
+    BUILDING: BUILDING, MAT: MAT, PAINT: PAINT, GROUND_OF: GROUND_OF, GROUND_FN: GROUND_FN, BLOT: BLOT,
     /* 下面这些暴露给单测 / 渲染工具用 */
     _u: { shade: shade, mix: mix, blend: blend, ramp: ramp, snap: snap, parseCol: parseCol, rngAt: rngAt, moodOf: moodOf, tonesOf: tonesOf }
   };
