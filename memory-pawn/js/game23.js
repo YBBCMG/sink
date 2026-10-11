@@ -79,7 +79,16 @@
     t.textContent = msg; t.classList.add('show'); toastT = 2.6;
   }
   function addLog(raw) { S.log.push({ t: Math.round(S.t), raw: raw }); if (S.log.length > 300) S.log.shift(); dirty.log = 1; }
-  function sfx(name) { try { if (global.SFX && global.SFX[name]) global.SFX[name](); } catch (e) { /* ignore */ } }
+  function sfx(name) {
+    try { if (global.SFX && global.SFX[name]) global.SFX[name](); } catch (e) { /* ignore */ }
+    /* 谜题答错统一喊 'wrong' —— 反噬就在这一个口子上接，不用挨个改谜题 */
+    if (name === 'wrong' && modalOpen && global.PUZZLES23 && global.PUZZLES23.current) {
+      try { puzzleWrong(global.PUZZLES23.current()); } catch (e) { /* ignore */ }
+    }
+  }
+  /* 画面抖一下：被咬的时候得有"出事了"的反馈，不能只弹一行字 */
+  var shake = 0;
+  function jolt(t) { shake = Math.max(shake, t || 0.45); }
   function music(key) { try { if (global.MUSIC && key) global.MUSIC.play(key); } catch (e) { /* ignore */ } }
   function banner(main, sub) {
     var b = $('scene-banner'); if (!b) return;
@@ -151,8 +160,106 @@
       S.act = Math.max(S.act, act);
     }
     if (SCENE_FLAG[sid] && !(opts && opts.silent)) markFlag(SCENE_FLAG[sid]);
+    /* 雾里的小怪：按 场景 × 幕数 铺（幕一不刷，先把规矩学会） */
+    if (global.MOBS23) {
+      var mobN = global.MOBS23.spawnFor(sid, S.act);
+      syncMobs();
+      if (mobN && !(opts && opts.silent)) addLog('雾里有东西在爬 —— ' + mobN + ' 只。它们咬不走钱，只咬记。');
+    }
+    syncThreat();
     dirty.hud = 1; dirty.tasks = 1;
     save();
+  }
+
+  /* ---------- 记忆损伤（这一轮的新玩法）---------- */
+  /* 雾里的东西咬人不掉血，只咬记。两档：hurt 1 = 缺字，hurt 2 = 碎了（state='spoiled'）。
+     挑哪一段：先挑"伤得最轻、痛感最低"的那段 —— 有准谱，玩家能预料，也补得回来。 */
+  function memHurt(id) { var st = S.mem[id]; return (st && st.hurt) || 0; }
+  function damagedMem() {
+    return D.MEM23.filter(function (m) {
+      var st = S.mem[m.id] || {};
+      return (st.hurt || 0) > 0 || st.state === 'spoiled';
+    });
+  }
+  /* 缺字的记：每三个字挖掉一个（碎了就只留框） —— "想不起来"得看得见 */
+  function fuzzyText(text, hurt) {
+    if (!hurt) return text;
+    var out = '';
+    for (var i = 0; i < text.length; i++) out += (hurt >= 2 || i % 3 === 1) ? '◻' : text[i];
+    return out;
+  }
+  function fixCost(hurt) { return 2 * Math.max(1, hurt || 1); }
+  function damageMemory(n, why) {
+    n = n || 1;
+    var hitList = [];
+    for (var k = 0; k < n; k++) {
+      var cand = D.MEM23.filter(function (m) {
+        var st = S.mem[m.id];
+        return st && st.state === 'held' && ((st.hurt || 0) < 2);
+      });
+      if (!cand.length) { toast('它张了张嘴，可你身上已经没几段完整的记了。'); break; }
+      /* 挑法有准谱：先挑伤得最轻的，再挑痛感最低的；
+         妹妹那段（pawnedFromStart）永远排最后 —— 结局的眼泪不该被小怪提前咬掉 */
+      cand.sort(function (a, b) {
+        return (memHurt(a.id) - memHurt(b.id)) ||
+          ((a.pawnedFromStart ? 1 : 0) - (b.pawnedFromStart ? 1 : 0)) ||
+          (a.w - b.w) || (a.id < b.id ? -1 : 1);
+      });
+      var v = cand[0], st2 = S.mem[v.id];
+      st2.hurt = (st2.hurt || 0) + 1;
+      if (st2.hurt >= 2) st2.state = 'spoiled';
+      hitList.push(v);
+      addLog('被咬掉一口：' + v.tag + ' —— ' + v.text);
+    }
+    if (hitList.length) {
+      var v2 = hitList[0], now = S.mem[v2.id];
+      jolt(0.5);
+      toast(now.state === 'spoiled'
+        ? '咬碎了一段记：' + v2.tag + '。接不起来了 —— 记当铺柜台能补。'
+        : '被咬掉一口：' + v2.tag + '，缺了字。补得回来（记当铺柜台）。');
+      dirty.mem = 1; dirty.hud = 1;
+      save();
+    }
+    return hitList;
+  }
+  /* 谜题反噬：数据里写了 harm 的谜题，错够次数就咬一段记（先给一次提醒） */
+  var wrongSeen = {};
+  function puzzleWrong(puzId) {
+    var pz = D.PUZZLES[puzId] || {};
+    var harm = pz.harm;
+    if (!harm || !harm.wrong) return 0;
+    wrongSeen[puzId] = (wrongSeen[puzId] || 0) + 1;
+    var n = wrongSeen[puzId];
+    if (n % harm.wrong === 0) {
+      var got = damageMemory(harm.dmg || 1, 'puzzle:' + puzId);
+      if (got.length) toast('这段机关咬人：错 ' + harm.wrong + ' 次，' + got[0].tag + '被咬了一口。');
+      return got.length;
+    }
+    toast('不对。再错 ' + (harm.wrong - (n % harm.wrong)) + ' 次，它就要咬你的记了。');
+    return 0;
+  }
+  function puzzleSolved(puzId) { wrongSeen[puzId] = 0; }
+  /* 灯圈：小怪拿它当"不敢进"的安全区（门楼 + 每处可交互点，正好就是画面上发光的地方） */
+  function lightTiles() {
+    var sc = scene(), out = [];
+    sc.portals.forEach(function (p) { out.push([p.x, p.y]); });
+    sc.places.forEach(function (p) { if (p.kind !== 'look' && !p.npc) out.push([p.x, p.y]); });
+    return out;
+  }
+  function syncMobs() {
+    if (!global.MOBS23) return;
+    global.MOBS23.setLights(lightTiles());
+  }
+  var threatText = '';
+  function syncThreat() {
+    var el = $('threat'); if (!el) return;
+    var th = global.MOBS23 ? global.MOBS23.threat() : null;
+    var txt = th ? ('有东西在靠近：' + th.kind.name + ' · 距你 ' + th.d.toFixed(1) + ' 格' + (modalOpen ? ' —— 它就在面板后头等着' : ' · 往灯下走')) : '';
+    if (txt === threatText) return;
+    threatText = txt;
+    el.textContent = txt;
+    if (el.classList) el.classList[txt ? 'add' : 'remove']('on');
+    if (document.body && document.body.classList) document.body.classList[txt ? 'add' : 'remove']('mp-threat');
   }
 
   /* ---------- 旗标 / 任务 ---------- */
@@ -374,6 +481,13 @@
         return '<div class="arc-item"><b>' + m.id + '</b>' + m.text + '<br>' +
           '<button class="pz-btn" data-redeem="' + m.id + '">赎回（−' + m.w + '）</button></div>';
       }).join('') || '<div class="arc-lock">账上没有押着东西。</div>';
+      var hurtList = damagedMem();
+      html += '<div class="arc-h">缺字 / 碎了的（' + hurtList.length + '）—— 补记要付当金</div>';
+      html += hurtList.map(function (m) {
+        var h = memHurt(m.id) || 2, cost = fixCost(h);
+        return '<div class="arc-item mem-hurt"><b>' + m.tag + '</b>' + fuzzyText(m.text, h) + '<br>' +
+          '<button class="pz-btn" data-fix="' + m.id + '">补一段（−' + cost + '）</button></div>';
+      }).join('') || '<div class="arc-lock">没有缺字的记 —— 账上干净。</div>';
       html += '<div class="arc-h">还在身上的（' + held.length + '）</div>';
       html += held.map(function (m) {
         return '<div class="arc-item"><b>' + m.id + '</b>' + m.text + '<br>' +
@@ -394,6 +508,19 @@
           addLog('当掉了：' + m.text + '（+' + m.w + ' 枚）');
           toast('当掉 · ' + m.id + '（+' + m.w + '）');
           markFlag('first_pawn'); dirty.hud = 1; dirty.mem = 1; save(); render();
+        };
+      });
+      b.querySelectorAll('[data-fix]').forEach(function (el) {
+        el.onclick = function () {
+          var id = el.getAttribute('data-fix'), st3 = S.mem[id], h3 = st3.hurt || 2, cost3 = fixCost(h3);
+          if (S.gold < cost3) { toast('补记要 ' + cost3 + ' 枚当金 —— 不够。'); return; }
+          S.gold -= cost3; st3.hurt = h3 - 1;
+          if (st3.hurt < 2 && st3.state === 'spoiled') st3.state = 'held';
+          if (st3.hurt <= 0) st3.hurt = 0;
+          sfx('coin'); dirty.hud = 1; dirty.mem = 1; save();
+          addLog('补回来一段：' + id);
+          toast(st3.hurt ? ('补回一半：还缺 ' + st3.hurt + ' 处字。') : ('补好了：' + id + ' 又在身上了。'));
+          render();
         };
       });
       b.querySelectorAll('[data-redeem]').forEach(function (el) {
@@ -452,6 +579,7 @@
     toast('解开了 · ' + p.name);
     addLog('✦ 解开了「' + p.name + '」：' + (p.brief || ''));
     markFlag(flag);
+    puzzleSolved(puzId);          /* 这一局错了几次，解开就归零 */
     if (puzId === 'dial' && !S.flags.dial_ok) markFlag('dial_ok');
     save();
   }
@@ -490,6 +618,11 @@
     var bar = $('hud-album-bar'); if (bar) bar.style.width = Math.round(n / 4 * 100) + '%';
     var nt = nextMainTask();
     $('hud-goal').textContent = nt ? nt.title : '都做完了';
+    var hw = $('hud-hurt-wrap'), hn = damagedMem().length;
+    if (hw) {
+      hw.style.display = hn ? '' : 'none';
+      $('hud-hurt').textContent = hn;
+    }
   }
   function refreshLog() {
     var p = $('pane-log'); if (!p) return;
@@ -559,9 +692,14 @@
     });
     var html = '<div class="arc-h">在身上的（' + held.length + '/' + all.length + '）</div>';
     html += held.map(function (x) {
-      return '<div class="arc-item"><b class="mem-tag">' + x.m.tag + '</b>' + x.m.text +
-        '<span class="mem-w">痛感 ' + x.m.w + '</span></div>';
+      var hurt = x.st.hurt || 0, spoiled = x.st.state === 'spoiled';
+      var note = spoiled ? ('碎了 · 补要 ' + fixCost(2) + ' 枚')
+        : (hurt ? ('缺字 ' + hurt + '/2 · 补要 ' + fixCost(hurt) + ' 枚') : ('痛感 ' + x.m.w));
+      return '<div class="arc-item' + (hurt ? ' mem-hurt' : '') + '"><b class="mem-tag">' + x.m.tag + '</b>' +
+        (hurt ? fuzzyText(x.m.text, hurt) : x.m.text) +
+        '<span class="mem-w">' + note + '</span></div>';
     }).join('') || '<div class="arc-lock">身上一段记都没有了。</div>';
+    if (damagedMem().length) html += '<div class="arc-item">被咬过的记能在记当铺柜台补（补一次 2 枚当金起）。</div>';
     html += '<div class="arc-h">押在柜上的（' + pawned.length + '）—— 当出去了，这儿就是空的</div>';
     html += pawned.map(function (x) {
       return '<div class="arc-item locked"><b class="mem-tag">' + x.m.tag + '</b>' +
@@ -642,8 +780,22 @@
     return 'rgb(' + out[0] + ',' + out[1] + ',' + out[2] + ')';
   }
   function shadowUnder(c, px, py, rx, ry) {
-    c.fillStyle = 'rgba(0,0,0,.30)';
-    c.beginPath(); c.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); c.fill();
+    /* 软影：一个径向渐变压扁出来的椭圆 —— 边缘是化的。
+       以前是实心椭圆，放大以后像在角色脚下贴了块黑纸。 */
+    var r = Math.max(1, rx);
+    var g = c.createRadialGradient(px, py, 0.5, px, py, r);
+    g.addColorStop(0, 'rgba(0,0,0,.36)');
+    g.addColorStop(0.5, 'rgba(0,0,0,.22)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.save();
+    if (c.translate && c.scale) {
+      c.translate(px, py);
+      c.scale(1, Math.max(0.18, ry / r));
+      c.translate(-px, -py);
+    }
+    c.fillStyle = g;
+    c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.fill();
+    c.restore();
   }
   /* 地面：每种场景一种铺法 + 逐格确定性微差，破掉"平铺棋盘"的廉价感 */
   function paintGround(c, pal, style) {
@@ -2380,9 +2532,23 @@
     sc.places.forEach(function (p) { if (!exitHere[p.x + ',' + p.y]) drawPlace(c, p); });
     bgDirty = false;
   }
+  var SCALE_CAP = 3;
   function setupCanvas() {
-    SCALE = Math.max(1, Math.min(2, global.devicePixelRatio || 1));
+    /* 画质的关键：背板像素要跟"屏幕上真实的像素"对齐，而不是只跟 DPR 对齐。
+       以前 SCALE 只取 min(2, DPR)，canvas 又被 CSS 拉成另一个尺寸 —— 浏览器再采样一次，
+       细线和字全是糊的（实机反馈"画质太低"就是这个）。现在按 显示宽度/VW × DPR 算，量化到 1/8 档。 */
+    var dpr = global.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+    var dispW = (rect && rect.width) ? rect.width : VW;
+    var raw = (dispW / VW) * dpr;                       /* 屏幕上真实需要几倍 */
+    var want = clamp(raw, 1, SCALE_CAP);
+    SCALE = Math.round(want * 8) / 8;
     canvas.width = Math.round(VW * SCALE); canvas.height = Math.round(VH * SCALE);
+    if (canvas.style) {
+      /* 背板跟显示对上了 → 硬边（线条干净）；还得缩放 → 交回浏览器平滑，
+         别拿 Nearest 去缩（缩采样用 pixelated 会把 1px 线打成马赛克） */
+      canvas.style.imageRendering = (Math.abs(SCALE - raw) < 0.07) ? 'pixelated' : 'auto';
+    }
     bg = document.createElement('canvas');
     bg.width = canvas.width; bg.height = canvas.height;
     bgDirty = true;
@@ -2397,74 +2563,113 @@
     ctx.fillText(text, x * CELL + CELL / 2, y * CELL + 1);
     ctx.restore();
   }
+  /* 每个氛围一套"灯色 / 分级 / 压暗"：冷场景冷、暖场景暖，光不再是同一块灰 */
+  var AMB = {
+    night: { key: '206,226,255', warm: '255,206,132', top: 'rgba(8,18,40,.34)', bot: 'rgba(4,8,18,.04)', tint: 'rgba(6,10,20,.18)', dust: 1 },
+    lamp: { key: '255,214,150', warm: '255,186,104', top: 'rgba(44,24,6,.18)', bot: 'rgba(255,190,110,.08)', tint: 'rgba(60,34,8,.05)', dust: 1 },
+    dusk: { key: '255,200,150', warm: '255,166,96', top: 'rgba(52,26,6,.24)', bot: 'rgba(255,150,80,.10)', tint: 'rgba(60,30,10,.08)', dust: 1 },
+    fog: { key: '222,232,244', warm: '216,228,242', top: 'rgba(126,146,170,.18)', bot: 'rgba(196,210,228,.10)', tint: 'rgba(150,170,195,.06)', dust: 0 },
+    wind: { key: '228,238,250', warm: '236,244,255', top: 'rgba(26,38,54,.24)', bot: 'rgba(200,215,235,.08)', tint: 'rgba(40,55,75,.06)', dust: 0 },
+    still: { key: '255,236,200', warm: '255,220,170', top: 'rgba(40,30,14,.24)', bot: 'rgba(130,98,44,.06)', tint: 'rgba(60,45,20,.06)', dust: 1 }
+  };
+  function ambOf(sc) { return AMB[sc.ambient] || AMB.still; }
   function render() {
-    var sc = scene(), pal = sc.palette, t = S.t;
+    var sc = scene(), pal = sc.palette, t = S.t, amb = ambOf(sc);
     if (ctx.setTransform) ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     if (bgDirty) bake();
+    var shook = false;
+    if (shake > 0.01) {
+      ctx.save(); shook = true;
+      if (ctx.translate) ctx.translate(Math.sin(S.t * 61) * 3.4 * shake, Math.cos(S.t * 53) * 2.6 * shake);
+    }
     ctx.fillStyle = pal.sky; ctx.fillRect(0, 0, VW, VH);
     if (bg) ctx.drawImage(bg, 0, 0, VW, VH);
-    /* 出口：门楼脚下那口气在呼吸（硬方块会压掉台阶的层次） + 标签 */
+    /* ① 分级：上冷下暖一层薄色（以前是"平色 + 一整块灰罩"） */
+    var gr = ctx.createLinearGradient(0, 0, 0, VH);
+    gr.addColorStop(0, amb.top); gr.addColorStop(1, amb.bot);
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, VW, VH);
+    if (amb.tint) { ctx.fillStyle = amb.tint; ctx.fillRect(0, 0, VW, VH); }
+    /* ② 光：走叠加混合（lighter）—— 用 source-over 压上去只会越盖越灰 */
+    ctx.save();
+    if (ctx.globalCompositeOperation !== undefined) ctx.globalCompositeOperation = 'lighter';
     sc.portals.forEach(function (p) {
       var pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
       var gx = p.x * CELL + CELL / 2, gy = p.y * CELL + CELL / 2;
-      var pg = ctx.createRadialGradient(gx, gy, 3, gx, gy, 44);
-      pg.addColorStop(0, 'rgba(255,206,132,' + (0.14 + 0.11 * pulse).toFixed(2) + ')');
-      pg.addColorStop(1, 'rgba(255,206,132,0)');
-      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(gx, gy, 44, 0, Math.PI * 2); ctx.fill();
-      label(p.label || '\u51fa\u53e3', p.x, p.y, false);
+      var pg = ctx.createRadialGradient(gx, gy, 3, gx, gy, 54);
+      pg.addColorStop(0, 'rgba(' + amb.warm + ',' + (0.16 + 0.13 * pulse).toFixed(2) + ')');
+      pg.addColorStop(1, 'rgba(' + amb.warm + ',0)');
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(gx, gy, 54, 0, Math.PI * 2); ctx.fill();
     });
-    /* 可交互提示 */
-    var near = nearestPlace();
-    if (near) { label(near.name, near.x, near.y, true); ctx.fillStyle = '#e0b25c'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('E', near.x * CELL + CELL + 8, near.y * CELL + 26); }
-    /* 氛围 */
-    if (sc.ambient === 'night') { ctx.fillStyle = 'rgba(6,10,20,.24)'; ctx.fillRect(0, 0, VW, VH); }
-    if (sc.ambient === 'lamp' || sc.ambient === 'night') {
-      var g = ctx.createRadialGradient(VW / 2, VH / 2, 40, VW / 2, VH / 2, VW * 0.62);
-      g.addColorStop(0, 'rgba(240,196,106,.20)'); g.addColorStop(1, 'rgba(0,0,0,.28)');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+    /* 每处可交互点 / 干活点脚下都有一盏灯（以前只有谜题和货架有） */
+    sc.places.forEach(function (pl) {
+      if (pl.kind === 'look' || pl.kind === 'portal' || pl.npc) return;
+      var fx = pl.x * CELL + CELL / 2, fy = pl.y * CELL + CELL / 2;
+      var fg = ctx.createRadialGradient(fx, fy, 3, fx, fy, 64);
+      fg.addColorStop(0, 'rgba(' + amb.warm + ',.16)'); fg.addColorStop(1, 'rgba(' + amb.warm + ',0)');
+      ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(fx, fy, 64, 0, Math.PI * 2); ctx.fill();
+    });
+    /* 玩家随身那盏灯：自己照亮脚下一圈（夜里 / 雾里更容易找到自己） */
+    var lx = S.mx * CELL + CELL / 2, ly = S.my * CELL + CELL / 2;
+    var lg = ctx.createRadialGradient(lx, ly, 5, lx, ly, 104);
+    lg.addColorStop(0, 'rgba(' + amb.key + ',.22)'); lg.addColorStop(1, 'rgba(' + amb.key + ',0)');
+    ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(lx, ly, 104, 0, Math.PI * 2); ctx.fill();
+    /* 灯下浮尘 */
+    if (amb.dust) {
+      for (var d = 0; d < 34; d++) {
+        var dn = hash(d, 0, 7), dn2 = hash(d, 1, 9);
+        var dxp = (dn * VW + Math.sin(t * 0.6 + d) * 16 + VW) % VW;
+        var dyp = (dn2 * VH - t * (5 + dn * 9) + VH * 8) % VH;
+        var da = 0.07 + 0.22 * (0.5 + 0.5 * Math.sin(t * 1.7 + d * 1.3));
+        ctx.fillStyle = 'rgba(' + amb.warm + ',' + da.toFixed(2) + ')';
+        ctx.fillRect(dxp, dyp, 2, 2);
+      }
     }
+    ctx.restore();
+    /* ③ 雾带 / 风痕：这两样是"挡光"的，得压在光上面 */
     if (sc.ambient === 'fog') {
-      for (var i = 0; i < 5; i++) {
-        var fx = ((t * 12 + i * 220) % (VW + 400)) - 200;
-        var gg = ctx.createRadialGradient(fx, 120 + i * 110, 10, fx, 120 + i * 110, 230);
-        gg.addColorStop(0, 'rgba(210,220,232,.20)'); gg.addColorStop(1, 'rgba(210,220,232,0)');
+      for (var i = 0; i < 6; i++) {
+        var fx2 = ((t * 11 + i * 190) % (VW + 420)) - 210;
+        var gg = ctx.createRadialGradient(fx2, 110 + i * 96, 8, fx2, 110 + i * 96, 250);
+        gg.addColorStop(0, 'rgba(214,224,238,.22)'); gg.addColorStop(1, 'rgba(214,224,238,0)');
         ctx.fillStyle = gg; ctx.fillRect(0, 0, VW, VH);
       }
     }
-    if (sc.ambient === 'dusk') { ctx.fillStyle = 'rgba(60,30,10,.10)'; ctx.fillRect(0, 0, VW, VH); }
     if (sc.ambient === 'wind') {
-      ctx.strokeStyle = 'rgba(230,235,240,.18)'; ctx.lineWidth = 2;
-      for (var k = 0; k < 7; k++) {
+      ctx.strokeStyle = 'rgba(230,235,240,.16)'; ctx.lineWidth = 2;
+      for (var k = 0; k < 8; k++) {
         var yy = ((t * 90 + k * 97) % VH);
         ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(VW, yy + 30); ctx.stroke();
       }
     }
-    /* 焦点补光：每个可交互点脚下那一圈暖光，画面有落点而不是一片糊 */
-    if (sc.ambient !== 'fog') {
-      sc.places.forEach(function (pl) {
-        if (pl.kind !== 'puzzle' && pl.kind !== 'item' && pl.kind !== 'buy') return;
-        var fx = pl.x * CELL + CELL / 2, fy = pl.y * CELL + CELL / 2;
-        var fg = ctx.createRadialGradient(fx, fy, 4, fx, fy, 58);
-        fg.addColorStop(0, 'rgba(255,206,132,.13)'); fg.addColorStop(1, 'rgba(255,206,132,0)');
-        ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(fx, fy, 58, 0, Math.PI * 2); ctx.fill();
-      });
+    /* ③b 小怪和它们的弹丸：画在氛围层之上（雾里的东西本来就该浮在雾上） */
+    if (global.MOBS23) {
+      try { global.MOBS23.draw(ctx, CELL, softGlow); } catch (e) { /* ignore */ }
     }
-    /* 灯下浮尘：暖场景里慢慢往上飘，画面立刻活一点 */
-    if (sc.ambient === 'lamp' || sc.ambient === 'night' || sc.ambient === 'dusk') {
-      for (var d = 0; d < 30; d++) {
-        var dn = hash(d, 0, 7), dn2 = hash(d, 1, 9);
-        var dxp = (dn * VW + Math.sin(t * 0.6 + d) * 16 + VW) % VW;
-        var dyp = (dn2 * VH - t * (5 + dn * 9) + VH * 8) % VH;
-        var da = 0.08 + 0.20 * (0.5 + 0.5 * Math.sin(t * 1.7 + d * 1.3));
-        ctx.fillStyle = 'rgba(255,214,140,' + da.toFixed(2) + ')';
-        ctx.fillRect(dxp, dyp, 2, 2);
+    /* ④ 暗角：视线收到中间 */
+    var vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.40, VW / 2, VH / 2, VW * 0.74);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.30)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+    /* ⑤ 标签和玩家最后画：字不被雾压糊，"我在哪儿"永远一眼看到 */
+    sc.portals.forEach(function (p) { label(p.label || '出口', p.x, p.y, false); });
+    var near = nearestPlace();
+    if (near) {
+      label(near.name, near.x, near.y, true);
+      ctx.fillStyle = '#e0b25c'; ctx.font = 'bold 15px sans-serif';
+      ctx.fillText('E', near.x * CELL + CELL + 8, near.y * CELL + 26);
+    }
+    if (shook) ctx.restore();
+    /* 被咬的那一下：红边 + 三条错位的切片 —— "记被咬掉一口"得看得见 */
+    if (shake > 0.01) {
+      ctx.fillStyle = 'rgba(170,36,56,' + (0.10 + 0.30 * shake).toFixed(2) + ')';
+      ctx.fillRect(0, 0, VW, VH);
+      if (bg && ctx.drawImage && SCALE) {
+        for (var g2 = 0; g2 < 3; g2++) {
+          var yy2 = (hash(g2, Math.floor(S.t * 9), 3) * (VH - 40)) | 0, hh = 12 + hash(g2, 1, 4) * 26;
+          ctx.drawImage(bg, 0, yy2 * SCALE, bg.width, hh * SCALE,
+            (hash(g2, 2, 5) - 0.5) * 16, yy2, VW, hh);
+        }
       }
     }
-    /* 暗角：视线自然收到中间 */
-    var vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.42, VW / 2, VH / 2, VW * 0.72);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.22)');
-    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
-    /* 玩家画在氛围之后：之前被夜色/雾蒙版盖住，玩家根本找不到自己（实机反馈） */
     drawSelf(t);
   }
 
@@ -2491,6 +2696,7 @@
 
   /* ---------- 循环 ---------- */
   function update(dt) {
+    if (shake > 0) shake = Math.max(0, shake - dt);
     S.t += dt;
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
     if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) $('scene-banner').classList.remove('on'); }
@@ -2564,6 +2770,10 @@
     refreshPanels();
     /* 谜题层的表（连环锁）：关着面板也走 —— 机关不会等你 */
     if (global.PUZZLES23 && global.PUZZLES23.tick) { try { global.PUZZLES23.tick(dt); } catch (e) { /* ignore */ } }
+    /* 小怪：解谜的时候照走 —— 面板开着被摸到，一样丢记（用户要的就是这个"恶心"） */
+    if (global.MOBS23) {
+      try { global.MOBS23.update(dt); syncThreat(); } catch (e) { /* ignore */ }
+    }
     if (saveT > 0) { saveT -= dt; if (saveT <= 0) { save(); saveT = 5; } }
   }
   var saveT = 5;
@@ -2705,7 +2915,11 @@
   }
 
   /* ---------- 启动 ---------- */
-  var GAME = { booted: false, get S() { return S; }, D: D, fresh: freshState, pack: pack, solvePuzzle: solvePuzzle, PHOTO_RULES: PHOTO_RULES, SCENE_FLAG: SCENE_FLAG, DERIVED: DERIVED, interact: interact, markFlag: markFlag, forceClose: forceClose, dlgOpen: function () { return !!dlg; }, artOf: artOf, gatePlan: gatePlan, PLACE_ART: PLACE_ART, GATE_STYLE: GATE_STYLE };
+  var GAME = { booted: false, get S() { return S; }, D: D, fresh: freshState, pack: pack, solvePuzzle: solvePuzzle, PHOTO_RULES: PHOTO_RULES, SCENE_FLAG: SCENE_FLAG, DERIVED: DERIVED, interact: interact, markFlag: markFlag, forceClose: forceClose, dlgOpen: function () { return !!dlg; }, artOf: artOf, gatePlan: gatePlan, PLACE_ART: PLACE_ART, GATE_STYLE: GATE_STYLE,
+    damageMemory: damageMemory, puzzleWrong: puzzleWrong, puzzleSolved: puzzleSolved,
+    memHurt: memHurt, damagedMem: damagedMem, fuzzyText: fuzzyText, fixCost: fixCost,
+    jolt: jolt, lightTiles: lightTiles, MOBS: function () { return global.MOBS23 || null; },
+    QUALITY: { scaleCap: SCALE_CAP, scale: function () { return SCALE; }, setup: setupCanvas, amb: AMB, ambOf: ambOf, VW: VW, VH: VH } };
   global.GAME23 = GAME;
 
   function boot() {
@@ -2800,6 +3014,7 @@
       D: D, get S() { return S; },
       modalBody: modalBody, setTitle: setTitle, setBody: setBody, setBtns: setBtns,
       solve: solvePuzzle, toast: toast, sfx: sfx, close: closeModal, ending: ending,
+      wrong: puzzleWrong, harm: function (n, why) { return damageMemory(n || 1, why); },
       isOpen: function () { return modalOpen; }, openModal: openModal,
       refresh: function () { dirty.hud = dirty.tasks = dirty.album = 1; dirty.mem = 1; refreshPanels(); }
     };
@@ -2810,6 +3025,22 @@
     if (GAME.booted) return;
     PUZZLES23.attach(puzzleHost());
     boot();
+    /* 小怪的接线要等 boot() 把 D / S 装好 —— 早一步挂在 D 上是 null，整页就起不来了 */
+    if (global.MOBS23) {
+      global.MOBS23.attach({
+        player: function () { return { x: S.mx, y: S.my }; },
+        solid: function (x, y) { return solid(x, y); },
+        shadow: shadowUnder,
+        hit: function (K, how) {
+          toast((how === 'touch' ? K.name + '贴上来摸了你一下' : K.name + '朝你吐了一口') + ' —— 咬走一段记。');
+          damageMemory(1, 'mob:' + K.id);
+        },
+        wake: function (K) { addLog('雾里抬头了：' + K.name); toast('雾里抬头了：' + K.name + '。它在往你这边挪 —— 灯下它不敢进。'); },
+        spit: function () { sfx('blip'); }
+      });
+      global.MOBS23.spawnFor(S.scene, S.act);
+      syncMobs();
+    }
     GAME.booted = true;
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
