@@ -282,12 +282,16 @@
       innerOpen: '里屋的门开着，里面比夜更静。'
     },
     riddle: {
-      prompt: '钟塔的老面板亮起一行字：<b>「那一夜，钟敲到第几停下不响了？」</b>{{mem:bell7}}',
+      prompt: '钟塔的老面板亮起一行字：<b>「哑的那一下，乘上塔上从不乱的那个数。」</b>' +
+              '<br><span style="color:var(--dim);font-size:12px">刻度盘上只容得下两位数。</span>' +
+              '{{mem:bell7}}{{mem:six}}',
       wrong: '面板闪了闪红光，数字沉了下去。不对。',
+      hint: '（提示：两个数都在你自己的记忆里——一条数哑掉的那一下，一条说塔上从不乱的那个数。当掉的那段，字就黑了。）',
       right: '面板发出一声轻响，塔层的暗格滑开——里面躺着一块停走的旧怀表，表盖内侧刻着一个名字。'
     },
     code: {
-      prompt: '闸门上有一排金属敲板，和一行小字：<b>「以暗号叩门」</b>。{{mem:code}}<br>按顺序敲出：三声<b>长</b>，两声<b>短</b>。',
+      prompt: '闸门上有一排金属敲板。板边錾着一行几乎磨平的旧字：<b>「以暗号叩门。」</b>{{mem:code}}' +
+              '<br>侧框另有一行新刻的：「<b>照钟声敲；敲完了，再补一声长的——那一声是把门叩实。</b>」',
       wrong: '敲错了。金属板闷闷地弹回去，进度清零。',
       right: '最后一下落下，闸门深处传来齿轮转动的声音。缝隙里躺着一个小布包——是她的发绳。'
     },
@@ -422,10 +426,20 @@
 
   /* ---------- 正篇《雾季十年》---------- */
   /* 序章（本作原内容）= 新手教程；正篇自真结局一年后开始。
-     chapters: 1-6 已实施（第一幕·漏），7-21 为后续批次占位（标题先定，文案批次写入）。
-     open=章开场剧情 ask=当铺/触发对话 end=章末结算行 interest=本章利息增量 */
+     v20 精简：玩家看到的「章」= 三幕三章 + 隐藏章（见下方 acts）；
+     chapters 里的 1~11 是章内「段落」（原独立小章：文案、门控、利息、天数全部保留），
+     只用 actOfStep 映射到章 —— 段落 3 / 7 / 10 是幕末，其余是幕内推进。
+     open=章开场剧情 ask=当铺/触发对话 end=段落结算行 interest=本段利息增量 */
   var MAIN = {
     title: '雾季十年',
+    /* 章 = 幕：玩家可见第 1~3 章 + 隐藏章 4 */
+    actOfStep: { 1: 1, 2: 1, 3: 1, 4: 2, 5: 2, 6: 2, 7: 2, 8: 3, 9: 3, 10: 3, 11: 4 },
+    acts: {
+      1: { title: '漏', label: '第一幕', from: 1, to: 3 },
+      2: { title: '账', label: '第二幕', from: 4, to: 7 },
+      3: { title: '赎', label: '第三幕', from: 8, to: 10 },
+      4: { title: '接柜', label: '隐藏章', from: 11, to: 11, hidden: true }
+    },
     chapters: {
       1: {
         title: '海与灯芯', goal: '回当铺 · 问清门缝与旧账', interest: 5, days: 45,
@@ -577,25 +591,7 @@
       ledger: {
         name: '忏悔簿 · 对账',
         failCost: 5,
-        intro: '（忏悔簿摊在膝上：五笔大当，四行批注。有一行的赎期，是有人后来添上去的。）',
-        clues: [
-          '批注一：雾季的规矩——单数年当进，单数年赎出，双数年不进不出。',
-          '批注二：雾季八年，大雾封镇，当铺闭市——那一年，柜上一笔进出都没有。',
-          '批注三：先生的名字不入账。名签挂在墙上，人抵在堰里。',
-          '批注四：凡当入的行，当期一栏都按了指印——补写的那行，指印是后按的。'
-        ],
-        entries: [
-          { name: '灯婶', item: '铜灯芯', term: '雾季三年当入', back: '未赎', note: '按有指印' },
-          { name: '鞋匠周', item: '左楦头', term: '雾季五年当入', back: '雾季八年赎出', note: '指印颜色发新' },
-          { name: '唱诗班', item: '银铃', term: '雾季七年当入', back: '未赎', note: '按有指印' },
-          { name: '学堂先生', item: '名字', term: '雾季元年当入', back: '未赎', note: '名签在墙，不按指印' },
-          { name: '白记', item: '——', term: '雾季十年询价', back: '未成', note: '字迹是新的' }
-        ],
-        answer: 1,
-        hints: [
-          '（提示：全镇只有一笔写明了「赎出」——先盯住它。）',
-          '（提示：那笔赎出写在哪一年？批注二说了，那一年当铺在干什么。）'
-        ]
+        intro: '（忏悔簿摊在膝上：六笔旧账，五条批注。有一行是后来补写的——它同时踩坏了两条规矩。）'
       }
     },
     /* 第一幕正篇交互文案（档案员 / 拾卷 / 收网 / 守夜 / 白老板） */
@@ -774,10 +770,163 @@
     }
   };
 
+  /* ---------- 忏悔簿 · 对账谜题生成器（v22） ----------
+     每一条批注 = 一把尺子。生成保证：
+       ① 恰好一行同时违反两条批注（= 后补写的那行，就是答案）；
+       ② 至少两行只违反一条（= 幌子，诱你在第一条不合规处就下笔）；
+       ③ 其余行完全合规。
+     纯函数：rnd 可注入（测试用固定 seed），node 里可直接单测。 */
+  var LEDGER_NAMES = ['灯婶', '鞋匠周', '唱诗班', '裁缝陈', '米行老张', '修船李',
+                      '药铺三娘', '石匠何', '磨坊主', '刘家杂货', '剃头老吴', '绣坊苏'];
+  var LEDGER_ITEMS = {
+    '灯婶': '铜灯芯', '鞋匠周': '左楦头', '唱诗班': '银铃', '裁缝陈': '顶针', '米行老张': '斗秤',
+    '修船李': '船钉', '药铺三娘': '药碾', '石匠何': '凿子', '磨坊主': '磨心', '刘家杂货': '账本',
+    '剃头老吴': '铜镜', '绣坊苏': '绣样', '学堂先生': '名字'
+  };
+  var LEDGER_RULES = [
+    '批注一：雾季的规矩——单数年当入，单数年赎出，双数年不进不出。',
+    '批注二：雾季八年，大雾封镇，当铺闭市——那一年，柜上一笔进出都没有。',
+    '批注三：先生的名字不入账。名签挂在墙上，人抵在堰里。',
+    '批注四：凡当入的行，当期一栏都按了指印——补写的那行，指印是后按的。',
+    '批注五：只询价、没成交的行，柜上不押指印。'
+  ];
+  var LEDGER_CN = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  var LEDGER_ARCH_HINT = [
+    '（提示：有一行的年份，那一年镇上根本没开门做生意——它还在另一把尺子上站着不住。）',
+    '（提示：有一行的名字，本来就不该出现在账上。你再看它的年份。）',
+    '（提示：指印的颜色是后按的，年份也是后改的——两处都在同一行。）',
+    '（提示：名字不该入账，指印又新得离谱——同一行里两处都是后添上去的。）'
+  ];
+
+  /* 一行账违反的批注序号（0=批注一 … 4=批注五） */
+  function ledgerViolations(row) {
+    var v = [];
+    if (row.name === '学堂先生') v.push(2);
+    if (row.kind === 'pawn') {
+      if (row.yearIn % 2 === 0 || (row.yearOut !== null && row.yearOut % 2 === 0)) v.push(0);
+      if (row.yearIn === 8 || row.yearOut === 8) v.push(1);
+      if (row.note !== 'press') v.push(3);
+    } else if (row.note === 'press') {
+      v.push(4);
+    }
+    return v;
+  }
+
+  function ledgerRowText(row) {
+    var term = '雾季' + (LEDGER_CN[row.yearIn] || row.yearIn) + '年' + (row.kind === 'pawn' ? '当入' : '询价');
+    var back;
+    if (row.kind !== 'pawn') back = '未成';
+    else if (row.yearOut === null) back = '未赎';
+    else back = '雾季' + (LEDGER_CN[row.yearOut] || row.yearOut) + '年赎出';
+    var note = row.note === 'press' ? '按有指印' : (row.note === 'new' ? '指印颜色发新' : '未押指印');
+    return { name: row.name, item: row.item, term: term, back: back, note: note };
+  }
+
+  function ledgerShuffle(a, ri) {
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = ri(i + 1), t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  /* 生成一局：{ intro, clues, entries(6), answer, hints(3) } */
+  function makeLedger(rnd) {
+    rnd = rnd || Math.random;
+    var ri = function (n) { return Math.floor(rnd() * n); };
+    var pick = function (a) { return a[ri(a.length)]; };
+    var ODD = [1, 3, 5, 7, 9], EVEN = [2, 4, 6], ASKY = [7, 9, 10];
+    for (var attempt = 0; attempt < 400; attempt++) {
+      var pool = ledgerShuffle(LEDGER_NAMES.slice(), ri);
+      var used = [];
+      var mk = function (o) {
+        used.push(o.name);
+        return {
+          name: o.name, item: LEDGER_ITEMS[o.name] || '旧物', kind: o.kind || 'pawn',
+          yearIn: o.yearIn, yearOut: (o.kind === 'ask') ? null : (o.yearOut === undefined ? null : o.yearOut),
+          note: o.note
+        };
+      };
+      var arch = ri(4);                       /* 0:一+二  1:一+三  2:一+四  3:三+四 */
+      var forge;
+      if (arch === 0) forge = mk({ name: pool.pop(), yearIn: pick([1, 3, 5, 7]), yearOut: 8, note: 'press' });
+      else if (arch === 1) forge = mk({ name: '学堂先生', yearIn: pick(EVEN), note: 'press' });
+      else if (arch === 2) forge = mk({ name: pool.pop(), yearIn: pick(EVEN), note: 'new' });
+      else forge = mk({ name: '学堂先生', yearIn: pick(ODD), note: 'new' });
+      var want = [[0, 1], [0, 2], [0, 3], [2, 3]][arch];
+
+      /* 幌子：只违反一条 —— 至少两条，逼玩家把五条批注全量一遍 */
+      var trapPool = [0, 3, 4];
+      if (used.indexOf('学堂先生') < 0) trapPool.push(2);
+      ledgerShuffle(trapPool, ri);
+      var traps = [], k, yn;
+      for (k = 0; k < 2 && k < trapPool.length; k++) {
+        var tp = trapPool[k];
+        if (tp === 0) traps.push(mk({ name: pool.pop(), yearIn: pick(EVEN), note: 'press' }));
+        else if (tp === 2) traps.push(mk({ name: '学堂先生', yearIn: pick(ODD), note: 'press' }));
+        else if (tp === 3) traps.push(mk({ name: pool.pop(), yearIn: pick(ODD), note: 'new' }));
+        else traps.push(mk({ name: pool.pop(), kind: 'ask', yearIn: pick(ASKY), note: 'press' }));
+      }
+      /* 合规行：填满六行 */
+      var cleans = [];
+      while (traps.length + cleans.length < 5) {
+        if (cleans.length % 2 === 0) {
+          yn = pick(ODD);
+          cleans.push(mk({ name: pool.pop(), yearIn: yn, yearOut: (ri(2) ? null : pick(ODD.filter(function (y) { return y > yn; }))), note: 'press' }));
+        } else {
+          cleans.push(mk({ name: pool.pop(), kind: 'ask', yearIn: pick(ASKY), note: 'none' }));
+        }
+      }
+
+      var all = [forge].concat(traps, cleans);
+      var viol = all.map(ledgerViolations);
+      var two = 0, one = 0, bad = false;
+      for (k = 0; k < viol.length; k++) {
+        if (viol[k].length >= 2) two++;
+        else if (viol[k].length === 1) one++;
+      }
+      if (two !== 1) bad = true;
+      if (one < 2) bad = true;
+      if (viol[0].slice().sort().join(',') !== want.slice().sort().join(',')) bad = true;
+      if (!bad) {
+        var order = [], i;
+        for (i = 0; i < all.length; i++) order.push(i);
+        ledgerShuffle(order, ri);
+        var entries = [], answer = -1;
+        for (i = 0; i < order.length; i++) {
+          var src = order[i], txt = ledgerRowText(all[src]);
+          txt.viol = viol[src];
+          entries.push(txt);
+          if (src === 0) answer = i;
+        }
+        return {
+          intro: MAIN.minis.ledger.intro,
+          clues: LEDGER_RULES.slice(),
+          entries: entries,
+          answer: answer,
+          hints: [
+            '（提示：只犯一条的行是给你看的幌子。要找的是同时不合两把尺子的那一行。）',
+            LEDGER_ARCH_HINT[arch],
+            '（提示：把六行横过来，一条批注一条批注地画掉——画到某一行时，你会在两栏里同时停笔。）'
+          ]
+        };
+      }
+    }
+    return null;  /* 理论上到不了：400 次重摇仍凑不齐就交白卷（调用方回退到静态示例） */
+  }
+
+  /* 兜底局：固定 seed 生成（正常路径用不到，仅当生成器极端凑不齐时兜住 UI） */
+  var LEDGER_FALLBACK = (function () {
+    var n = 20261011;
+    var rnd = function () { n = (n * 1103515245 + 12345) % 2147483648; return n / 2147483648; };
+    return makeLedger(rnd);
+  })();
+
   var api = {
     CFG: CFG, MEMORIES: MEMORIES, TOTAL_W: TOTAL_W, TAGS: TAGS, SHOP: SHOP,
     PLACES: PLACES, NPCS: NPCS, JOBS: JOBS, SOLID_RECTS: SOLID_RECTS, CHAT: CHAT, MAIN: MAIN,
     isSolid: isSolid, blackout: blackout, memById: memById, memStateOf: memStateOf,
+    makeLedger: makeLedger, LEDGER_RULES: LEDGER_RULES, ledgerViolations: ledgerViolations,
+    LEDGER_FALLBACK: LEDGER_FALLBACK,
     resolveText: resolveText, integrityOf: integrityOf, lostCountOf: lostCountOf,
     pawnedOf: pawnedOf, earliestRedeemOf: earliestRedeemOf, canBuy: canBuy,
     finalGateOf: finalGateOf, pagesCountOf: pagesCountOf, relicCountOf: relicCountOf, hasRelics: hasRelics,
