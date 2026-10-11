@@ -91,7 +91,7 @@
         ], again: ['海还在那里。很静。'] }
       ],
       portals: [
-        { x: 0, y: 12, to: 'town', tx: 2, ty: 12, label: '沿石阶下镇' }
+        { x: 0, y: 12, to: 'town', tx: 2, ty: 12, label: '沿石阶下镇', need: 'lampcode_ok' }
       ]
     },
 
@@ -105,7 +105,7 @@
         { id: 'pawn_door', name: '记当铺', x: 6, y: 5, kind: 'portal', to: 'pawnshop', tx: 10, ty: 11, say: [
           '门楣上一块旧匾：「记当」。底下小字：当记不问来路，赎记不问去处。'
         ] },
-        { id: 'arch_door', name: '岛史馆', x: 15, y: 5, kind: 'portal', to: 'archive', tx: 10, ty: 12, say: [
+        { id: 'arch_door', name: '岛史馆', x: 15, y: 5, kind: 'portal', to: 'archive', tx: 10, ty: 12, need: 'gap_seen', say: [
           '馆门开着一条缝。里面很暗，有纸和灰的味道。'
         ] },
         { id: 'board', name: '告示牌', x: 10, y: 9, kind: 'jobs', say: [
@@ -121,7 +121,7 @@
           '「你姐呢？」你问。',
           '她的手停了一下。「……你不知道啊。」她低头继续择菜，「那你先别问。先去当铺，把你自己那笔账问清楚。」'
         ], again: ['陈婶不肯再说了。她只说：「去当铺。」'] },
-        { id: 'saltgate', name: '盐埕口', x: 18, y: 12, kind: 'portal', to: 'saltflats', tx: 2, ty: 8, say: [
+        { id: 'saltgate', name: '盐埕口', x: 18, y: 12, kind: 'portal', to: 'saltflats', tx: 2, ty: 8, need: 'redeemed_sis', say: [
           '盐埕口出去就是盐田。风里有咸味，还有潮水退下去的空响。'
         ] },
         { id: 'notice', name: '镇口的告示牌', x: 10, y: 12, kind: 'look', flag: 'notice_read', say: [
@@ -142,7 +142,7 @@
       ],
       portals: [
         { x: 0, y: 12, to: 'lighthouse', tx: 2, ty: 12, label: '上灯塔' },
-        { x: 19, y: 12, to: 'saltflats', tx: 2, ty: 8, label: '去盐田' }
+        { x: 19, y: 12, to: 'saltflats', tx: 2, ty: 8, label: '去盐田', need: 'redeemed_sis' }
       ]
     },
 
@@ -350,6 +350,10 @@
           '这个字刻得很早。木头已经把它收进自己的纹路里去了。',
           '留着空位的人，等的不是一册书。他等的是一个能把那一册还回来的人。'
         ] },
+        { id: 'fogdoor', name: '馆北的门', x: 16, y: 1, kind: 'portal', to: 'mist', tx: 10, ty: 12, need: 'contract_seen', say: [
+          '北墙尽头有一扇门，门缝里往外渗白的东西——不是烟，是雾，凉的。',
+          '门上没有锁。缺的是你这边的理由。'
+        ], again: ['雾从门缝里挤进来，贴在地上，像在等你先迈步。'] },
         { id: 'northwin', name: '朝北的那扇窗', x: 10, y: 9, kind: 'look', say: [
           '岛史馆朝北有一扇窗，比其他窗都低，窗台磨得发亮——有人长年趴在这里写字。',
           '窗外是海，再远一点是雾。天气好的时候，能看见望归灯的一个尖。',
@@ -463,8 +467,19 @@
           '你手里剩下的，是她的名字。'
         ], again: ['四张照片还摊在雾里。'] }
       ],
-      portals: []
+      portals: [
+        { x: 2, y: 13, to: 'archive', tx: 10, ty: 12, label: '退回去' }
+      ]
     }
+  };
+
+  /* 幕名与幕间那句 —— 换幕时弹幕卡用（以前换幕只有场景横幅，玩家根本不知道"进了新一幕"） */
+  var ACT_TITLES = {
+    1: { name: '守灯', line: '一百分钟的夜，从这里开始。' },
+    2: { name: '当铺', line: '记是可以当的 —— 也可以赎。' },
+    3: { name: '盐与堤', line: '白得像没写完的纸，缺的那页不是你的字。' },
+    4: { name: '灰里的字', line: '有人一辈子，在等一个人来问。' },
+    5: { name: '雾里', line: '雾不是天气，是人装不住的东西漏出来了。' }
   };
 
   /* ============ 二、任务（27：主线 15 / 支线 12） ============ */
@@ -858,7 +873,7 @@
 
   var api = {
     SCENES: SCENES, TASKS: TASKS, PUZZLES: PUZZLES, PHOTOS: PHOTOS, MEM23: MEM23,
-    CHRONICLE: CHRONICLE, ENDINGS: ENDINGS, NPCS: NPCS, TEXT: TEXT,
+    CHRONICLE: CHRONICLE, ENDINGS: ENDINGS, NPCS: NPCS, TEXT: TEXT, ACT_TITLES: ACT_TITLES,
     sceneById: sceneById, placeById: placeById, placeAt: placeAt, portalAt: portalAt,
     isSolidIn: isSolidIn, tasksOfAct: tasksOfAct, puzzlesOfAct: puzzlesOfAct,
     photoCount: photoCount, trueEndingReachable: trueEndingReachable,
