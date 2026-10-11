@@ -645,32 +645,92 @@
       c.strokeStyle = 'rgba(0,0,0,.45)'; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     });
   }
-  function drawFigure(c, x, y, col, face, lift) {
+  /* 人物：腿会迈、手会摆、有发型和脸；左上受光 + 右下压暗 + 暖轮廓光 */
+  function drawFigure(c, x, y, col, face, lift, phase) {
     var px = x * CELL + CELL / 2, py = y * CELL + CELL / 2 - (lift || 0);
-    c.save();
-    shadowUnder(c, px, py + 15, 12, 4.5);
-    var g = c.createLinearGradient(px - 9, py - 14, px + 9, py + 14);
-    g.addColorStop(0, shade(col, 0.24)); g.addColorStop(0.6, col); g.addColorStop(1, shade(col, -0.32));
-    c.fillStyle = g;
-    c.beginPath(); c.moveTo(px - 9, py + 14); c.lineTo(px + 9, py + 14);
-    c.quadraticCurveTo(px + 11, py - 2, px + 6, py - 6); c.lineTo(px - 6, py - 6);
-    c.quadraticCurveTo(px - 11, py - 2, px - 9, py + 14); c.closePath(); c.fill();
-    c.fillStyle = shade(col, 0.10);
-    c.beginPath(); c.arc(px, py - 10, 7, 0, Math.PI * 2); c.fill();
-    c.fillStyle = 'rgba(0,0,0,.26)';
-    c.beginPath(); c.arc(px, py - 12, 7, Math.PI * 1.05, Math.PI * 1.95); c.fill();
-    c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1;
-    c.beginPath(); c.moveTo(px - 7, py + 13.5); c.lineTo(px + 7, py + 13.5); c.stroke();
-    c.fillStyle = 'rgba(255,255,255,.62)';
-    c.fillRect(px + (face > 0 ? 2 : -4), py - 11, 2, 2);
-    /* 手里那盏小灯：暖点 + 光晕，人物在暗场里也有存在感 */
-    var lx = px + (face > 0 ? 11 : -11), ly = py + 4;
-    var lg = c.createRadialGradient(lx, ly, 1, lx, ly, 15);
-    lg.addColorStop(0, 'rgba(255,214,132,.55)'); lg.addColorStop(1, 'rgba(255,214,132,0)');
-    c.fillStyle = lg; c.beginPath(); c.arc(lx, ly, 15, 0, Math.PI * 2); c.fill();
-    c.fillStyle = '#ffdf9e'; c.fillRect(lx - 1.5, ly - 2, 3, 4);
+    var ph = (phase === undefined ? S.t * 11 : phase);
+    var mv = (lift || 0) > 0.02 ? 1 : 0, sw = mv ? Math.sin(ph) : 0;
+    var bob = mv ? Math.abs(Math.sin(ph)) * 0.55 : 0;
+    var gy = py + 16 - bob, hip = gy - 9.5, sh = gy - 20.5, hyy = gy - 27;
+    var hair = shade(col, -0.52), pants = shade(col, -0.4), boot = shade(col, -0.66);
+    var f = face === 0 ? 0 : (face > 0 ? 1 : -1), r = 6.3;
+    c.save(); c.lineCap = "round"; c.lineJoin = "round";
+    shadowUnder(c, px, py + 17, 10.4 - bob * 0.5, 4);
+    /* 腿：交替迈步 + 靴子 */
+    for (var i = 0; i < 2; i++) {
+      var off = i ? 2.5 : -2.5, sgn = i ? -1 : 1, sx = px + off + sw * sgn * 2.4;
+      c.strokeStyle = pants; c.lineWidth = 3.6;
+      c.beginPath(); c.moveTo(px + off * 0.82, hip); c.lineTo(sx, gy - 1.5); c.stroke();
+      c.strokeStyle = boot; c.lineWidth = 2.5;
+      c.beginPath(); c.moveTo(sx - 1.5, gy - 0.9); c.lineTo(sx + 2.3, gy - 0.9); c.stroke();
+    }
+    /* 大衣：A 字下摆，左上亮右下暗 */
+    var cg = c.createLinearGradient(px - 8, sh, px + 7, gy);
+    cg.addColorStop(0, shade(col, 0.3)); cg.addColorStop(0.55, col); cg.addColorStop(1, shade(col, -0.34));
+    c.fillStyle = cg;
+    c.beginPath();
+    c.moveTo(px - 6.2, sh); c.lineTo(px + 6.2, sh);
+    c.quadraticCurveTo(px + 8.0, hip + 1, px + 7.5, gy - 7.2);
+    c.quadraticCurveTo(px, gy - 5.0, px - 7.5, gy - 7.2);
+    c.quadraticCurveTo(px - 8.0, hip + 1, px - 6.2, sh); c.closePath(); c.fill();
+    c.fillStyle = "rgba(0,0,0,.22)";
+    c.beginPath(); c.arc(px, sh + 3.6, 0.7, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.arc(px, sh + 7.4, 0.7, 0, Math.PI * 2); c.fill();
+    c.fillStyle = "rgba(0,0,0,.16)";
+    c.beginPath(); c.ellipse(px, gy - 7.0, 7.1, 2.4, 0, 0, Math.PI); c.fill();
+    c.strokeStyle = "rgba(0,0,0,.34)"; c.lineWidth = 1.4;
+    c.beginPath(); c.moveTo(px - 7.3, hip); c.lineTo(px + 7.3, hip); c.stroke();
+    c.fillStyle = shade(col, 0.42); c.fillRect(px - 1.4, hip - 1.4, 2.8, 2.8);
+    /* 手臂：提灯那只不动，另一只反相摆 */
+    c.strokeStyle = shade(col, -0.14); c.lineWidth = 3.2;
+    c.beginPath(); c.moveTo(px - 5.7, sh + 1.6); c.lineTo(px - 6.8 - sw * 2.2, hip + 3.8); c.stroke();
+    /* 头：后发 → 脸 → 刘海 → 发髻 → 五官 */
+    c.fillStyle = hair;
+    c.beginPath(); c.arc(px - f * 4.0, hyy - 4.8, 3.3, 0, Math.PI * 2); c.fill();   /* 脑后发髻 */
+    var fg = c.createLinearGradient(px - 5, hyy - 5, px + 5, hyy + 6);
+    fg.addColorStop(0, "#fdf4e4"); fg.addColorStop(1, "#e0ccae");
+    c.fillStyle = fg;
+    c.beginPath(); c.ellipse(px + f * 0.6, hyy + 0.4, r - 0.4, r - 0.1, 0, 0, Math.PI * 2); c.fill();
+    /* 发型轮廓：盖住颅顶，露出脸 */
+    c.fillStyle = hair;
+    c.beginPath();
+    c.moveTo(px - r - 1, hyy + 3.4);
+    c.quadraticCurveTo(px - r - 1.7, hyy - r - 2.5, px, hyy - r - 1.9);
+    c.quadraticCurveTo(px + r + 1.7, hyy - r - 2.5, px + r + 1, hyy + 3.4);
+    c.quadraticCurveTo(px + r - 0.5, hyy + 0.3, px + f * 1.4, hyy - 3.5);
+    c.quadraticCurveTo(px - r + 0.5, hyy - 0.9, px - r - 1, hyy + 3.4);
+    c.closePath(); c.fill();
+    if (f !== 0) {
+      c.fillStyle = "#3a3038";
+      c.beginPath(); c.arc(px + f * 1.7, hyy + 0.5, 0.85, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(px + f * 4.2, hyy + 0.5, 0.85, 0, Math.PI * 2); c.fill();
+      c.fillStyle = "rgba(255,255,255,.92)";
+      c.fillRect(px + f * 1.7 - 0.3, hyy, 0.7, 0.7);
+      c.fillStyle = "rgba(214,120,110,.3)";
+      c.beginPath(); c.arc(px + f * 5.1, hyy + 2.7, 1.3, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = "rgba(90,58,58,.5)"; c.lineWidth = 0.7;
+      c.beginPath(); c.arc(px + f * 3.0, hyy + 3.5, 1.1, 0.25, Math.PI - 0.25); c.stroke();
+    }
+    c.strokeStyle = "rgba(255,216,150,.32)"; c.lineWidth = 1;
+    c.beginPath(); c.arc(px, hyy, r + 0.9, Math.PI * 1.02, Math.PI * 1.72); c.stroke();
+    /* 手里那盏灯：木框 + 暖玻璃 + 光晕 */
+    var lx = px + (f < 0 ? -11.5 : 11.5), ly = py + 4;
+    c.strokeStyle = shade(col, -0.28); c.lineWidth = 2.6;
+    c.beginPath(); c.moveTo(px + (f < 0 ? -5.7 : 5.7), sh + 1.6); c.lineTo(lx, ly - 5); c.stroke();
+    var lg = c.createRadialGradient(lx, ly, 1, lx, ly, 17);
+    lg.addColorStop(0, "rgba(255,214,132,.5)"); lg.addColorStop(0.45, "rgba(255,190,110,.15)");
+    lg.addColorStop(1, "rgba(255,190,110,0)");
+    c.fillStyle = lg; c.beginPath(); c.arc(lx, ly, 17, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = "rgba(58,42,28,.85)"; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(lx - 2.5, ly - 4.3); c.lineTo(lx + 2.5, ly - 4.3);
+    c.lineTo(lx + 2.1, ly + 3.7); c.lineTo(lx - 2.1, ly + 3.7); c.closePath(); c.stroke();
+    var cg2 = c.createLinearGradient(lx, ly - 3.6, lx, ly + 3.2);
+    cg2.addColorStop(0, "#fff2c8"); cg2.addColorStop(1, "#ffb257");
+    c.fillStyle = cg2; c.fillRect(lx - 1.7, ly - 3.4, 3.4, 6.4);
+    c.fillStyle = "#fff0bd"; c.beginPath(); c.arc(lx, ly + 0.2, 1, 0, Math.PI * 2); c.fill();
     c.restore();
   }
+
   function drawPlace(c, p) {
     var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
     var col = scene().palette.accent;
@@ -824,7 +884,7 @@
     ctx.strokeStyle = 'rgba(255,226,150,' + (0.35 + 0.25 * pulse).toFixed(2) + ')';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(cx, cy + 12, 13 + pulse * 2, 5 + pulse, 0, 0, Math.PI * 2); ctx.stroke();
-    drawFigure(ctx, S.mx, S.my, '#f3ead6', S.face, mv > 0.02 ? Math.abs(Math.sin(t * 11)) * 1.8 : 0);
+    drawFigure(ctx, S.mx, S.my, '#f3ead6', S.face, mv > 0.02 ? Math.abs(Math.sin(t * 11)) * 1.8 : 0, t * 11);
     var bob = Math.sin(t * 3.4) * 2;
     ctx.fillStyle = 'rgba(255,228,150,.9)';
     ctx.beginPath();
