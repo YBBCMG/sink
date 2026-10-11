@@ -609,6 +609,47 @@ body.mp-modal #btn-e { display: none !important; }
   .nm-slots .pz-slot { width: 46px; height: 46px; font-size: 20px; }
   .arc-item.mem-hurt { border-left: 3px solid rgba(226,131,111,.85); color: #e8c9c0; }
   .arc-item.mem-hurt .mem-tag { color: #e2836f; }
+  /* 新手引导「第一夜清单」：一张夹在抄本里的旧纸。
+     上一行是母亲的字（剧情），下一行是白话说怎么动手（操作）——分开写，看着不累。 */
+  #guide-note {
+    position: absolute; left: 10px; top: 10px; width: 236px; z-index: 8;
+    background: linear-gradient(180deg, rgba(240,229,202,.96), rgba(223,208,173,.96));
+    color: #2b2419; border: 1px solid rgba(120,96,54,.75); border-radius: 9px;
+    padding: 7px 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,.45);
+    font-size: 12.5px; line-height: 1.6; display: none; text-align: left;
+  }
+  #guide-note.on, #guide-note.done { display: block; }
+  #guide-note.on { animation: guideIn .3s ease; }
+  @keyframes guideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  #guide-note.flash { box-shadow: 0 0 0 2px rgba(240,196,106,.85), 0 6px 20px rgba(0,0,0,.5); }
+  #guide-bar { display: flex; align-items: baseline; gap: 6px; font-size: 11px; letter-spacing: .4px; color: #6d5a35; }
+  #guide-bar b { font-size: 12px; letter-spacing: 1px; color: #4a3a1c; }
+  #guide-count { margin-left: auto; font-variant-numeric: tabular-nums; color: #7a6437; }
+  #guide-min { all: unset; cursor: pointer; padding: 0 2px 0 6px; color: #8a7444; font-size: 11px; }
+  #guide-min:hover { color: #2b2419; }
+  #guide-mom { margin: 3px 0 5px; font-size: 12.8px; line-height: 1.62; }
+  #guide-mom::before { content: '「'; color: #8a7444; }
+  #guide-mom::after { content: '」'; color: #8a7444; }
+  #guide-mom .g-note { color: #6b5a38; }
+  #guide-how { margin: 0; padding-top: 5px; border-top: 1px dashed rgba(120,96,54,.45); font-size: 12px; color: #57451f; }
+  #guide-how b { color: #8a5a12; }
+  #guide-list { display: none; margin-top: 6px; padding-top: 5px; border-top: 1px dashed rgba(120,96,54,.45); font-size: 11.5px; color: #6b5a38; line-height: 1.7; }
+  #guide-note.open #guide-list { display: block; }
+  #guide-list .g-done { color: #6f7a46; }
+  #guide-note.done { width: auto; max-width: 236px; padding: 5px 10px; }
+  #guide-note.done #guide-min { display: none; }
+  /* 手机窄屏：便签只留一行（白话操作），母亲的话点"展开"再摊开。
+     实测 390x844 下整张纸会压住左下方向盘 —— 那就不是引导，是挡路。 */
+  @media (max-width: 760px) {
+    #guide-note { left: 6px; right: 6px; width: auto; top: 4px; padding: 4px 8px 5px; font-size: 11px; }
+    #guide-bar { font-size: 10.5px; }
+    #guide-mom { display: none; }
+    #guide-how { border-top: none; padding-top: 0; font-size: 11px; }
+    #guide-note.open { max-height: 46vh; overflow: auto; }
+    #guide-note.open #guide-mom { display: block; margin: 4px 0; font-size: 12px; }
+    #guide-note.open #guide-how { border-top: 1px dashed rgba(120,96,54,.45); padding-top: 4px; }
+    body.mp-guide #scene-banner { top: 44px; }      /* 顶部被引导条占了：场景横幅让一让 */
+  }
   /* 跑腿任务的路线条：✓ 走过 / ● 这一段 / ○ 还没到 */
   .leg-route { margin-top: 5px; font-size: 12.5px; color: #cbb894; letter-spacing: .3px; }
   .leg-route i { font-style: normal; color: #6b6152; padding: 0 4px; }
@@ -639,6 +680,13 @@ body.mp-modal #btn-e { display: none !important; }
       <div id="scene-banner"></div>
       <div id="act-card"></div>
       <div id="toast"></div>
+      <!-- 新手引导：母亲夹在抄本第一页的「第一夜清单」（js/guide23.js 驱动，一步只写一件事） -->
+      <div id="guide-note">
+        <div id="guide-bar"><b id="guide-tag">第一夜清单</b><span id="guide-count"></span><button id="guide-min" title="收起 / 展开">收起</button></div>
+        <p id="guide-mom"></p>
+        <p id="guide-how"></p>
+        <div id="guide-list"></div>
+      </div>
       <div id="touch-ui" aria-hidden="true">
         <div id="dpad">
           <button data-k="ArrowUp" title="上">▲</button>
@@ -697,11 +745,13 @@ body.mp-modal #btn-e { display: none !important; }
   </main>
   <div id="footer-tips">WASD / 方向键 走动 · E 互动 · <b>F 泼灯油</b>（雾里的东西定住 15 秒）· 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式</div>
 </div>
-<script src="js/story23.js?v=32"></script>
-<script src="js/audio.js?v=32"></script>
-<script src="js/music.js?v=32"></script>
-<script src="js/mobs23.js?v=32"></script>
-<script src="js/puzzles23.js?v=32"></script>
-<script src="js/game23.js?v=32"></script>
+<script src="js/story23.js?v=33"></script>
+<script src="js/audio.js?v=33"></script>
+<script src="js/music.js?v=33"></script>
+<script src="js/mobs23.js?v=33"></script>
+<script src="js/puzzles23.js?v=33"></script>
+<script src="js/art31.js?v=33"></script>
+<script src="js/game23.js?v=34"></script>
+<script src="js/guide23.js?v=33"></script>
 </body>
 </html>
