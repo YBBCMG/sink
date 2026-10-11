@@ -4,6 +4,7 @@
  *   ① 低移速、远程 —— 追得上人，但追不死人；保持距离吐东西，贴近了反而退；
  *   ② 被摸到不掉血，掉记忆 —— 撞上或吃到弹丸都算一次"咬"，咬完就退回雾里消失；
  *   ③ 一个场景只留一只 —— 多了不是难，是恶心。
+ * 名字：**雾呓** —— 雾里那声含糊的梦话；只此一种，别的不刷。
  * 反制：**灯油**（oil）—— 泼一罐，圈里的东西被定住十几秒，圈外的不敢进；再加上"怕灯"，
  *       所以灯下与油圈是两处安全区。名字与长相都换成海雾/记当铺这一路的东西。
  *
@@ -12,32 +13,23 @@
 (function (global) {
   'use strict';
 
+  /* 只留一种 —— 雾里就只有这一样东西（用户：名字够好听、长相够好看、一种就够） */
   var KINDS = {
-    leech: {
-      id: 'leech', name: '蚀忆蛭', desc: '贴在暗处的半透明软体，一节一节地啃字',
-      col: '#8f7fb8', col2: '#c9b8f0', r: 16, speed: 0.95, keep: 4.6, cd: 3.8,
-      shot: { col: '#c9b8f0', r: 4.2, speed: 2.6, mk: 'blob' }
-    },
-    shade: {
-      id: 'shade', name: '忘潮影', desc: '潮水褪下去时留在礁上的影子，壳上驮着一句想不起来的话',
-      col: '#9a8ea4', col2: '#e2d6bc', r: 17, speed: 0.8, keep: 5.4, cd: 4.6,
-      shot: { col: '#e0d0a8', r: 5.0, speed: 2.2, mk: 'shell' }
-    },
-    moth: {
-      id: 'moth', name: '拾忆蛾', desc: '绕着灯飞的大蛾，翅膀上全是别人丢下的字',
-      col: '#7fb8a8', col2: '#a8e0cf', r: 13, speed: 1.25, keep: 3.8, cd: 3.2,
-      shot: { col: '#a8e0cf', r: 3.6, speed: 3.0, mk: 'scale' }
+    wuyi: {
+      id: 'wuyi', name: '雾呓', desc: '雾里那声含糊的梦话 —— 它张一次嘴，你就少一个字',
+      col: '#8f7fb8', col2: '#efe8ff', r: 16, speed: 1.05, keep: 4.4, cd: 3.6,
+      shot: { col: '#d9cffb', r: 4.6, speed: 2.6, mk: 'glyph' }
     }
   };
 
   /* 一个场景一只：第几幕开始出现、落在哪一格、是哪一种 */
   var SPAWN = {
-    town:       { act: 2, spots: [[5, 9, 'moth']] },
-    pawnshop:   { act: 2, spots: [[4, 6, 'leech']] },
-    saltflats:  { act: 3, spots: [[9, 6, 'shade']] },
-    lighthouse: { act: 3, spots: [[13, 12, 'moth']] },
-    archive:    { act: 4, spots: [[9, 11, 'leech']] },
-    mist:       { act: 5, spots: [[8, 3, 'shade']] }
+    town:       { act: 2, spots: [[5, 9]] },
+    pawnshop:   { act: 2, spots: [[4, 6]] },
+    saltflats:  { act: 3, spots: [[9, 6]] },
+    lighthouse: { act: 3, spots: [[13, 12]] },
+    archive:    { act: 4, spots: [[9, 11]] },
+    mist:       { act: 5, spots: [[8, 3]] }
   };
 
   var AWAKE = 8.5;          /* 多远开始盯上你 */
@@ -77,7 +69,7 @@
     var cfg = SPAWN[sceneId];
     if (!cfg || (act || 1) < cfg.act) return 0;
     cfg.spots.forEach(function (s, i) {
-      var k = KINDS[s[2]] || KINDS.moth;
+      var k = KINDS.wuyi;
       list.push({
         uid: ++seq, kind: k.id, x: s[0], y: s[1],
         state: 'idle', cool: 1.2 + i * 0.5, fled: 0, hold: 0, t: i * 1.7, face: 1
@@ -211,63 +203,103 @@
     }
   }
 
+  /* 雾呓：一层层褪开的雾影 —— 兜帽里两粒淡光，身上浮着别人丢下的字
+     （分层半透明 + 渐变画；浅色盐田和深色雾里都立得住，不用描黑边） */
+  /* 雾呓：细高的一件雾袍 —— 兜帽下一对平静的眼，袍里浮着别人丢下的字，下摆散成缕缕雾
+     （分层半透明 + 竖向渐变；浅底深底都立得住，不描黑边） */
+  /* 雾呓：一件细高的雾袍 —— 兜帽下一对安静的眼，袍里浮着别人丢下的字，
+     下摆碎成短短几缕、半身就化掉，头顶一线白气（是雾，不是虫，也不是水母） */
+  /* 雾呓：一顶宽檐的雾兜帽 + 一件化掉的斗篷 —— 帽檐下幽着一对平静的眼，
+     袍里浮着别人丢下的字，下摆三五缕散开就没了（是雾，不是虫，也不是水母） */
   function body(ctx, x, y, K, m) {
-    var wob = Math.sin(m.t * 3.4) * 1.5, held = m.hold > 0;
+    var held = m.hold > 0, wob = Math.sin(m.t * 3.4) * 1.4, r = K.r;
+    var sway = Math.sin(m.t * 0.9) * 1.6, breathe = Math.sin(m.t * 1.6) * 0.4;
     ctx.save();
-    ctx.translate(x, y + (held ? 0 : wob * 0.4));
+    ctx.translate(x + (held ? 0 : sway * 0.35), y + (held ? 0 : wob * 0.35));
     if (held) ctx.globalAlpha = 0.85;
 
-    if (m.kind === 'leech') {                        /* 蚀忆蛭：一节一节的软体，半透明 */
-      ctx.fillStyle = 'rgba(143,127,184,.40)';
-      ctx.beginPath(); ctx.ellipse(0, 2, K.r * 1.05, K.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(96,80,140,.85)'; ctx.lineWidth = 1.2;
-      for (var s = -2; s <= 2; s++) {                 /* 体节 */
-        ctx.beginPath();
-        ctx.ellipse(s * 3.4, 2 + Math.abs(s) * 0.4, 2.2, K.r * 0.62 - Math.abs(s) * 1.6, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      ctx.fillStyle = 'rgba(201,184,240,.34)';
-      ctx.beginPath(); ctx.ellipse(-2, -2.5, K.r * 0.6, K.r * 0.34, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(120,104,160,.8)'; ctx.lineWidth = 2;
-      for (var i = -1; i <= 1; i++) {                 /* 三条须 */
-        ctx.beginPath(); ctx.moveTo(i * 4, K.r * 0.6);
-        ctx.quadraticCurveTo(i * 7 + wob, K.r * 1.5, i * 4 - wob, K.r * 2.2); ctx.stroke();
-      }
-      ctx.fillStyle = '#f0e6ff';
-      ctx.beginPath(); ctx.arc(-4, -1, 2.0, 0, Math.PI * 2); ctx.arc(4, -1, 2.0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#3a2f4a';
-      ctx.beginPath(); ctx.arc(-4, -1, 0.9, 0, Math.PI * 2); ctx.arc(4, -1, 0.9, 0, Math.PI * 2); ctx.fill();
+    var g = ctx.createLinearGradient ? ctx.createLinearGradient(0, -r * 1.2, 0, r * 1.25) : null;
+    if (g && g.addColorStop) {
+      g.addColorStop(0, 'rgba(250,247,255,.82)');
+      g.addColorStop(0.35, 'rgba(178,162,214,.52)');
+      g.addColorStop(0.72, 'rgba(148,131,190,.26)');
+      g.addColorStop(1, 'rgba(143,127,184,0)');
+    }
+    var fill = g || 'rgba(166,148,204,.44)';
 
-    } else if (m.kind === 'shade') {                 /* 忘潮影：雾里一只蟹的影子，壳上驮着一句残句 */
-      ctx.fillStyle = 'rgba(154,142,164,.5)';
-      ctx.beginPath(); ctx.ellipse(0, 2, K.r * 1.0, K.r * 0.74, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(226,214,188,.55)'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.ellipse(0, 2, K.r * 1.0, K.r * 0.74, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = 'rgba(200,188,210,.75)'; ctx.lineWidth = 2.4;
-      for (var s4 = -1; s4 <= 1; s4 += 2) {          /* 两只钳 + 六条腿 */
-        ctx.beginPath(); ctx.moveTo(s4 * 5, 5); ctx.lineTo(s4 * 10, 10); ctx.stroke();
-        ctx.beginPath(); ctx.arc(s4 * 12, -1, 3.4, -0.7, 2.0); ctx.stroke();
-        for (var l2 = 0; l2 < 3; l2++) {
-          ctx.beginPath(); ctx.moveTo(s4 * 4, 4 + l2 * 2.4); ctx.lineTo(s4 * (11 + l2), 8 + l2 * 3); ctx.stroke();
-        }
-      }
-      ctx.fillStyle = 'rgba(244,234,210,.9)';        /* 壳上那半句记 */
-      ctx.fillRect(-4, -5, 8, 3);
-      ctx.fillStyle = 'rgba(244,234,210,.5)';
-      ctx.fillRect(-1, -9, 5, 2);
-      ctx.fillStyle = '#f2ead8';
-      ctx.beginPath(); ctx.arc(-4.5, 0, 1.5, 0, Math.PI * 2); ctx.arc(4.5, 0, 1.5, 0, Math.PI * 2); ctx.fill();
+    /* ① 斗篷：从肩往下散开 */
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.5, -r * 0.34);
+    ctx.quadraticCurveTo(-r * 0.72, r * 0.3, -r * 0.84, r * 0.92);
+    ctx.quadraticCurveTo(-r * 0.42, r * 1.16, 0, r * 1.18);
+    ctx.quadraticCurveTo(r * 0.42, r * 1.16, r * 0.84, r * 0.92);
+    ctx.quadraticCurveTo(r * 0.72, r * 0.3, r * 0.5, -r * 0.34);
+    ctx.closePath(); ctx.fill();
 
-    } else {                                         /* 拾忆蛾：翅膀上全是别人的字 */
-      wings(ctx, K, m, 1 + Math.sin(m.t * 5.2) * 0.22);
-      ctx.fillStyle = 'rgba(127,184,168,.92)';
-      ctx.beginPath(); ctx.ellipse(0, 1, K.r * 0.34, K.r * 0.72, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(60,96,88,.9)'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(-1.6, -6); ctx.lineTo(-5, -11); ctx.moveTo(1.6, -6); ctx.lineTo(5, -11); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,.85)';       /* 抱在怀里的一粒字 */
-      ctx.fillRect(-2.5, 3, 5, 4);
-      ctx.fillStyle = '#0e1a18';
-      ctx.beginPath(); ctx.arc(-1.8, -3.4, 1.2, 0, Math.PI * 2); ctx.arc(1.8, -3.4, 1.2, 0, Math.PI * 2); ctx.fill();
+    /* ② 兜帽：宽檐，檐口微微下压 */
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.52, -r * 0.3);
+    ctx.quadraticCurveTo(-r * 0.72, -r * 0.72, -r * 0.6, -r * 1.0);
+    ctx.quadraticCurveTo(-r * 0.3, -r * 1.34, 0, -r * 1.34);
+    ctx.quadraticCurveTo(r * 0.3, -r * 1.34, r * 0.6, -r * 1.0);
+    ctx.quadraticCurveTo(r * 0.72, -r * 0.72, r * 0.52, -r * 0.3);
+    ctx.quadraticCurveTo(0, -r * 0.16, -r * 0.52, -r * 0.3);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(252,249,255,.34)'; ctx.lineWidth = 1;   /* 檐口一道亮边 */
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.55, -r * 0.32);
+    ctx.quadraticCurveTo(0, -r * 0.18, r * 0.55, -r * 0.32);
+    ctx.stroke();
+
+    /* ③ 帽檐下的幽暗 + 一对安静的眼 */
+    ctx.fillStyle = 'rgba(50,40,68,.5)';
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.6, r * 0.34, r * 0.3 + breathe * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = held ? 0.45 : 0.2;
+    ctx.fillStyle = '#fffaff';
+    ctx.beginPath(); ctx.arc(-r * 0.12, -r * 0.6, 2.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(r * 0.12, -r * 0.6, 2.8, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = held ? 0.85 : 1;
+    ctx.fillStyle = 'rgba(255,253,255,.96)';
+    ctx.beginPath(); ctx.arc(-r * 0.12, -r * 0.6, 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(r * 0.12, -r * 0.6, 1.4, 0, Math.PI * 2); ctx.fill();
+
+    /* ④ 袍里浮着别人丢下的字（三横，自下往上飘，到顶就淡掉） */
+    ctx.strokeStyle = 'rgba(248,244,255,.95)'; ctx.lineWidth = 1.1;
+    for (var i = 0; i < 3; i++) {
+      var ph = (m.t * 0.3 + i * 0.34) % 1;
+      var yy = r * 0.88 - ph * r * 1.6, xx = Math.sin(m.t * 0.8 + i * 2) * r * 0.14 + (i - 1) * r * 0.14;
+      ctx.globalAlpha = (held ? 0.5 : 0.9) * (1 - ph) * (0.3 + 0.7 * Math.sin(Math.min(1, ph) * Math.PI));
+      ctx.beginPath(); ctx.moveTo(xx - 2.4, yy - 2.1); ctx.lineTo(xx + 2.4, yy - 2.1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xx - 1.7, yy); ctx.lineTo(xx + 1.7, yy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xx - 2.1, yy + 2.1); ctx.lineTo(xx + 2.1, yy + 2.1); ctx.stroke();
+    }
+    ctx.globalAlpha = held ? 0.85 : 1;
+
+    /* ⑤ 层雾：几道很淡的横纹，让袍身有纱的层次 */
+    ctx.strokeStyle = 'rgba(242,238,255,.10)'; ctx.lineWidth = 2.4;
+    for (var b2 = 0; b2 < 3; b2++) {
+      var by = r * (0.16 + b2 * 0.34);
+      ctx.beginPath();
+      ctx.moveTo(-r * (0.66 - b2 * 0.1), by);
+      ctx.quadraticCurveTo(0, by + 2.6, r * (0.66 - b2 * 0.1), by);
+      ctx.stroke();
+    }
+
+    /* ⑥ 下摆：五六缕长短不一的碎边，半身就化掉 */
+    var hem = [-0.78, -0.42, -0.1, 0.26, 0.62, 0.9];
+    for (var w2 = 0; w2 < hem.length; w2++) {
+      var t0 = hem[w2], sd = Math.sin(m.t * 1.2 + w2 * 1.7) * 2;
+      var len = r * (0.18 + 0.3 * ((w2 * 37) % 7) / 7);
+      ctx.strokeStyle = 'rgba(216,206,242,' + (0.3 - Math.abs(t0) * 0.12).toFixed(2) + ')';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(t0 * r * 0.8, r * (0.98 - Math.abs(t0) * 0.08));
+      ctx.quadraticCurveTo(t0 * r * 0.86 + sd, r * 1.05 + len * 0.7, t0 * r * 0.78 + sd * 1.4, r * 1.05 + len);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -302,7 +334,12 @@
     ctx.save();
     ctx.translate(cx, cy);
     ctx.fillStyle = s.col;
-    if (s.mk === 'shell') {
+    if (s.mk === 'glyph') {                          /* 它吐出来的是一粒字（三横） */
+      ctx.strokeStyle = s.col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(-3.4, -2.6); ctx.lineTo(3.4, -2.6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-2.4, 0); ctx.lineTo(2.4, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-3.4, 2.6); ctx.lineTo(3.4, 2.6); ctx.stroke();
+    } else if (s.mk === 'shell') {
       ctx.beginPath(); ctx.ellipse(0, 0, s.r, s.r * 0.72, 0.4, 0, Math.PI * 2); ctx.fill();
     } else if (s.mk === 'scale') {
       ctx.beginPath(); ctx.moveTo(0, -s.r); ctx.lineTo(s.r * 0.9, 0); ctx.lineTo(0, s.r); ctx.lineTo(-s.r * 0.9, 0);
