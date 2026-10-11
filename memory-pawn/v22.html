@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<title>记忆当铺 · Memory Pawn</title>
+<style>
+  :root {
+    --bg: #1b1530;
+    --panel: #262043;
+    --panel2: #2f2852;
+    --line: #4a3f75;
+    --txt: #f0eaff;
+    --dim: #b3a9dc;
+    --gold: #e8b74a;
+    --gold2: #ffd98a;
+    --violet: #b48ae0;
+    --green: #7ed6a0;
+    --red: #e0708a;
+    --blk: #6a5f9e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--txt); height: 100%; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.65; padding: 10px;
+    overflow: hidden; /* 页面本身不滚——滚轮只作用于右侧面板 */
+  }
+  #app { max-width: 1180px; margin: 0 auto; height: 100%; display: flex; flex-direction: column; }
+  header#topbar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--panel); border: 2px solid var(--line); border-radius: 14px;
+    padding: 8px 16px; margin-bottom: 10px; flex: none;
+    box-shadow: 0 3px 0 rgba(0,0,0,.25);
+  }
+  #logo { font-weight: 700; letter-spacing: 3px; color: var(--gold2); font-size: 17px; white-space: nowrap; }
+  #logo small { color: var(--dim); font-weight: 400; letter-spacing: 0; margin-left: 8px; font-size: 11px; }
+  #hud { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-family: ui-monospace, Consolas, monospace; }
+  #hud .hitem { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: var(--dim); }
+  #hud b { color: #fff; font-size: 15px; }
+  #hud .gold-ico { color: var(--gold2); }
+  .bar { width: 100px; height: 9px; background: #141026; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 100%; background: var(--violet); transition: width .25s; }
+  .bar i.warn { background: var(--gold); }
+  .bar i.bad { background: var(--red); }
+  #relics { letter-spacing: 2px; font-size: 13px; }
+  #relics .got { color: var(--gold2); }
+  #relics .no { color: var(--line); }
+  #btn-restart {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 8px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  #btn-restart:hover { color: var(--txt); border-color: var(--red); }
+  #btn-dev {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 8px; padding: 3px 12px; font-size: 12.5px; cursor: pointer;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  #btn-dev:hover { color: var(--txt); border-color: var(--violet); }
+  #btn-dev.on { color: #fff; background: var(--red); border-color: var(--red); }
+  #btn-bgm {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--gold2);
+    border-radius: 8px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  #btn-bgm:hover { color: #fff; border-color: var(--gold); }
+  #btn-bgm.off { color: var(--dim); text-decoration: line-through; }
+  /* 开发者模式浮层（z 最高：modal 6 / 结局 7 / 确认 8 之上，可与游戏面板同时操作） */
+  #dev-panel {
+    position: absolute; top: 10px; right: 10px; width: 312px; max-height: calc(100% - 20px);
+    background: rgba(24, 18, 44, .97); border: 2px solid var(--red); border-radius: 12px;
+    z-index: 9; display: none; flex-direction: column;
+    box-shadow: 0 5px 0 rgba(0,0,0,.4);
+  }
+  #dev-panel.show { display: flex; }
+  #dev-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px; border-bottom: 1px solid var(--line); flex: none;
+  }
+  #dev-head b { color: var(--red); font-size: 13px; letter-spacing: 2px; }
+  #dev-head small { color: var(--dim); font-size: 10.5px; margin-left: 8px; }
+  #dev-close { background: none; border: none; color: var(--dim); font-size: 15px; cursor: pointer; line-height: 1; }
+  #dev-close:hover { color: var(--txt); }
+  #dev-body { overflow-y: auto; padding: 8px 10px 10px; font-size: 12px; }
+  #dev-body .dv-sec { margin: 9px 0 4px; color: var(--gold2); font-size: 11.5px; letter-spacing: 1px; }
+  #dev-body .dv-sec:first-child { margin-top: 0; }
+  #dev-body .dv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  #dev-body .dv-grid.tp { grid-template-columns: repeat(3, 1fr); }
+  #dev-body button {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 7px; padding: 4px 2px; font-size: 11.5px; cursor: pointer; font-family: inherit;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #dev-body button:hover { border-color: var(--violet); }
+  #dev-body button.on { background: var(--violet); border-color: var(--violet); color: #fff; }
+  #dev-body button.warn { border-color: var(--red); color: var(--red); }
+  #dev-body button:disabled { opacity: .35; cursor: not-allowed; }
+  /* 危险操作整行铺开：四列格里「从第一天重新开始」会被省略号吃掉，必须独占一行 */
+  #dev-body button[data-dev="wipe"] { grid-column: 1 / -1; }
+  #confirm-box {
+    position: absolute; inset: 0; background: rgba(16, 11, 32, .85);
+    display: none; align-items: center; justify-content: center; z-index: 8;
+  }
+  #confirm-box.show { display: flex; }
+  #confirm-card {
+    background: var(--panel); border: 2px solid var(--red); border-radius: 14px;
+    padding: 18px 24px; text-align: center; box-shadow: 0 5px 0 rgba(0,0,0,.35);
+  }
+  #confirm-card p { margin-bottom: 14px; font-size: 14px; }
+  #confirm-card button {
+    margin: 0 6px; border-radius: 9px; padding: 6px 18px; font-size: 13.5px;
+    cursor: pointer; font-family: inherit;
+  }
+  #cf-yes { background: var(--red); color: #fff; border: none; }
+  #cf-no { background: var(--panel2); color: var(--txt); border: 1px solid var(--line); }
+  main { display: flex; gap: 10px; align-items: stretch; flex: 1; min-height: 0; justify-content: center; }
+  #world-wrap {
+    position: relative; flex: 1; min-width: 0; align-self: flex-start;
+    max-width: min(100%, calc((100vh - 155px) * 10 / 7));
+    border: 2px solid var(--line); border-radius: 14px; overflow: hidden;
+    background: #141026;
+    box-shadow: 0 3px 0 rgba(0,0,0,.25);
+  }
+  canvas#world {
+    display: block; width: 100%; aspect-ratio: 10 / 7;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+  }
+  /* 高清文字层：地图文字用 DOM 渲染（不跟画布一起像素化），保证清晰可读 */
+  #labels { position: absolute; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  #labels .lbl {
+    position: absolute; transform: translate(-50%, 0); line-height: 1.25;
+    font-size: 15px; font-weight: 500; color: #cfc6f2; white-space: nowrap;
+    text-shadow: 0 1px 0 #141026, 0 0 6px rgba(20,16,38,.95), 0 2px 5px rgba(0,0,0,.85);
+  }
+  #labels .lbl.npc { color: #9fe1cb; }
+  #labels .lbl.sign {
+    font-size: 14px; color: #ffd98a; background: rgba(20,16,38,.88);
+    border: 1px solid #6a4bb8; border-radius: 5px; padding: 1px 5px;
+    box-shadow: 0 2px 0 rgba(0,0,0,.35);
+  }
+  #labels .lbl.ekey {
+    font-size: 15px; font-weight: 700; color: #ffd98a;
+    background: rgba(20,16,38,.92); border: 1px solid #e8b74a; border-radius: 7px;
+    padding: 1px 8px; opacity: 0; transition: opacity .15s;
+    transform: translate(-50%, -100%);
+  }
+  #labels .lbl.ekey.show { opacity: 1; animation: ebob 1s ease-in-out infinite; }
+  @keyframes ebob { 0%, 100% { margin-top: 0; } 50% { margin-top: -3px; } }
+  aside#side { width: 320px; flex: none; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  aside section {
+    background: var(--panel); border: 2px solid var(--line); border-radius: 12px;
+    padding: 8px 10px; display: flex; flex-direction: column; min-height: 0;
+    box-shadow: 0 3px 0 rgba(0,0,0,.25);
+  }
+  #tabs { display: flex; gap: 6px; margin-bottom: 6px; }
+  #tabs button {
+    flex: 1; background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 9px; padding: 4px 0; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  #tabs button.on { background: var(--violet); color: #fff; border-color: var(--violet); font-weight: 500; }
+  .pane { overflow-y: auto; min-height: 0; flex: 1; display: none; }
+  .pane.on { display: flex; flex-direction: column; gap: 4px; }
+  .log-line { font-size: 13.5px; color: var(--txt); padding: 3px 0; border-bottom: 1px dashed rgba(74,63,117,.4); }
+  .log-line .lt { color: var(--dim); font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; margin-right: 6px; }
+  .mem-hold { color: var(--txt); }
+  .mem-blk { color: var(--blk); background: rgba(106,95,158,.14); border-radius: 3px; padding: 0 1px; }
+  .mem-lost { color: var(--blk); text-decoration: line-through; opacity: .75; }
+  .kw-blk { color: var(--blk); background: rgba(106,95,158,.2); border-radius: 3px; }
+  .mem-card {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 9px;
+    padding: 6px 8px; font-size: 13.5px;
+  }
+  .mem-card .m-tag {
+    display: inline-block; font-size: 10.5px; color: #fff; background: var(--violet);
+    border-radius: 5px; padding: 0 6px; margin-right: 6px;
+  }
+  .mem-card .m-val { float: right; color: var(--gold2); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+  .mem-card.pawned { border-color: var(--gold); }
+  .mem-card.pawned .cd { color: var(--gold2); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+  .mem-card.lost { opacity: .55; border-style: dashed; }
+  .arch-btn {
+    display: block; width: 100%; text-align: left; margin-top: 4px; padding: 4px 9px;
+    background: rgba(106, 95, 158, .14); border: 1px solid var(--line); border-radius: 7px;
+    color: var(--txt); font-size: 12.5px; line-height: 1.5; cursor: pointer; font-family: inherit;
+  }
+  .arch-btn:hover { border-color: var(--gold); color: var(--gold2); }
+  .arch-btn.gold { border-color: rgba(212, 175, 55, .55); }
+  .empty-tip { color: var(--dim); font-size: 13px; text-align: center; padding: 10px 0; }
+  .ticket-card {
+    background: var(--panel2); border: 1px solid var(--gold); border-radius: 9px;
+    padding: 6px 8px; font-size: 13.5px; display: flex; gap: 8px; align-items: center;
+  }
+  .ticket-card .tk-ico { color: var(--gold2); font-size: 15px; flex: none; }
+  .ticket-card .tk-b { flex: 1; min-width: 0; }
+  .ticket-card .tk-b b { font-weight: 500; display: block; }
+  .ticket-card .tk-b i { font-style: normal; color: var(--dim); font-size: 11px; }
+  #footer-tips {
+    margin-top: 10px; text-align: center; color: var(--dim); font-size: 13px; flex: none;
+  }
+  #footer-tips .blk { color: var(--blk); }
+  /* 事件模态 */
+  #modal {
+    position: absolute; inset: 0; background: rgba(16, 11, 32, .82);
+    display: none; align-items: center; justify-content: center; z-index: 6; padding: 12px;
+  }
+  #modal.show { display: flex; }
+  #m-card {
+    width: min(520px, 94%); max-height: 92%; overflow-y: auto;
+    background: var(--panel); border: 2px solid var(--gold); border-radius: 16px;
+    padding: 16px 18px; box-shadow: 0 5px 0 rgba(0,0,0,.35);
+  }
+  #m-title { font-size: 16px; color: var(--gold2); font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; }
+  #m-body { font-size: 14px; margin-bottom: 12px; }
+  #m-body p { margin-bottom: 8px; }
+  #m-btns { display: flex; flex-direction: column; gap: 6px; }
+  #m-btns button {
+    text-align: left; background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 9px; padding: 7px 12px; font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  #m-btns button:hover { border-color: var(--violet); }
+  #m-btns button.gold { border-color: var(--gold); color: var(--gold2); }
+  #m-btns button.danger { border-color: var(--red); color: var(--red); }
+  #m-btns button:disabled { opacity: .45; cursor: not-allowed; }
+  #m-btns button .cost { float: right; color: var(--gold2); font-family: ui-monospace, Consolas, monospace; }
+  #m-btns button .sub { display: block; color: var(--dim); font-size: 11.5px; }
+  #m-body input#riddle-input {
+    width: 90px; background: #141026; border: 1px solid var(--line); color: var(--txt);
+    border-radius: 8px; padding: 5px 8px; font-size: 15px; font-family: ui-monospace, Consolas, monospace;
+    text-align: center;
+  }
+  .knock-track { display: flex; gap: 5px; margin: 8px 0; min-height: 22px; align-items: center; }
+  .knock-track span { font-family: ui-monospace, Consolas, monospace; font-size: 15px; color: var(--gold2); }
+  .knock-track span.wrong { color: var(--red); }
+  .knock-track span.slot { color: var(--dim); opacity: .45; }
+  .riddle-row { display: flex; gap: 8px; align-items: center; }
+  /* 结局模态 */
+  #end-modal {
+    position: absolute; inset: 0; background: rgba(16, 11, 32, .9);
+    display: none; align-items: center; justify-content: center; z-index: 7; padding: 12px;
+  }
+  #end-modal.show { display: flex; }
+  #end-card {
+    width: min(520px, 94%); background: var(--panel); border: 2px solid var(--gold);
+    border-radius: 16px; padding: 24px 26px; text-align: center; box-shadow: 0 5px 0 rgba(0,0,0,.35);
+  }
+  #end-name { font-size: 26px; color: var(--gold2); font-weight: 700; letter-spacing: 6px; margin-bottom: 12px; }
+  #end-text { text-align: left; font-size: 14px; margin-bottom: 14px; }
+  #end-text p { margin-bottom: 8px; }
+  #end-stats { font-size: 12px; color: var(--dim); margin-bottom: 14px; font-family: ui-monospace, Consolas, monospace; }
+  #end-card button {
+    background: var(--gold); color: #241a08; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 700; padding: 10px 40px; cursor: pointer; letter-spacing: 2px; font-family: inherit;
+  }
+  #toast {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(38, 32, 67, .95); border: 1px solid var(--gold); color: var(--gold2);
+    border-radius: 9px; padding: 6px 16px; font-size: 13.5px; opacity: 0;
+    pointer-events: none; transition: opacity .25s; z-index: 60; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+  /* 小游戏面板 */
+  #mini-stage { min-height: 210px; }
+  .mini-hint { color: var(--dim); font-size: 12.5px; margin-bottom: 8px; }
+  .mini-progress { font-size: 12.5px; color: var(--gold2); margin-top: 6px; }
+  .mini-dial { display: block; margin: 4px auto; }
+  .tone-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 10px 0; }
+  .tone-pad {
+    width: 62px; height: 62px; border-radius: 10px; border: 2px solid rgba(0,0,0,.45);
+    font-size: 19px; font-weight: bold; color: rgba(20,16,38,.88); cursor: pointer; font-family: inherit;
+    opacity: .45; filter: grayscale(.45); transition: opacity .1s, filter .1s, transform .05s;
+  }
+  .tone-pad.lit { opacity: 1; filter: none; transform: scale(1.09); box-shadow: 0 0 14px rgba(255,235,170,.55); }
+  /* ---------- 手机 / 触屏适配 ---------- */
+  html, body { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  button, input { touch-action: manipulation; }
+  /* 虚拟按键：默认隐藏，触屏或窄屏显示；面板层级低于模态/结局/确认框，方向键组可在模态打开时被单独隐藏 */
+  #touch-ui { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 7; }
+  #dpad {
+    position: absolute; left: 12px; bottom: 12px; pointer-events: none;
+    display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 3px;
+  }
+  #dpad button, #btn-e {
+    pointer-events: auto; background: rgba(38, 32, 67, .62); border: 1px solid var(--line);
+    color: var(--gold2); border-radius: 12px; font-size: 17px; cursor: pointer;
+    font-family: inherit; touch-action: none; -webkit-user-select: none; user-select: none;
+    box-shadow: 0 2px 0 rgba(0,0,0,.35); transition: background .08s;
+  }
+  #dpad button:active, #dpad button.press, #btn-e:active { background: rgba(180, 138, 224, .55); }
+  #dpad button:nth-child(1) { grid-column: 2; grid-row: 1; }
+  #dpad button:nth-child(2) { grid-column: 1; grid-row: 2; }
+  #dpad button:nth-child(3) { grid-column: 3; grid-row: 2; }
+  #dpad button:nth-child(4) { grid-column: 2; grid-row: 3; }
+  #btn-e {
+    position: absolute; right: 14px; bottom: 20px; width: 62px; height: 62px;
+    border-radius: 50%; font-size: 20px; font-weight: 700; border-color: var(--gold);
+  }
+  @media (hover: none), (max-width: 760px) {
+    #touch-ui { display: block; }
+  }
+  /* 窄屏（手机竖屏）：上下堆叠布局 */
+  @media (max-width: 760px) {
+    body { padding: 6px; }
+    #app { max-width: 100%; }
+    header#topbar { gap: 7px; padding: 6px 10px; border-radius: 11px; margin-bottom: 6px; }
+    #logo { font-size: 14px; letter-spacing: 1px; }
+    #logo small { display: none; }
+    #hud { gap: 7px; }
+    #hud .hitem { font-size: 10.5px; gap: 4px; }
+    #hud b { font-size: 12.5px; }
+    .bar { width: 60px; height: 8px; }
+    #relics { font-size: 11px; }
+    #btn-restart, #btn-bgm, #btn-dev { padding: 3px 8px; font-size: 11px; }
+    main { flex-direction: column; }
+    #world-wrap {
+      max-width: min(100%, calc((100vh - 220px) * 10 / 7));
+      margin: 0 auto; align-self: auto;
+    }
+    #labels .lbl { font-size: 11px; }
+    #labels .lbl.sign { font-size: 10.5px; padding: 1px 4px; }
+    #labels .lbl.ekey { font-size: 11px; }
+    aside#side { width: 100%; flex: 1; min-height: 140px; }
+    #dev-panel { width: calc(100vw - 16px); max-width: 340px; right: 6px; top: 6px; }
+    #toast { font-size: 12px; max-width: 92%; white-space: normal; text-align: center; }
+    .tone-pad { width: 52px; height: 52px; font-size: 16px; }
+    #m-card { padding: 13px 14px; }
+  }
+  /* 手机横屏矮窗：画布预留更小，保住 D-pad 空间 */
+  @media (max-height: 480px) and (max-width: 920px) {
+    #world-wrap { max-width: min(100%, calc((100vh - 96px) * 10 / 7)); }
+    aside#side { width: 240px; }
+  }
+  .mini-clues { margin: 6px 0 10px; }
+  .mini-clue {
+    font-size: 12.5px; color: var(--txt); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; margin-bottom: 4px;
+  }
+  .mini-clue.hint { color: var(--gold2); border-color: var(--gold2); }
+  .ledger-rows { display: flex; flex-direction: column; gap: 6px; }
+  .ledger-row {
+    display: flex; gap: 10px; align-items: baseline; text-align: left;
+    background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 10px; padding: 7px 12px; cursor: pointer; font-size: 13px; font-family: inherit;
+  }
+  .ledger-row:hover { border-color: var(--gold2); }
+  .ledger-row b { color: var(--gold2); min-width: 60px; }
+  .ledger-row i { margin-left: auto; color: var(--dim); font-style: normal; font-size: 12px; }
+  .ledger-row.wrong { opacity: .45; border-style: dashed; text-decoration: line-through; }
+  .ledger-note { font-size: 12px; color: var(--dim); margin: -2px 0 2px 6px; }
+  @media (max-width: 880px) {
+    main { flex-direction: column; }
+    aside#side { width: 100%; }
+    html, body { overflow: auto; }
+    #app { height: auto; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div id="logo">记忆当铺<small>只收回忆，不收金银</small></div>
+    <div id="hud">
+      <span class="hitem"><span class="gold-ico">◆</span> 当金 <b id="hud-gold">0</b></span>
+      <span class="hitem">自我完整度 <span class="bar"><i id="hud-integ"></i></span></span>
+      <span class="hitem">赎回 <b id="hud-redeem">--:--</b></span>
+      <span class="hitem" id="hud-main" style="display:none">
+        利息 <b id="hud-interest" style="color:var(--red)">0%</b> ·
+        雾季 <b id="hud-days" style="color:var(--gold2)">—</b> ·
+        证词 <b id="hud-testimony" style="color:#8fc7c0">0</b>
+      </span>
+      <span class="hitem">目标 <b id="hud-goal" style="color:var(--gold2)">—</b></span>
+      <span class="hitem">信物 <span id="relics">▢▢▢</span></span>
+      <button id="btn-restart" title="回到本章开头自动记下的存档点（每章开头记一次）">↺ 存档点</button>
+      <button id="btn-bgm" title="背景音乐开关（每章一首主题曲）">♪ 开</button>
+      <button id="btn-dev" title="开发者模式（按 ` 或 F2 切换）">DEV</button>
+    </div>
+  </header>
+  <main>
+    <div id="world-wrap">
+      <canvas id="world" width="640" height="448"></canvas>
+      <div id="toast"></div>
+      <div id="touch-ui" aria-hidden="true">
+        <div id="dpad">
+          <button data-k="ArrowUp" title="上">▲</button>
+          <button data-k="ArrowLeft" title="左">◀</button>
+          <button data-k="ArrowRight" title="右">▶</button>
+          <button data-k="ArrowDown" title="下">▼</button>
+        </div>
+        <button id="btn-e" title="互动 / 敲击（等同 E 键）">E</button>
+      </div>
+      <div id="modal">
+        <div id="m-card">
+          <div id="m-title"></div>
+          <div id="m-body"></div>
+          <div id="m-btns"></div>
+        </div>
+      </div>
+      <div id="end-modal">
+        <div id="end-card">
+          <div id="end-name"></div>
+          <div id="end-text"></div>
+          <div id="end-stats"></div>
+          <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
+            <button id="btn-again">再做一个梦</button>
+            <button id="btn-main" style="display:none; background:transparent; color:var(--gold2); border:1px solid var(--gold); font-weight:500;">▸ 走进次年雾季</button>
+          </div>
+        </div>
+      </div>
+      <div id="confirm-box">
+        <div id="confirm-card">
+          <p id="cf-text">要抛弃这一晚的进度，从头再来吗？</p>
+          <button id="cf-yes">重头开始</button>
+          <button id="cf-no">继续值班</button>
+        </div>
+      </div>
+      <div id="dev-panel">
+        <div id="dev-head"><b>DEV</b><small>开发者模式 · 测试专用</small><button id="dev-close" title="关闭">✕</button></div>
+        <div id="dev-body"></div>
+      </div>
+    </div>
+    <aside id="side">
+      <section id="panel-sec" style="flex:1; min-height:220px;">
+        <div id="tabs">
+          <button id="tab-log" class="on">记忆日志</button>
+          <button id="tab-story">剧情</button>
+          <button id="tab-mem">我的记忆</button>
+          <button id="tab-ticket">当票行囊</button>
+        </div>
+        <div id="pane-log" class="pane on"></div>
+        <div id="pane-story" class="pane"></div>
+        <div id="pane-mem" class="pane"></div>
+        <div id="pane-ticket" class="pane"></div>
+      </section>
+    </aside>
+  </main>
+  <div id="footer-tips">WASD / 方向键 走动 · E 互动 · 买下「铜钥匙当票」前，先去把相关的记忆卖掉 · 按 <b>`</b> 键或点 DEV 打开开发者模式</div>
+</div>
+<script src="js/data.js?v=22"></script>
+<script src="js/audio.js?v=22"></script>
+<script src="js/music.js?v=22"></script>
+<script src="js/game.js?v=22"></script>
+</body>
+</html>
