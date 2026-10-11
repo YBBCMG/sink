@@ -19,14 +19,16 @@
   var labelsEl = null, eHintEl = null;
   var lblMap = [];
   var hudGoalEl = null;
-  var confirmBoxEl, btnRestartEl, cfYesEl, cfNoEl;
+  var confirmBoxEl, cfTextEl, btnRestartEl, cfYesEl, cfNoEl, logoEl;
+  var pendingConfirm = null;   /* 确认框里「是」要执行的动作（调用方给） */
   var btnBgmEl, dpadEl;
   var devPanelEl, devBodyEl, btnDevEl, devCloseEl;
   /* 开发者模式开关（模块级：重开一局 / 触发结局后仍保留） */
   var DEV = { open: false, clip: false, freeze: false, speed: 1 };
 
   var toastTimer = null;
-  var KNOCK_TARGET = ['L', 'L', 'L', 'S', 'S'];
+  /* v22：暗号 = 钟声三长两短（记忆 code）+ 侧框那句「末了一声要实」→ 六拍 */
+  var KNOCK_TARGET = ['L', 'L', 'L', 'S', 'S', 'L'];
 
   /* ---------- 工具 ---------- */
 
@@ -119,33 +121,43 @@
   /* ---------- 进度自动存档 ---------- */
 
   var SAVE_KEY = 'mp-save-v1';
+  var CHECK_KEY = 'mp-checkpoint-v1';   /* 章节检查点：独立键，绝不与主存档混写 */
+
+  /* 把当前状态打包成存档对象（主存档与章节检查点共用同一形状） */
+  function packState() {
+    if (!S || S.phase !== 'play') return null;
+    var mem = {};
+    for (var i = 0; i < D.MEMORIES.length; i++) {
+      var id = D.MEMORIES[i].id, st = S.mem[id];
+      mem[id] = { state: st.state, pawnedAt: st.pawnedAt, pawns: st.pawns || 0 };
+    }
+    return {
+      v: 4, t: Math.round(S.t * 100) / 100, gold: S.gold, mem: mem,
+      px: S.px, py: S.py, tx: S.tx, ty: S.ty, facing: S.facing,
+      items: S.items, relics: S.relics, innerOpen: S.innerOpen, hints: S.hints,
+      jobs: S.jobs,
+      story: S.story, pages: S.pages, wine: S.wine,
+      mode: S.mode, chapter: S.chapter, interest: S.interest,
+      testimony: S.testimony, mainFlags: S.mainFlags,
+      log: S.log.slice(-80)
+    };
+  }
 
   function saveGame() {
-    if (!S || S.phase !== 'play') return;
-    try {
-      var mem = {};
-      for (var i = 0; i < D.MEMORIES.length; i++) {
-        var id = D.MEMORIES[i].id, st = S.mem[id];
-        mem[id] = { state: st.state, pawnedAt: st.pawnedAt, pawns: st.pawns || 0 };
-      }
-      store.set(SAVE_KEY, JSON.stringify({
-        v: 4, t: Math.round(S.t * 100) / 100, gold: S.gold, mem: mem,
-        px: S.px, py: S.py, tx: S.tx, ty: S.ty, facing: S.facing,
-        items: S.items, relics: S.relics, innerOpen: S.innerOpen, hints: S.hints,
-        jobs: S.jobs,
-        story: S.story, pages: S.pages, wine: S.wine,
-        mode: S.mode, chapter: S.chapter, interest: S.interest,
-        testimony: S.testimony, mainFlags: S.mainFlags,
-        log: S.log.slice(-80)
-      }));
-    } catch (e) { /* ignore */ }
+    var p = packState();
+    if (!p) return;
+    try { store.set(SAVE_KEY, JSON.stringify(p)); } catch (e) { /* ignore */ }
   }
 
   function loadGame() {
     var raw = store.get(SAVE_KEY);
     if (!raw) return null;
+    try { return unpackState(JSON.parse(raw)); } catch (e) { return null; }
+  }
+
+  /* 存档对象 → 状态（主存档与检查点共用；v1~v4 兼容，坏档返回 null） */
+  function unpackState(o) {
     try {
-      var o = JSON.parse(raw);
       if (!o || (o.v < 1 || o.v > 4) || !o.mem) return null;
       var base = freshState();
       base.t = typeof o.t === 'number' ? o.t : 0;
@@ -191,6 +203,39 @@
     try { store.set(SAVE_KEY, ''); } catch (e) { /* ignore */ }
   }
 
+  /* ---------- 章节检查点：每章开头记一份，独立键，不碰主存档 ---------- */
+
+  function saveCheckpoint(tag) {
+    var p = packState();
+    if (!p) return false;
+    p.cp = tag || ('main:ch' + (S.mode === 'main' ? S.chapter : 0));
+    try { store.set(CHECK_KEY, JSON.stringify(p)); } catch (e) { return false; }
+    return true;
+  }
+
+  function checkpointRaw() {
+    var raw = store.get(CHECK_KEY);
+    return (raw && raw.length) ? raw : null;
+  }
+
+  function hasCheckpoint() { return !!checkpointRaw(); }
+
+  function checkpointTag() {
+    var raw = checkpointRaw();
+    if (!raw) return null;
+    try { var o = JSON.parse(raw); return (o && o.cp) ? o.cp : null; } catch (e) { return null; }
+  }
+
+  function loadCheckpoint() {
+    var raw = checkpointRaw();
+    if (!raw) return null;
+    try { return unpackState(JSON.parse(raw)); } catch (e) { return null; }
+  }
+
+  function clearCheckpoint() {
+    try { store.set(CHECK_KEY, ''); } catch (e) { /* ignore */ }
+  }
+
   /* ---------- 状态 ---------- */
 
   function freshState() {
@@ -204,13 +249,13 @@
       mem: mem,
       items: { key: false, lantern: false, album: false },
       relics: { photo: false, watch: false, ribbon: false },
-      innerOpen: false, knockSeq: [], knockWrong: false,
+      innerOpen: false, knockSeq: [], knockWrong: false, knockErr: 0,
       jobs: {},
       story: 'act1', pages: { p1: false, p2: false, p3: false, p4: false, p5: false }, wine: false,
       scene: 'town', quizIdx: 0,
       mode: 'prologue', chapter: 0, interest: 0, testimony: 0, mainFlags: {}, mainT: 0,
       log: [], logDirty: true, memDirty: true,
-      modal: null, curIt: null, riddleMsg: '', mini: null,
+      modal: null, curIt: null, riddleMsg: '', riddleTry: 0, mini: null,
       hints: { fisher: false, choir: false },
       tabs: 'log', hudT: 0, warnT: 0, saveT: 0,
       ended: null, warnPlayed: false
@@ -548,7 +593,7 @@
       else mbtns.push({ action: 'main:idle', label: '问问近况' });
       mbtns.push({ action: 'close', label: '离开当铺' });
       var dl = mainDaysLeft();
-      openModal('shop', '记忆当铺 · 柜台（正篇 · 第' + S.chapter + '章）',
+      openModal('shop', '记忆当铺 · 柜台（正篇 · ' + actLabel(curAct()) + '）',
         '<p>老板擦着一只空抽屉："客人，想好了？这里只收回忆。当前当金 <b style="color:var(--gold2)">' + S.gold + '</b> 枚。"</p>' +
         '<p style="color:var(--dim);font-size:12px">利息 ' + S.interest + '% · 证词 ' + S.testimony + ' 件' +
         (dl === 0 ? ' · <b>雾季最后一天</b>' : ' · 距雾季结束 ' + dl + ' 天') + '</p>', mbtns);
@@ -749,6 +794,10 @@
     body += '<div class="riddle-row">答案：<input id="riddle-input" maxlength="2" autocomplete="off">' +
             '<button data-action="riddle:submit" class="gold">敲下面板</button></div>' +
             '<p style="color:var(--dim);font-size:12px">输入数字后按回车，或点「敲下面板」。</p>';
+    if (S.riddleTry >= 2) body += '<p style="color:var(--gold2);font-size:12px">' + D.CHAT.riddle.hint + '</p>';
+    if (D.memStateOf(S, 'bell7') !== 'held' || D.memStateOf(S, 'six') !== 'held') {
+      body += '<p style="color:var(--red);font-size:12px">（有两个数被雾糊住了——你当掉的那段记忆，字是黑的。想看清，就得把它赎回来。）</p>';
+    }
     var btns = [{ action: 'close', label: '离开' }];
     openModal('lock_riddle', '钟塔 · 老面板', body, btns);
   }
@@ -760,16 +809,19 @@
     }
     var body = '<p>' + D.resolveText(D.CHAT.code.prompt, S) + '</p>';
     var track = '<div class="knock-track">';
-    if (S.knockWrong) {
-      track += '<span class="wrong">× 敲错了，重来</span>';
-    } else {
-      for (var i = 0; i < S.knockSeq.length; i++) {
-        track += '<span>' + (S.knockSeq[i] === 'L' ? '▬' : '▪') + '</span>';
-      }
-      if (!S.knockSeq.length) track += '<span style="color:var(--dim)">— 还没敲 —</span>';
+    for (var i = 0; i < KNOCK_TARGET.length; i++) {
+      if (i < S.knockSeq.length) track += '<span>' + (S.knockSeq[i] === 'L' ? '▬' : '▪') + '</span>';
+      else if (S.knockWrong && i === (S.knockErr || 1) - 1) track += '<span class="wrong">✕</span>';
+      else track += '<span class="slot">○</span>';
     }
     track += '</div>';
     body += track;
+    if (S.knockWrong) {
+      body += '<p style="color:var(--red);font-size:12px">第 ' + (S.knockErr || 1) + ' 拍敲错了——金属板闷闷地弹回去，进度清零。</p>';
+    }
+    if (D.memStateOf(S, 'code') !== 'held') {
+      body += '<p style="color:var(--red);font-size:12px">（暗号那行字被雾糊住了——它现在在当铺的抽屉里。）</p>';
+    }
     var btns = [
       { action: 'knock:L', label: '▬ 敲一声长的', cls: 'gold' },
       { action: 'knock:S', label: '▪ 敲一声短的' },
@@ -967,7 +1019,9 @@
         if (tail === 'next') {
           closeModal();
           S.memDirty = true;
-          gToast('第' + S.chapter + '章 · ' + (D.MAIN.chapters[S.chapter] ? D.MAIN.chapters[S.chapter].title : ''));
+          var ca = curAct(), cm = actMeta(ca);
+          if (cm && cm.from === S.chapter) gToast(actLabel(ca));            /* 进入新章（幕） */
+          else if (D.MAIN.chapters[S.chapter]) gToast(actLabel(ca) + ' · ' + D.MAIN.chapters[S.chapter].title);
           saveGame();
         }
         break;
@@ -1034,10 +1088,11 @@
       return;
     }
     var s = normAnswer(v);
-    if (s === '7' || s === '七') {
+    if (s === '42' || s === '四十二') {
       S.relics.watch = true;
       gMarkArch('relic_watch');
       S.riddleMsg = '';
+      S.riddleTry = 0;
       S.memDirty = true;
       addLog('你在钟塔答出了哑掉的那一声，取到了<b>旧怀表</b>。', 'sys');
       window.SFX.bell();
@@ -1045,6 +1100,7 @@
       var body = '<p>' + D.resolveText(D.CHAT.riddle.right, S) + '</p>';
       openModal('lock_riddle', '钟塔 · 老面板', body, [{ action: 'close', label: '收好怀表' }]);
     } else {
+      S.riddleTry = (S.riddleTry || 0) + 1;
       S.riddleMsg = D.CHAT.riddle.wrong;
       window.SFX.wrong();
       riddlePanel();
@@ -1057,6 +1113,7 @@
     if (k === 'L') window.SFX.knockL(); else window.SFX.knockS();
     var idx = S.knockSeq.length - 1;
     if (S.knockSeq[idx] !== KNOCK_TARGET[idx]) {
+      S.knockErr = idx + 1;
       S.knockWrong = true;
       S.knockSeq = [];
       window.SFX.wrong();
@@ -1064,6 +1121,8 @@
       codePanel();
       return;
     }
+    S.knockWrong = false;
+    S.knockErr = 0;
     if (S.knockSeq.length === KNOCK_TARGET.length) {
       S.relics.ribbon = true;
       gMarkArch('relic_ribbon');
@@ -1096,7 +1155,15 @@
       [{ action: 'close', label: '退出来' }]);
   }
 
-  /* ---------- 正篇《雾季十年》：章节引擎 ---------- */
+  /* ---------- 正篇《雾季十年》：章节引擎（v20：章 = 幕，chapters 里是章内段落）---------- */
+
+  function actOfStep(n) { return (D.MAIN.actOfStep && D.MAIN.actOfStep[n]) || 1; }
+  function curAct() { return actOfStep(S ? S.chapter : 1); }
+  function actMeta(a) { return (D.MAIN.acts && D.MAIN.acts[a]) || null; }
+  function actName(a) { var m = actMeta(a); return m ? m.title : ''; }
+  function actLabel(a) { return '第' + a + '章 ' + actName(a); }
+  function stepIsActEnd(n) { var m = actMeta(actOfStep(n)); return !!(m && m.to === n); }
+  function stepIsActStart(n) { var m = actMeta(actOfStep(n)); return !!(m && m.from === n); }
 
   function startMain() {
     clearSave();
@@ -1118,8 +1185,10 @@
     gToast('正篇《雾季十年》· 第一章');
     updateMusic();
     saveGame();
+    saveCheckpoint('main:ch1');   /* 正篇开场 = 第 1 章的存档点 */
   }
 
+  /* 段落结算：幕末（段落 3/7/10）弹整章结算；幕内只演一段过场 —— 玩家看到的章只有三幕 + 隐藏章 */
   function chapterEnd(n) {
     var c = D.MAIN.chapters[n];
     if (!c) { closeModal(); return; }
@@ -1127,15 +1196,24 @@
     S.chapter = n + 1;
     S.mainT = 0;
     S.memDirty = true;
-    gMarkArch('mn_ch' + n);
-    addLog('—— 第' + n + '章 ' + c.title + ' · 完 ——', 'sys');
+    var a = actOfStep(n), isEnd = stepIsActEnd(n);
+    if (isEnd) gMarkArch('mn_ch' + a);
+    addLog('—— ' + actLabel(a) + ' · ' + c.title + (isEnd ? ' · 完 ——' : ' ——'), 'sys');
     saveGame();
+    if (stepIsActStart(S.chapter)) saveCheckpoint('main:ch' + actOfStep(S.chapter));   /* 每章（幕）开头记检查点 */
+    if (!isEnd) {
+      /* 幕内推进：只演一段过场（用段末那句），不弹章末结算 */
+      openPages([{ t: actLabel(a) + ' · ' + c.title, h: c.end || '（继续）' }], '继续', null);
+      updateMusic();
+      return;
+    }
     var nc = D.MAIN.chapters[n + 1];
     var dl = nc && typeof nc.days === 'number' ? nc.days : 0;
     var extra = '<p style="color:var(--dim);margin-top:8px">利息 ' + S.interest + '% · 证词 ' + S.testimony +
       ' 件 · 距雾季结束 ' + (dl === 0 ? '今夜' : dl + ' 天') + '</p>';
-    var lbl = n === 3 ? '▸ 第二幕 · 账' : (n === 7 ? '▸ 第三幕 · 赎' : '▸ 继续');
-    openModal('chend', '第' + n + '章 · ' + c.title + ' · 完',
+    var na = actOfStep(S.chapter), nm = actMeta(na);
+    var lbl = (nm && !nm.hidden) ? ('▸ ' + actLabel(na)) : '▸ 终章 · 落日';
+    openModal('chend', actLabel(a) + ' · 完',
       '<p>' + c.end + '</p>' + extra,
       [{ action: 'chend:next', label: lbl, cls: 'gold' }]);
     window.SFX.open();
@@ -1564,7 +1642,7 @@
     if (m.key === 'tones') { o.phase = m.phase; o.round = m.round; o.cfgKey = m.cfgKey; o.seq = m.cfg.rounds[Math.min(m.round, m.cfg.rounds.length - 1)]; o.inIdx = m.inIdx; }
     if (m.key === 'dial') { o.stage = m.stage; o.ang = Math.round(m.ang * 1000) / 1000; o.win = D.MAIN.minis.dial.stages[m.stage]; }
     if (m.key === 'bells') { o.round = m.round; o.misses = m.misses; o.notes = m.ns; }
-    if (m.key === 'ledger') { o.wrong = m.wrong; o.hintN = m.hintN; }
+    if (m.key === 'ledger') { o.wrong = m.wrong; o.hintN = m.hintN; o.answer = m.case ? m.case.answer : -1; o.rows = m.case ? m.case.entries.length : 0; }
     return o;
   }
 
@@ -1616,16 +1694,30 @@
         var lit = -1;
         if (m.phase === 'show' && m.showIdx >= 0 && m.showT > 0.12) lit = m.cfg.rounds[m.round][m.showIdx];
         if (m.flash) lit = m.flash.i;
-        var h = '<div class="mini-hint">' + (m.cfgKey === 'seventh'
-          ? '她的钟缺第七个音。跟着拍子，把哑掉的那个音也唱全——错一个，从头再来。'
-          : '跟着灯火的明灭，把小满梦里哼的歌谣记全——错一个音，从头再来。') +
-          '</div><div class="mini-progress">段 ' + (m.round + 1) + ' / ' + m.cfg.rounds.length +
-          (m.phase === 'input' ? ' · <b>该你了</b>' : ' · 听着') + '</div><div class="tone-row">';
-        for (var i = 0; i < T.pads.length; i++) {
-          h += '<button class="tone-pad' + (lit === i ? ' lit' : '') + '" style="background:' + T.padColors[i] + '" data-action="mini:pad:' + i + '">' + T.pads[i] + '</button>';
+        /* 音板是"要点的东西"：建一次就不再重建。
+           每帧整块 innerHTML 重建会在按下与抬起之间换掉节点 → 浏览器不派发 click → 吞掉一次敲击。 */
+        if (!m.drawn) {
+          var h = '<div class="mini-hint">' + (m.cfgKey === 'seventh'
+            ? '她的钟缺第七个音。跟着拍子，把哑掉的那个音也唱全——错一个，从头再来。'
+            : '跟着灯火的明灭，把小满梦里哼的歌谣记全——错一个音，从头再来。') +
+            '</div><div class="mini-progress" id="tone-prog"></div><div class="tone-row">';
+          for (var i = 0; i < T.pads.length; i++) {
+            h += '<button class="tone-pad" style="background:' + T.padColors[i] + '" data-action="mini:pad:' + i + '">' + T.pads[i] + '</button>';
+          }
+          h += '</div>';
+          el.innerHTML = h;
+          m.drawn = true;
         }
-        h += '</div>';
-        el.innerHTML = h;
+        var prog = document.getElementById('tone-prog');
+        if (prog) {
+          prog.innerHTML = '段 ' + (m.round + 1) + ' / ' + m.cfg.rounds.length +
+            (m.phase === 'input' ? ' · <b>该你了</b>' : ' · 听着');
+        }
+        var pads = el.querySelectorAll('.tone-pad');
+        for (var k = 0; k < pads.length; k++) {
+          if (k === lit) { if (!pads[k].classList.contains('lit')) pads[k].classList.add('lit'); }
+          else if (pads[k].classList.contains('lit')) pads[k].classList.remove('lit');
+        }
       }
     },
     /* 机芯校准：指针进金框按下去，四段全中（钟楼二层） */
@@ -1753,35 +1845,56 @@
     /* 忏悔簿对账：五笔大当里找出被涂改的一行（钟楼二层） */
     ledger: {
       title: '忏悔簿 · 对账',
-      start: function (m) { m.wrong = {}; m.hintN = 0; },
+      /* v22：每开一次簿子现生成一局 —— 唯一解可证、幌子随机、答案不再背下来 */
+      start: function (m) {
+        m.wrong = {};
+        m.hintN = 0;
+        m.dirty = true;
+        m.case = D.makeLedger() || D.LEDGER_FALLBACK;
+      },
       buttons: function () { return [{ action: 'mini:quit', label: '合上簿子' }]; },
+      /* 对账是纯点击推理，没有动画帧——但 miniTick 每帧都会调 def.tick：
+         少这一个空函数，主循环会在 gTick 里抛异常、gRender 再也执行不到，
+         面板看着就是"点了没反应"（v21 及之前的真故障，v22 修）。 */
+      tick: function () {},
       act: function (m, a) {
-        if (a.indexOf('pick:') !== 0 || m.failed) return;
+        if (a.indexOf('pick:') !== 0 || m.failed || !m.case) return;
         var i = parseInt(a.slice(5), 10);
-        var cfg = D.MAIN.minis.ledger;
+        var cfg = m.case;
         if (i === cfg.answer) { miniWin(); return; }
         if (!m.wrong[i]) {
-          m.wrong[i] = 1;
-          miniAddInterest(cfg.failCost, '批注对不上——这一行不是漏洞');
+          m.wrong[i] = cfg.entries[i].viol.slice();
+          miniAddInterest(D.MAIN.minis.ledger.failCost, '批注对不上——这一行不是漏洞');
           m.hintN = Math.min(cfg.hints.length, m.hintN + 1);
+          m.dirty = true;
         }
       },
       render: function (m) {
         var el = document.getElementById('mini-stage');
-        if (!el) return;
-        var cfg = D.MAIN.minis.ledger;
+        if (!el || !m.case) return;
+        /* 只在状态变了才重建：账目行是"要点的东西"，每帧重建会被浏览器吞掉点击 */
+        if (!m.dirty) return;
+        m.dirty = false;
+        var cfg = m.case, RULE_CN = ['批注一', '批注二', '批注三', '批注四', '批注五'];
         var h = '<div class="mini-hint">' + cfg.intro + '</div><div class="mini-clues">';
         var i;
         for (i = 0; i < cfg.clues.length; i++) h += '<div class="mini-clue">' + cfg.clues[i] + '</div>';
         h += '</div><div class="ledger-rows">';
         for (i = 0; i < cfg.entries.length; i++) {
-          var e = cfg.entries[i];
-          h += '<button class="ledger-row' + (m.wrong[i] ? ' wrong' : '') + '" data-action="mini:pick:' + i + '">' +
+          var e = cfg.entries[i], w = m.wrong[i];
+          h += '<button class="ledger-row' + (w ? ' wrong' : '') + '" data-action="mini:pick:' + i + '">' +
             '<b>' + e.name + '</b><span>' + e.item + ' · ' + e.term + ' · ' + e.back + '</span><i>' + e.note + '</i></button>';
+          if (w) {
+            var labels = w.map(function (k) { return RULE_CN[k]; }).join('、');
+            h += '<div class="ledger-note">' + (w.length
+              ? '✗ 这一行只犯了 ' + labels + '——不是漏洞。'
+              : '✓ 这一行一条批注都没犯——干净，但也不是漏洞。') + '</div>';
+          }
         }
         h += '</div>';
         for (i = 0; i < m.hintN; i++) h += '<div class="mini-clue hint">' + cfg.hints[i] + '</div>';
-        h += '<div style="color:var(--dim);font-size:12px;margin-top:6px">点出<b style="color:var(--red)">被涂改的那一行</b>。每点错一次，账上添息 +' + cfg.failCost + '%，并多露一条提示。</div>';
+        h += '<div style="color:var(--dim);font-size:12px;margin-top:6px">点出<b style="color:var(--red)">同时违反两条批注</b>的那一行。每点错一次，账上添息 +' +
+             D.MAIN.minis.ledger.failCost + '%，并多露一条提示。</div>';
         el.innerHTML = h;
       }
     }
@@ -2014,32 +2127,33 @@
     if (!S) return '';
     if (S.mode === 'main') {
       var F = S.mainFlags;
+      var ap = actLabel(curAct());
       if (S.chapter === 1) {
-        if (!F.ask1) return '第1章 海与灯芯 · 回当铺，问清门缝与旧账';
-        if (!F.blackout1) return '第1章 海与灯芯 · ……等雾再浓一点（在镇上走一走）';
-        return '第1章 海与灯芯 · 把失漏摆上柜台';
+        if (!F.ask1) return ap + ' · 回当铺，问清门缝与旧账';
+        if (!F.blackout1) return ap + ' · ……等雾再浓一点（在镇上走一走）';
+        return ap + ' · 把失漏摆上柜台';
       }
       if (S.chapter === 2) {
-        if (!F.ch3met) return '第2章 忘事房与渔网 · 镇公所找档案员';
-        if (!F.archDone) return '第2章 忘事房与渔网 · 找三卷烧剩的账（井 / 渔夫 / 教堂）';
-        return '第2章 忘事房与渔网 · 码头帮渔夫收网';
+        if (!F.ch3met) return ap + ' · 镇公所找档案员';
+        if (!F.archDone) return ap + ' · 找三卷烧剩的账（井 / 渔夫 / 教堂）';
+        return ap + ' · 码头帮渔夫收网';
       }
       if (S.chapter === 3) {
-        if (!F.ch5done) return '第3章 守夜与白日 · 回家守夜，记下梦话与歌谣';
-        if (!F.ch6pluto) return '第3章 守夜与白日 · 镇中心，会会白日当铺';
-        return '第3章 守夜与白日 · 回当铺给老板看契纸';
+        if (!F.ch5done) return ap + ' · 回家守夜，记下梦话与歌谣';
+        if (!F.ch6pluto) return ap + ' · 镇中心，会会白日当铺';
+        return ap + ' · 回当铺给老板看契纸';
       }
       if (S.chapter === 4) {
-        if (!F.gearDone) return '第4章 钟楼二层 · 校准塔钟机芯';
-        return '第4章 钟楼二层 · 忏悔簿里找出被涂改的那一行';
+        if (!F.gearDone) return ap + ' · 钟楼二层，校准塔钟机芯';
+        return ap + ' · 忏悔簿里找出被涂改的那一行';
       }
       if (S.chapter === 5) {
-        if (!F.genealogy) return '第5章 灯匠家谱 · 教堂边问灯婶';
-        if (!F.ch5pluto) return '第5章 催当帖 · 告示牌前再见白老板';
-        return '第5章 催当帖 · 做出你的回答';
+        if (!F.genealogy) return ap + ' · 教堂边问灯婶';
+        if (!F.ch5pluto) return ap + ' · 告示牌前再见白老板';
+        return ap + ' · 做出你的回答';
       }
       var mc = D.MAIN.chapters[S.chapter];
-      return mc ? ('第' + S.chapter + '章 ' + mc.title + ' · ' + mc.goal) : '……';
+      return mc ? (ap + ' · ' + mc.goal) : '……';
     }
     if (S.story === 'act1') {
       var n = D.relicCountOf(S);
@@ -2151,13 +2265,19 @@
       return;
     }
     if (key.indexOf('mch:') === 0) {
-      var mn = parseInt(key.slice(4), 10);
-      var mc = D.MAIN.chapters[mn];
-      if (!mc) return;
-      var mPages = (mc.open || []).concat(mc.ask || []);
+      var an = parseInt(key.slice(4), 10);
+      var am = actMeta(an);
+      if (!am) return;
+      var mPages = [];
+      for (var si = am.from; si <= am.to; si++) {
+        var sc = D.MAIN.chapters[si];
+        if (!sc) continue;
+        mPages = mPages.concat(sc.open || [], sc.ask1 || [], sc.ask2 || [], sc.ask || []);
+      }
       if (!mPages.length) {
-        // 第4-9章以小游戏/交互推进，无独立剧情页：用章末结算行做回顾占位页
-        mPages = [{ t: '第' + mn + '章 · ' + mc.title, h: mc.end || '（本章以交互推进。）' }];
+        /* 这一章以交互/小游戏推进，没有独立剧情页：用本章末段的小结做回顾占位 */
+        var lastc = D.MAIN.chapters[am.to];
+        mPages = [{ t: actLabel(an), h: (lastc && lastc.end) || '（本章以交互推进。）' }];
       }
       openPages(mPages, '合上', null);
       return;
@@ -2190,13 +2310,13 @@
       if (got[i] === 'keeper') gMarkArch('pay_keep');
       if (got[i] === 'half') { gMarkArch('halfgate'); gMarkArch('quizfail'); }
     }
-    /* 正篇：按章节进度与正篇结局补登记（新键 mn_ch，老档由 gLoadArch 迁移） */
+    /* 正篇：按章节（幕）进度与正篇结局补登记（新键 mn_ch = 幕） */
     if (S.mode === 'main') {
       var mi;
-      for (mi = 1; mi < S.chapter && mi <= 10; mi++) gMarkArch('mn_ch' + mi);
-      if (S.mainFlags.ch5done) gMarkArch('mn_ch3');
-      if (S.mainFlags.nightDone) gMarkArch('mn_ch6');
-      if (S.mainFlags.weirDone) gMarkArch('mn_ch9');
+      for (mi = 1; mi < curAct() && mi <= 3; mi++) gMarkArch('mn_ch' + mi);
+      if (S.mainFlags.ch5done) gMarkArch('mn_ch1');   /* 第一幕末（原第 3 章）打过 */
+      if (S.mainFlags.nightDone) gMarkArch('mn_ch2'); /* 第二幕内（原第 6 章）打过 */
+      if (S.mainFlags.weirDone) gMarkArch('mn_ch3');  /* 第三幕内（原第 9 章）打过 */
       if (S.mainFlags.signed) gMarkArch('mn_hidden');
       for (i = 0; i < got.length; i++) {
         if (D.MAIN.endings[got[i]]) gMarkArch('end_' + got[i]);
@@ -2226,11 +2346,12 @@
     for (ek in ENAMES) {
       if (archKeys.indexOf('end_' + ek) >= 0) rows += '<button class="arch-btn gold" data-arch="end:' + ek + '">▸ ' + ENAMES[ek] + '</button>';
     }
-    /* 正篇《雾季十年》章节（新键 mn_ch） */
+    /* 正篇《雾季十年》章节（新键 mn_ch = 幕：三幕三章 + 隐藏章） */
     var cn2;
-    for (cn2 = 1; cn2 <= 11; cn2++) {
-      if (archKeys.indexOf('mn_ch' + cn2) >= 0 && D.MAIN.chapters[cn2] && D.MAIN.chapters[cn2].title) {
-        rows += '<button class="arch-btn" data-arch="mch:' + cn2 + '">▸ 正篇 · 第' + cn2 + '章 ' + D.MAIN.chapters[cn2].title + '</button>';
+    for (cn2 = 1; cn2 <= 4; cn2++) {
+      var am2 = actMeta(cn2);
+      if (archKeys.indexOf('mn_ch' + cn2) >= 0 && am2) {
+        rows += '<button class="arch-btn" data-arch="mch:' + cn2 + '">▸ 正篇 · ' + actLabel(cn2) + '（' + am2.label + '）</button>';
       }
     }
     h += '<div class="mem-card"><span class="m-tag">回顾</span>打过的剧情，点开随时重看：' +
@@ -2267,8 +2388,9 @@
          '% · 断当 ' + d.lostCount + '/' + D.CFG.LOST_LIMIT + ' · 在当 ' + d.pawned.length + ' 段 · 当金 ' + S.gold + '◆</div>';
 
     if (S.mode === 'main') {
-      h += '<div class="mem-card"><span class="m-tag">正篇</span>《雾季十年》· 第 ' + S.chapter + ' 章' +
-           (D.MAIN.chapters[S.chapter] ? '「' + D.MAIN.chapters[S.chapter].title + '」' : '') +
+      var cAct = actMeta(curAct());
+      h += '<div class="mem-card"><span class="m-tag">正篇</span>《雾季十年》· ' + actLabel(curAct()) +
+           (cAct ? '（' + cAct.label + '）' : '') +
            '<br><span style="color:var(--dim)">利息 ' + S.interest + '% · 证词 ' + S.testimony + ' 件 · ' +
            (mainDaysLeft() === 0 ? '<b style="color:var(--red)">雾季最后一天</b>' : '距雾季结束 ' + mainDaysLeft() + ' 天') +
            (S.mainFlags.signed ? ' · <b style="color:var(--red)">已签白记契纸</b>' : '') + '</span></div>';
@@ -3037,7 +3159,9 @@
     tabMemEl = document.getElementById('tab-mem');
     tabTicketEl = document.getElementById('tab-ticket');
     confirmBoxEl = document.getElementById('confirm-box');
+    cfTextEl = document.getElementById('cf-text');
     btnRestartEl = document.getElementById('btn-restart');
+    logoEl = document.getElementById('logo');
     btnBgmEl = document.getElementById('btn-bgm');
     cfYesEl = document.getElementById('cf-yes');
     cfNoEl = document.getElementById('cf-no');
@@ -3188,7 +3312,12 @@
 
     btnRestartEl.addEventListener('click', function () {
       window.SFX.click();
-      confirmBoxEl.classList.add('show');
+      gAsk({
+        text: '回到本章开头记下的存档点？<br><small style="color:var(--dim)">这一章里走过的进度会退回去。</small>',
+        yes: '回到存档点',
+        no: '接着玩',
+        onYes: restoreCheckpoint
+      });
     });
     btnBgmEl.addEventListener('click', function () {
       var on = MUSIC.toggle();
@@ -3204,8 +3333,9 @@
     cfYesEl.addEventListener('click', function () {
       window.SFX.click();
       confirmBoxEl.classList.remove('show');
-      resetGame();
-      gToast('已从头开始值班');
+      var fn = pendingConfirm;
+      pendingConfirm = null;
+      if (fn) fn();
     });
 
     /* 开发者模式：顶栏开关 / 面板关闭 / 面板按钮统一委托 */
@@ -3225,6 +3355,9 @@
       window.SFX.click();
       devAction(t.getAttribute('data-dev'));
     });
+
+    /* 隐秘入口①：长按左上角标题 0.9 秒 → 从第一天重来（走同一套确认框） */
+    bindLongPress(logoEl, 900, askFirstDay);
 
     window.addEventListener('beforeunload', saveGame);
 
@@ -3248,6 +3381,63 @@
   }
   function updateMusic() {
     try { MUSIC.play(musicKey()); } catch (e) { /* 静默降级 */ }
+  }
+
+  /* 确认框：文案与「是」的动作都由调用方给（顶栏「存档点」与隐秘「从第一天重来」共用） */
+  function gAsk(opt) {
+    if (!confirmBoxEl) return;
+    if (cfTextEl) cfTextEl.innerHTML = opt.text;
+    if (cfYesEl) cfYesEl.textContent = opt.yes || '确定';
+    if (cfNoEl) cfNoEl.textContent = opt.no || '取消';
+    pendingConfirm = opt.onYes || null;
+    confirmBoxEl.classList.add('show');
+  }
+
+  /* 回到最近的章节存档点（走到这里已经是确认之后） */
+  function restoreCheckpoint() {
+    var st = loadCheckpoint();
+    if (!st) { gToast('还没有存档点 —— 每章开头会自动记一次'); return false; }
+    S = st;
+    endModalEl.classList.remove('show');
+    modalEl.classList.remove('show');
+    if (confirmBoxEl) confirmBoxEl.classList.remove('show');
+    switchTab('log');
+    S.logDirty = true;
+    S.memDirty = true;
+    renderLog(); renderStoryPane(); renderMemPane(); renderTicketPane(); gRenderHUD();
+    saveGame();                 /* 主存档对齐到存档点：这一章的进度算作重来 */
+    updateMusic();
+    if (DEV.open && devBodyEl) renderDevPanel();
+    gToast(S.mode === 'main' ? ('已回到 ' + actLabel(curAct()) + ' 开头') : '已回到存档点');
+    return true;
+  }
+
+  /* 从第一天重来：必须先过确认框，绝不点一下就重开 */
+  function askFirstDay() {
+    gAsk({
+      text: '是否从第一天重新开始？<br><small style="color:var(--dim)">此操作不可恢复：当前进度与章节存档点都会清空。</small>',
+      yes: '是，从第一天开始',
+      no: '不了',
+      onYes: function () {
+        clearCheckpoint();
+        resetGame();
+        gToast('已从第一天重新开始');
+      }
+    });
+  }
+
+  /* 长按触发（隐秘入口用；jsdom 里不派生灵异事件，只是多个监听） */
+  function bindLongPress(el, ms, fn) {
+    if (!el) return;
+    var timer = null;
+    function stop() { if (timer) { clearTimeout(timer); timer = null; } }
+    function start() { stop(); timer = setTimeout(function () { timer = null; fn(); }, ms); }
+    el.addEventListener('mousedown', start);
+    el.addEventListener('touchstart', start, { passive: true });
+    el.addEventListener('mouseup', stop);
+    el.addEventListener('mouseleave', stop);
+    el.addEventListener('touchend', stop);
+    el.addEventListener('touchcancel', stop);
   }
 
   function resetGame() {
@@ -3349,8 +3539,8 @@
       devBtn('main:go', '▶ 开正篇', 'gold'), devBtn('testimony:1', '证词 +1')
     ]);
     var chBtns = [];
-    for (i = 1; i <= 10; i++) chBtns.push(devBtn('chapter:' + i, '第' + i + '章'));
-    chBtns.push(devBtn('chapter:11', '接柜'));
+    for (i = 1; i <= 3; i++) chBtns.push(devBtn('act:' + i, '第' + i + '章 ' + actName(i)));
+    chBtns.push(devBtn('act:4', '接柜'));
     h += devGrid(chBtns, true);
     h += devSec('传送（自动落到可互动格）');
     all = D.PLACES.concat(D.NPCS);
@@ -3369,6 +3559,8 @@
       devBtn('end:half', '一半的我'), devBtn('end:blank', '空白之人')
     ]);
     h += devGrid([devBtn('reset', '↺ 重开一局', 'warn')]);
+    h += devSec('麻烦的手续（点了要过确认框）');
+    h += devGrid([devBtn('wipe', '⌫ 从第一天重新开始', 'warn')]);
     devBodyEl.innerHTML = h;
     /* 一局结束后（结局画面）除「重开」外全部置灰 */
     var over = !S || S.phase !== 'play';
@@ -3513,7 +3705,25 @@
           mainEnd(tail);
         }
         break;
+      case 'act': {
+        /* 跳章（幕）：落到该章第一段 */
+        var an3 = parseInt(tail, 10), am3 = actMeta(an3);
+        if (am3) {
+          if (S.mode !== 'main') {
+            S.mode = 'main';
+            S.story = 'act3'; S.innerOpen = true; S.wine = true;
+            S.pages = { p1: true, p2: true, p3: true, p4: true, p5: true };
+          }
+          S.chapter = am3.from;
+          S.memDirty = true;
+          closeModal();
+          updateMusic();
+          gToast('（DEV）正篇 · ' + actLabel(an3));
+        }
+        break;
+      }
       case 'chapter': {
+        /* 跳段（内部调试用）：1~11 是章内段落 */
         var cn = parseInt(tail, 10);
         if (cn >= 1 && cn <= 11) {
           if (S.mode !== 'main') {
@@ -3525,7 +3735,7 @@
           S.memDirty = true;
           closeModal();
           updateMusic();
-          gToast('（DEV）正篇 · 第' + cn + '章 ' + (D.MAIN.chapters[cn] ? D.MAIN.chapters[cn].title : ''));
+          gToast('（DEV）段 ' + cn + ' · ' + (D.MAIN.chapters[cn] ? D.MAIN.chapters[cn].title : '') + '（' + actLabel(actOfStep(cn)) + '）');
         }
         break;
       }
@@ -3535,6 +3745,9 @@
         break;
       case 'main':
         startMain();
+        break;
+      case 'wipe':
+        askFirstDay();          /* 二次确认，绝不一键直开 */
         break;
       case 'reset':
         resetGame();
@@ -3622,7 +3835,19 @@
     },
     startMain: startMain,
     loadRaw: loadGame,
+    checkpoint: {
+      has: hasCheckpoint,
+      tag: checkpointTag,
+      raw: checkpointRaw,
+      load: loadCheckpoint,
+      save: saveCheckpoint,
+      clear: clearCheckpoint,
+      restore: restoreCheckpoint
+    },
+    askFirstDay: askFirstDay,
     miniInfo: miniInfo,
+    ledgerCase: function () { return (S.mini && S.mini.key === 'ledger') ? S.mini.case : null; },
+    openMini: openMini,
     musicKey: musicKey,
     resolve: function (text) { return D.resolveText(text, S); },
     toggleDev: function () { toggleDevPanel(); },
