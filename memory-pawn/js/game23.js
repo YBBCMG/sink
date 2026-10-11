@@ -11,6 +11,7 @@
   var SAVE_KEY = 'mp23-save-v1', CHECK_KEY = 'mp23-check-v1', END_KEY = 'mp23-endings-v1';
   var LEGACY_KEYS = ['mp-save-v1', 'mp-checkpoint-v1', 'mp-endings-v1', 'mp-archive-v1'];
   var LEGACY_ACK_KEY = 'mp23-legacy-ack-v1';   /* 版本提示只弹一次：弹过就落这个记号 */
+  var GUIDE_KEY = 'mp23-guide-v1';             /* 新手引导（guide23.js:20 用的同一个键）：开新档时要一起清 */
 
   var canvas, ctx, S = null, raf = 0, lastT = 0, toastT = 0, bannerT = 0, actCardT = 0, lockCd = 0;
   var keys = {}, moveCd = 0, portalCd = 0, dirty = { hud: 1, log: 1, tasks: 1, album: 1, arch: 1, mem: 1 };
@@ -64,6 +65,21 @@
   function ackLegacy() {
     var st = store(); if (!st) return;
     try { st.setItem(LEGACY_ACK_KEY, '1'); } catch (e) { /* 私密模式/配额满：下次顶多再弹一次，不报错 */ }
+  }
+  /* 开新档（删档重来 / ?fresh=1）时把新手教程也清掉 —— 老玩家从第一天重来时，
+     「第一夜清单」要回到第一课，而不是顶着一张全打勾的旧便签。
+     两种时机都得管：
+       · 开机路径（?fresh=1）：index.html 里 game23.js 先于 guide23.js 执行，此刻 GUIDE23 还不存在
+         ⇒ 只能直接删原始键，guide23 随后 loadSt 读到空，自然全新；
+       · 运行中路径（DEV 面板「删档重来」）：GUIDE23 已加载且把 finished:true 读进了内存
+         ⇒ 光删键没用，必须再调 GUIDE23.reset() 清内存与队列。
+     注意：通关后「再玩一次」（restart()）不走这里 —— 那时候不该再被教程堵一次。 */
+  function clearGuide() {
+    var st = store();
+    if (st) { try { st.removeItem(GUIDE_KEY); } catch (e) { /* ignore */ } }
+    try {
+      if (global.GUIDE23 && typeof global.GUIDE23.reset === 'function') global.GUIDE23.reset();
+    } catch (e) { /* 引导没上也不许挡路 */ }
   }
   function saveCheckpoint() {
     var st = store(); if (!st) return;
@@ -3180,7 +3196,7 @@
       awardPhotos();
     }
     if (a === 'ending') { S.act = 5; D.PHOTOS.forEach(function (p) { S.photos[p.id] = 1; }); ending('true_name'); }
-    if (a === 'wipe') { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } S = freshState(); enterScene('lighthouse'); }
+    if (a === 'wipe') { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } clearGuide(); S = freshState(); enterScene('lighthouse'); }
     dirty.hud = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
     renderDev();
     save();
@@ -3217,7 +3233,7 @@
     setupCanvas();
     window.addEventListener('resize', function () { setupCanvas(); });
     var q = global.location && global.location.search || '';
-    if (q.indexOf('fresh=1') >= 0) { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } }
+    if (q.indexOf('fresh=1') >= 0) { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } clearGuide(); }
     S = load() || freshState();
     purgeMemLog();     /* 老存档里已经抄进日志的正文，进游戏就先抹一次 */
     endingRun = endingsRun();
