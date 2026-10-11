@@ -96,6 +96,8 @@
   #dev-body button.on { background: var(--violet); border-color: var(--violet); color: #fff; }
   #dev-body button.warn { border-color: var(--red); color: var(--red); }
   #dev-body button:disabled { opacity: .35; cursor: not-allowed; }
+  /* 危险操作整行铺开：四列格里「从第一天重新开始」会被省略号吃掉，必须独占一行 */
+  #dev-body button[data-dev="wipe"] { grid-column: 1 / -1; }
   #confirm-box {
     position: absolute; inset: 0; background: rgba(16, 11, 32, .85);
     display: none; align-items: center; justify-content: center; z-index: 8;
@@ -230,6 +232,7 @@
   .knock-track { display: flex; gap: 5px; margin: 8px 0; min-height: 22px; align-items: center; }
   .knock-track span { font-family: ui-monospace, Consolas, monospace; font-size: 15px; color: var(--gold2); }
   .knock-track span.wrong { color: var(--red); }
+  .knock-track span.slot { color: var(--dim); opacity: .45; }
   .riddle-row { display: flex; gap: 8px; align-items: center; }
   /* 结局模态 */
   #end-modal {
@@ -253,7 +256,7 @@
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     background: rgba(38, 32, 67, .95); border: 1px solid var(--gold); color: var(--gold2);
     border-radius: 9px; padding: 6px 16px; font-size: 13.5px; opacity: 0;
-    pointer-events: none; transition: opacity .25s; z-index: 5; white-space: nowrap;
+    pointer-events: none; transition: opacity .25s; z-index: 60; white-space: nowrap;
   }
   #toast.show { opacity: 1; }
   /* 小游戏面板 */
@@ -343,6 +346,7 @@
   .ledger-row b { color: var(--gold2); min-width: 60px; }
   .ledger-row i { margin-left: auto; color: var(--dim); font-style: normal; font-size: 12px; }
   .ledger-row.wrong { opacity: .45; border-style: dashed; text-decoration: line-through; }
+  .ledger-note { font-size: 12px; color: var(--dim); margin: -2px 0 2px 6px; }
   @media (max-width: 880px) {
     main { flex-direction: column; }
     aside#side { width: 100%; }
@@ -350,30 +354,160 @@
     #app { height: auto; }
   }
 </style>
+<style>
+/* v23 追加样式：新场景横幅 + 谜题控件（沿用 v22 的 CSS 变量与观感） */
+#scene-banner {
+  position: absolute; left: 0; right: 0; top: 10px; text-align: center;
+  font-size: 15px; letter-spacing: 3px; color: var(--gold2, #e0b25c);
+  text-shadow: 0 1px 6px #000; pointer-events: none; opacity: 0;
+  transition: opacity .35s ease; z-index: 6;
+}
+#scene-banner.on { opacity: 1; }
+#scene-banner small { display: block; font-size: 11px; letter-spacing: 1px; color: var(--dim, #8b8b8b); margin-top: 2px; }
+
+/* 通用谜题控件 */
+.pz-tip { font-size: 12.5px; color: var(--dim, #9a9a9a); margin: 2px 0 8px; }
+.pz-clue { font-size: 12.5px; color: var(--gold2, #e0b25c); background: var(--panel2, #221c14);
+  border: 1px solid var(--line, #3a3226); border-radius: 8px; padding: 5px 10px; margin-bottom: 6px; }
+.pz-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 8px 0; }
+.pz-opt, .pz-btn {
+  font-family: inherit; font-size: 13.5px; color: var(--txt, #e6e0d6);
+  background: var(--panel2, #221c14); border: 1px solid var(--line, #3a3226);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer; min-width: 44px; min-height: 40px;
+}
+.pz-opt:hover, .pz-btn:hover { border-color: var(--gold2, #e0b25c); }
+
+/* 手机：弹窗必须占满视口 —— 原来 position:absolute 依附画布区，375 宽下 4×4 网格只露 2 行、
+   复位/开闸按钮直接够不着（实测）。改成视口级遮罩 + 正文滚动 + 按钮常驻底部。 */
+#modal {
+  position: fixed; inset: 0; z-index: 60;
+}
+#m-card {
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+#m-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+#m-btns { flex: 0 0 auto; }
+@media (max-width: 420px) {
+  #m-card { width: calc(100vw - 16px); padding: 12px 12px; border-radius: 12px; }
+  #m-title { font-size: 15px; }
+  .sl-grid { gap: 4px !important; }
+  .sl-cell { width: 38px !important; height: 38px !important; }
+}
+/* 手机：弹窗（对话/谜题）打开时收起触屏控件——实测 375 宽下面板会被方向盘压住半格网格 */
+body.mp-modal #dpad,
+body.mp-modal #btn-e { display: none !important; }
+#m-btns button { min-height: 44px; }   /* 触屏可点面积 */
+.pz-opt.on, .pz-opt.sel { border-color: var(--gold, #c9a227); background: #3a2f18; color: #fff; }
+.pz-opt.wrong { border-color: var(--red, #c05a5a); color: var(--red, #c05a5a); text-decoration: line-through; opacity: .6; }
+.pz-opt:disabled, .pz-btn:disabled { opacity: .45; cursor: default; }
+.pz-slots { display: flex; gap: 10px; justify-content: center; margin: 10px 0; }
+.pz-slot {
+  width: 52px; height: 52px; border: 1px dashed var(--line, #3a3226); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--gold2, #e0b25c);
+}
+.pz-slot.filled { border-style: solid; border-color: var(--gold, #c9a227); background: #2c2415; }
+.pz-progress { text-align: center; font-size: 12.5px; color: var(--dim, #9a9a9a); margin-top: 6px; }
+
+/* 秤 */
+.sc-pan { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 10px 0; }
+.sc-beam { width: 120px; height: 6px; background: var(--line, #3a3226); border-radius: 3px; position: relative; }
+.sc-beam i { position: absolute; top: -4px; width: 16px; height: 14px; background: var(--gold, #c9a227); border-radius: 3px; }
+.sc-num { font-size: 20px; color: var(--gold2, #e0b25c); min-width: 46px; text-align: center; }
+
+/* 引水网格 */
+.sl-grid { display: grid; gap: 3px; justify-content: center; margin: 8px 0; }
+.sl-cell {
+  width: 42px; height: 42px; border-radius: 8px; border: 1px solid var(--line, #3a3226);
+  background: #16130e; cursor: pointer; position: relative;
+}
+.sl-cell.pipe { background: #241d12; }
+.sl-cell span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 19px; color: #6f6350; }
+.sl-cell.src { border-color: var(--gold, #c9a227); background: #2f2612; }
+.sl-cell.pool { border-color: #4c7f7a; background: #16262a; }
+.sl-cell.pool.done { background: #1d4a44; border-color: #8fc7c0; }
+.sl-cell.flow { background: #10365c; }
+
+/* 排序 */
+.od-list { display: flex; flex-direction: column; gap: 6px; }
+.od-item {
+  text-align: left; font-family: inherit; font-size: 13px; color: var(--txt, #e6e0d6);
+  background: var(--panel2, #221c14); border: 1px solid var(--line, #3a3226);
+  border-radius: 10px; padding: 8px 12px; cursor: pointer;
+}
+.od-item.sel { border-color: var(--gold, #c9a227); background: #332a16; }
+.od-item.ok { border-color: #4c7f7a; }
+.od-item .od-n { color: var(--dim, #9a9a9a); margin-right: 8px; font-size: 12px; }
+
+/* 检索 */
+.sr-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.sr-row label { font-size: 12.5px; color: var(--dim, #9a9a9a); width: 54px; text-align: right; }
+.sr-row select {
+  flex: 1; font-family: inherit; font-size: 13px; padding: 6px 8px; border-radius: 8px;
+  background: var(--panel2, #221c14); color: var(--txt, #e6e0d6); border: 1px solid var(--line, #3a3226);
+}
+.sr-result { font-size: 13px; min-height: 40px; margin-top: 8px; }
+.sr-result.ok { color: #8fc7c0; }
+.sr-result.no { color: var(--red, #c05a5a); }
+
+/* 拼字 */
+.nm-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 8px 0; }
+.nm-pc {
+  font-family: inherit; font-size: 18px; padding: 8px 0; border-radius: 8px; cursor: pointer;
+  background: var(--panel2, #221c14); color: var(--txt, #e6e0d6); border: 1px solid var(--line, #3a3226);
+}
+.nm-pc.sel { border-color: var(--gold, #c9a227); background: #332a16; }
+
+/* 歌谣 */
+.sm-pads { display: flex; gap: 10px; justify-content: center; margin: 12px 0; }
+.sm-pad {
+  width: 62px; height: 62px; border-radius: 14px; font-size: 20px; cursor: pointer;
+  background: var(--panel2, #221c14); color: var(--txt, #e6e0d6); border: 1px solid var(--line, #3a3226);
+}
+.sm-pad:active, .sm-pad.lit { background: #3a2f18; border-color: var(--gold, #c9a227); color: #fff; }
+.sm-seq { text-align: center; font-size: 15px; letter-spacing: 4px; color: var(--gold2, #e0b25c); min-height: 22px; }
+
+/* 三问 / 填空 */
+.qa-q { font-size: 14px; margin: 10px 0 4px; color: var(--txt, #e6e0d6); }
+.qa-in {
+  width: 100%; font-family: inherit; font-size: 14px; padding: 8px 10px; border-radius: 10px;
+  background: var(--panel2, #221c14); color: var(--txt, #e6e0d6); border: 1px solid var(--line, #3a3226);
+}
+.qa-opt { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+
+/* 档案页 */
+.arc-h { font-size: 14px; color: var(--gold2, #e0b25c); margin: 12px 0 6px; letter-spacing: 1px; }
+.arc-item { font-size: 12.5px; color: var(--txt, #e6e0d6); background: var(--panel2, #221c14);
+  border: 1px solid var(--line, #3a3226); border-radius: 8px; padding: 6px 10px; margin-bottom: 5px; }
+.arc-item b { color: var(--gold2, #e0b25c); margin-right: 6px; }
+.arc-item.locked { color: var(--dim, #6c6c6c); border-style: dashed; }
+.arc-lock { text-align: center; color: var(--dim, #9a9a9a); font-size: 13px; padding: 30px 10px; }
+
+</style>
 </head>
 <body>
 <div id="app">
   <header id="topbar">
-    <div id="logo">记忆当铺<small>只收回忆，不收金银</small></div>
+    <div id="logo">记忆当铺<small>归潮屿 · 望归灯</small></div>
     <div id="hud">
       <span class="hitem"><span class="gold-ico">◆</span> 当金 <b id="hud-gold">0</b></span>
-      <span class="hitem">自我完整度 <span class="bar"><i id="hud-integ"></i></span></span>
-      <span class="hitem">赎回 <b id="hud-redeem">--:--</b></span>
-      <span class="hitem" id="hud-main" style="display:none">
-        利息 <b id="hud-interest" style="color:var(--red)">0%</b> ·
-        雾季 <b id="hud-days" style="color:var(--gold2)">—</b> ·
-        证词 <b id="hud-testimony" style="color:#8fc7c0">0</b>
-      </span>
+      <span class="hitem">相簿 <span class="bar"><i id="hud-album-bar"></i></span> <b id="hud-album">0/4</b></span>
+      <span class="hitem">任务 <b id="hud-tasks" style="color:var(--gold2)">0/32</b></span>
+      <span class="hitem">第 <b id="hud-act">1</b> 幕 · <b id="hud-scene">望归灯</b></span>
       <span class="hitem">目标 <b id="hud-goal" style="color:var(--gold2)">—</b></span>
-      <span class="hitem">信物 <span id="relics">▢▢▢</span></span>
-      <button id="btn-restart" title="抛弃当前进度，从头开始">↺ 重开</button>
-      <button id="btn-bgm" title="背景音乐开关（每章一首主题曲）">♪ 开</button>
+      <button id="btn-restart" title="回到本幕开头自动记下的存档点（每幕开头记一次）">↺ 存档点</button>
+      <button id="btn-bgm" title="背景音乐开关">♪ 开</button>
+      <button id="btn-archive" title="通关后解锁：世界档案">档案</button>
       <button id="btn-dev" title="开发者模式（按 ` 或 F2 切换）">DEV</button>
     </div>
   </header>
   <main>
     <div id="world-wrap">
-      <canvas id="world" width="640" height="448"></canvas>
+      <canvas id="world" width="960" height="672"></canvas>
+      <div id="scene-banner"></div>
       <div id="toast"></div>
       <div id="touch-ui" aria-hidden="true">
         <div id="dpad">
@@ -382,7 +516,7 @@
           <button data-k="ArrowRight" title="右">▶</button>
           <button data-k="ArrowDown" title="下">▼</button>
         </div>
-        <button id="btn-e" title="互动 / 敲击（等同 E 键）">E</button>
+        <button id="btn-e" title="互动 / 确定（等同 E 键）">E</button>
       </div>
       <div id="modal">
         <div id="m-card">
@@ -397,16 +531,16 @@
           <div id="end-text"></div>
           <div id="end-stats"></div>
           <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
-            <button id="btn-again">再做一个梦</button>
-            <button id="btn-main" style="display:none; background:transparent; color:var(--gold2); border:1px solid var(--gold); font-weight:500;">▸ 走进次年雾季</button>
+            <button id="btn-again">再走一遍这条路</button>
+            <button id="btn-main" style="display:none; background:transparent; color:var(--gold2); border:1px solid var(--gold); font-weight:500;">▸ 走进世界档案</button>
           </div>
         </div>
       </div>
       <div id="confirm-box">
         <div id="confirm-card">
-          <p>要抛弃这一晚的进度，从头再来吗？</p>
-          <button id="cf-yes">重头开始</button>
-          <button id="cf-no">继续值班</button>
+          <p id="cf-text">要回到本幕开头的存档点吗？</p>
+          <button id="cf-yes">回到存档点</button>
+          <button id="cf-no">接着走</button>
         </div>
       </div>
       <div id="dev-panel">
@@ -417,23 +551,24 @@
     <aside id="side">
       <section id="panel-sec" style="flex:1; min-height:220px;">
         <div id="tabs">
-          <button id="tab-log" class="on">记忆日志</button>
-          <button id="tab-story">剧情</button>
-          <button id="tab-mem">我的记忆</button>
-          <button id="tab-ticket">当票行囊</button>
+          <button id="tab-log" class="on">日志</button>
+          <button id="tab-tasks">任务</button>
+          <button id="tab-album">相簿</button>
+          <button id="tab-archive">世界档案</button>
         </div>
         <div id="pane-log" class="pane on"></div>
-        <div id="pane-story" class="pane"></div>
-        <div id="pane-mem" class="pane"></div>
-        <div id="pane-ticket" class="pane"></div>
+        <div id="pane-tasks" class="pane"></div>
+        <div id="pane-album" class="pane"></div>
+        <div id="pane-archive" class="pane"></div>
       </section>
     </aside>
   </main>
-  <div id="footer-tips">WASD / 方向键 走动 · E 互动 · 买下「铜钥匙当票」前，先去把相关的记忆卖掉 · 按 <b>`</b> 键或点 DEV 打开开发者模式</div>
+  <div id="footer-tips">WASD / 方向键 走动 · E 互动 · 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式</div>
 </div>
-<script src="js/data.js?v=18"></script>
-<script src="js/audio.js?v=18"></script>
-<script src="js/music.js?v=18"></script>
-<script src="js/game.js?v=18"></script>
+<script src="js/story23.js?v=23"></script>
+<script src="js/audio.js?v=23"></script>
+<script src="js/music.js?v=23"></script>
+<script src="js/puzzles23.js?v=23"></script>
+<script src="js/game23.js?v=23"></script>
 </body>
 </html>
