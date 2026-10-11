@@ -560,10 +560,543 @@
     H.setBtns([]);
   }
 
+  /* ============ 13. 灯阵（三乘三：按一盏，连它上下左右一起翻；九盏全亮才过） ============ */
+  /* 乱局一律从"全亮"倒着按 n 下生成 —— 按过的下标本身就是一组解，所以**永远有解**；
+     每次进来重掷，位置都不一样（背答案没用）。 */
+  var LIGHTS = {
+    nb: function (i, w) {
+      var x = i % w, y = Math.floor(i / w), out = [i];
+      if (x > 0) out.push(i - 1);
+      if (x < w - 1) out.push(i + 1);
+      if (y > 0) out.push(i - w);
+      if (y < w - 1) out.push(i + w);
+      return out;
+    },
+    full: function (w) { var a = [], i; for (i = 0; i < w * w; i++) a.push(1); return a; },
+    flip: function (st, w, i) { LIGHTS.nb(i, w).forEach(function (k) { st[k] = st[k] ? 0 : 1; }); return st; },
+    isFull: function (st) { for (var i = 0; i < st.length; i++) if (!st[i]) return false; return true; },
+    scramble: function (w, n, rand) {
+      var R = rand || rnd, st = LIGHTS.full(w);
+      for (var i = 0; i < n; i++) LIGHTS.flip(st, w, R(w * w));
+      if (LIGHTS.isFull(st)) LIGHTS.flip(st, w, R(w * w));
+      return st;
+    },
+    /* 暴力解（3x3 只有 512 种按法）：测试拿它证明"每个乱局都解得开" */
+    solve: function (st, w) {
+      var n = w * w, best = null;
+      for (var mask = 0; mask < (1 << n); mask++) {
+        var cur = st.slice(), clicks = [];
+        for (var i = 0; i < n; i++) if (mask & (1 << i)) { LIGHTS.flip(cur, w, i); clicks.push(i); }
+        if (LIGHTS.isFull(cur) && (!best || clicks.length < best.length)) best = clicks;
+      }
+      return best;
+    }
+  };
+  function lights(p) {
+    var W = 3, st = LIGHTS.scramble(W, 3 + rnd(3));
+    H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
+      '<div class="pz-clue">铁牌上刻着规矩：按一盏，它和自己上下左右一起翻。九盏全亮，海上的船才看得见岸。</div>' +
+      '<div class="lz-grid" id="pz-lz"></div>' +
+      '<div class="pz-progress" id="pz-prog"></div>');
+    function draw() {
+      var g = q('#pz-lz'); if (!g) return;
+      g.innerHTML = '';
+      st.forEach(function (v, i) {
+        var b = el('button', 'lz-cell' + (v ? ' on' : ''), '');
+        b.setAttribute('data-i', i);
+        b.onclick = function () { LIGHTS.flip(st, W, i); H.sfx('click'); draw(); };
+        g.appendChild(b);
+      });
+      var off = 0;
+      st.forEach(function (v) { if (!v) off++; });
+      var pr = q('#pz-prog');
+      if (pr) pr.textContent = off ? ('还暗着 ' + off + ' 盏') : '九盏都亮了';
+      if (!off) H.solve('lights');
+    }
+    H.setBtns([{ label: '先不按', fn: function () { H.close(); } }]);
+    draw();
+  }
+
+  /* ============ 14. 柜台的算盘（当金 = 重量 × 每两当金；三张当票每次重掷） ============ */
+  var BILL_GOODS = ['一枚银簪', '一副铜锁', '一件旧棉袄', '一只怀表', '一顶呢帽', '一台座钟', '一把裁纸刀', '半边砚台', '一串铜钱', '一只木匣'];
+  function makeBill(rand) {
+    var R = rand || rnd, pool = BILL_GOODS.slice(), rows = [], total = 0;
+    for (var i = 0; i < 3; i++) {
+      var name = pool.splice(R(pool.length), 1)[0];
+      var wt = 2 + R(8), price = 3 + R(7);
+      rows.push({ name: name, wt: wt, price: price, sub: wt * price });
+      total += wt * price;
+    }
+    return { rows: rows, total: total };
+  }
+  function abacus(p) {
+    var b = makeBill(), tries = 0;
+    H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
+      '<div class="pz-clue">柜台的规矩：当金 = 重量（两）× 每两当金（枚）。三张当票都在一两以上，不用抹零。</div>' +
+      '<div class="ab-table" id="pz-bill">' + b.rows.map(function (r) {
+        return '<div class="ab-row"><span>' + r.name + '</span><span>' + r.wt + ' 两</span><span>每两 ' + r.price + ' 枚</span><span class="ab-q">?</span></div>';
+      }).join('') + '</div>' +
+      '<div class="pz-row"><input class="ab-in" id="pz-ab" type="number" inputmode="numeric" placeholder="合起来多少枚">' +
+      '<span class="ab-unit">枚</span></div>' +
+      '<div class="pz-progress" id="pz-prog">三张当票，一笔一笔算</div>');
+    H.setBtns([
+      { label: '报账', fn: function () {
+        var box = q('#pz-ab'); if (!box) return;
+        var v = parseInt(box.value, 10);
+        var pr = q('#pz-prog');
+        if (!(v >= 0)) { pr.textContent = '还没写数。'; return; }
+        if (v === b.total) { H.solve('abacus'); return; }
+        tries++; H.sfx('wrong');
+        pr.textContent = tries >= 2
+          ? ('不对。' + (v > b.total ? '报多了。' : '报少了。') + '提示：先把每张分开算，再合起来。')
+          : '不对，再算一遍。';
+      } },
+      { label: '不算了', fn: function () { H.close(); } }
+    ]);
+  }
+
+  /* ============ 15. 四块闸板（三条规矩 · 扳到位；规矩和谜底每局重掷） ============ */
+  var GATES = ['甲', '乙', '丙', '丁'];
+  function gateRuleSet(R) {
+    var want = [R(2), R(2), R(2), R(2)];
+    function cnt(as) { return as[0] + as[1] + as[2] + as[3]; }
+    var wantOpen = cnt(want);
+    var MADE = [
+      function (a, b) { return { t: GATES[a] + '和' + GATES[b] + '只能一个样——要么都开，要么都关。', f: function (as) { return as[a] === as[b]; } }; },
+      function (a, b) { return { t: GATES[a] + '和' + GATES[b] + '必须一个开一个关，不能一样。', f: function (as) { return as[a] !== as[b]; } }; },
+      function (a, b) { return { t: GATES[a] + '要是开着，' + GATES[b] + '就得跟着开。', f: function (as) { return !as[a] || !!as[b]; } }; },
+      function (a, b) { return { t: GATES[a] + '和' + GATES[b] + '里，至少得有一个开着。', f: function (as) { return !!(as[a] || as[b]); } }; },
+      function (a) { return { t: '四块闸板里，正好 ' + wantOpen + ' 块是开着的。', f: function (as) { return cnt(as) === wantOpen; } }; },
+      function (a) { return { t: GATES[a] + '得关着，水才压得住。', f: function (as) { return as[a] === 0; } }; }
+    ];
+    var rules = [];
+    for (var guard = 0; guard < 60 && rules.length < 6; guard++) {
+      var a = R(4), b = R(4);
+      if (b === a) b = (b + 1) % 4;
+      var r = MADE[R(MADE.length)](a, b);
+      if (!r.f(want)) continue;                                    /* 只留谜底满足的规矩 */
+      if (rules.some(function (x) { return x.t === r.t; })) continue;
+      rules.push(r);
+      if (rules.length < 3) continue;
+      var ok = 0;
+      for (var m = 0; m < 16; m++) {
+        var as = [m & 1, (m >> 1) & 1, (m >> 2) & 1, (m >> 3) & 1];
+        if (rules.every(function (x) { return x.f(as); })) ok++;
+      }
+      if (ok === 1) return { want: want, rules: rules, unique: true };
+    }
+    return { want: want, rules: rules, unique: false };
+  }
+  function makeGates(rand) {
+    var R = rand || rnd, g = null;
+    for (var i = 0; i < 80; i++) { g = gateRuleSet(R); if (g.unique) return g; }
+    return g;                                                       /* 兜底：极端情况下也让玩家扳（测试盯着唯一性） */
+  }
+  function switches(p) {
+    var pz = makeGates(), as = [0, 0, 0, 0];
+    H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
+      '<div class="pz-clue">堤上钉着三块告示，写的就是扳闸板的规矩：' +
+      pz.rules.map(function (r, i) { return '<br>' + (i + 1) + '. ' + r.t; }).join('') + '</div>' +
+      '<div class="pz-row" id="pz-gates">' + GATES.map(function (g, i) {
+        return '<button class="pz-opt gate" data-i="' + i + '">' + g + '<br><small>关</small></button>';
+      }).join('') + '</div>' +
+      '<div class="pz-progress" id="pz-prog">四块闸板，一块一块扳</div>');
+    function draw() {
+      qa('#pz-gates .pz-opt').forEach(function (b, i) {
+        b.classList.toggle('on', !!as[i]);
+        b.querySelector('small').textContent = as[i] ? '开' : '关';
+      });
+    }
+    qa('#pz-gates .pz-opt').forEach(function (b, i) {
+      b.onclick = function () { as[i] = as[i] ? 0 : 1; H.sfx('click'); draw(); };
+    });
+    H.setBtns([
+      { label: '扳到位', fn: function () {
+        var bad = pz.rules.filter(function (r) { return !r.f(as); });
+        if (!bad.length) { H.solve('switches'); return; }
+        H.sfx('wrong');
+        q('#pz-prog').textContent = '第 ' + (pz.rules.indexOf(bad[0]) + 1) + ' 条不对劲：' + bad[0].t;
+      } },
+      { label: '先不扳', fn: function () { H.close(); } }
+    ]);
+    draw();
+  }
+
+  /* ============ 16. 换过字的契（字表往后错 k 位；k 和那个词每次都重掷） ============ */
+  var CIPHER_TABLE = ['阿', '隐', '灯', '娘', '替', '记', '雾', '客', '盐', '堤', '船', '铃', '岸', '潮', '名', '字', '火', '窗', '门', '石', '碑', '史', '当', '纸'];
+  var CIPHER_WORDS = [['阿', '隐'], ['替', '记'], ['灯', '娘'], ['雾', '客'], ['名', '字'], ['盐', '堤']];
+  function makeCipher(rand) {
+    var R = rand || rnd, k = 3 + R(5);
+    var word = CIPHER_WORDS[R(CIPHER_WORDS.length)].slice();
+    var shown = word.map(function (ch) {
+      var at = (CIPHER_TABLE.indexOf(ch) + k) % CIPHER_TABLE.length;
+      return { ch: CIPHER_TABLE[at], at: at };
+    });
+    return { k: k, word: word, shown: shown };
+  }
+  function cipher(p) {
+    var c = makeCipher(), picked = [];
+    H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
+      '<div class="pz-clue">契上的规矩：每个字都按字表<b>往后错 ' + c.k + ' 位</b>写（错到末尾就从头绕）。<br>' +
+        '字表：' + CIPHER_TABLE.map(function (ch, i) { return '<span class="ci-cell" data-i="' + i + '"><b>' + i + '</b>' + ch + '</span>'; }).join('') + '</div>' +
+      '<div class="pz-progress">契上写的是：' + c.shown.map(function (s) { return '「' + s.ch + '」（字表第 ' + s.at + '）'; }).join('　') + '</div>' +
+      '<div class="pz-slots" id="pz-ci">' + c.word.map(function (x, i) { return '<span class="pz-slot" data-i="' + i + '">?</span>'; }).join('') + '</div>' +
+      '<div class="pz-progress" id="pz-prog">往后错 ' + c.k + ' 位写的，往前推 ' + c.k + ' 位才读得回。</div>');
+    function slots() { return qa('#pz-ci .pz-slot'); }
+    function drawSlots() {
+      slots().forEach(function (s, i) {
+        s.textContent = picked[i] == null ? '?' : CIPHER_TABLE[picked[i]];
+        s.classList.toggle('filled', picked[i] != null);
+      });
+    }
+    qa('.ci-cell').forEach(function (cell) {
+      cell.onclick = function () {
+        if (picked.length >= c.word.length) return;
+        picked.push(+cell.getAttribute('data-i'));
+        H.sfx('click'); drawSlots();
+        q('#pz-prog').textContent = '这是第 ' + picked.length + ' 个字。';
+      };
+    });
+    H.setBtns([
+      { label: '退一个字', fn: function () { picked.pop(); drawSlots(); } },
+      { label: '照这样读', fn: function () {
+        if (picked.length < c.word.length) { q('#pz-prog').textContent = '还没填满。'; return; }
+        var got = picked.map(function (i) { return CIPHER_TABLE[i]; }).join('');
+        if (got === c.word.join('')) { H.solve('cipher'); return; }
+        H.sfx('wrong');
+        q('#pz-prog').textContent = '读出来是「' + got + '」，读不通。错位不是加就是减——契上是往后错的。';
+      } },
+      { label: '先不读', fn: function () { H.close(); } }
+    ]);
+    drawSlots();
+  }
+
+  /* ============ 17. 断句（撕成两半的话拼回去；两列每次都洗牌） ============ */
+  function shuffle(a, rand) {
+    var R = rand || rnd;
+    for (var i = a.length - 1; i > 0; i--) { var j = R(i + 1), t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+  function halves(p) {
+    var pairs = (p.pairs || []).slice();
+    var lefts = shuffle(pairs.map(function (pr, i) { return { i: i, t: pr[0] }; }));
+    var rights = shuffle(pairs.map(function (pr, i) { return { i: i, t: pr[1] }; }));
+    var sel = null, hit = {}, miss = 0;
+    H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
+      '<div class="pz-clue">雾里的纸被撕成了两半：左半句在左边，右半句在右边。先点左边一句，再点右边接得上的那半句。</div>' +
+      '<div class="hp-wrap"><div class="hp-col" id="pz-half-l"></div><div class="hp-col" id="pz-half-r"></div></div>' +
+      '<div class="pz-progress" id="pz-prog"></div>');
+    function draw() {
+      var done = Object.keys(hit).length;
+      q('#pz-half-l').innerHTML = lefts.map(function (x) {
+        return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + (sel === x.i ? ' sel' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
+      }).join('');
+      q('#pz-half-r').innerHTML = rights.map(function (x) {
+        return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
+      }).join('');
+      qa('#pz-half-l .pz-opt').forEach(function (b) {
+        b.onclick = function () { if (hit[+b.getAttribute('data-i')]) return; sel = +b.getAttribute('data-i'); H.sfx('click'); draw(); };
+      });
+      qa('#pz-half-r .pz-opt').forEach(function (b) {
+        b.onclick = function () {
+          var j = +b.getAttribute('data-i');
+          if (hit[j]) return;
+          if (sel === null) { q('#pz-prog').textContent = '先在左边点一句。'; return; }
+          if (j === sel) { hit[j] = 1; sel = null; H.sfx('open'); draw(); return; }
+          miss++; sel = null; H.sfx('wrong');
+          q('#pz-prog').textContent = '接不上（错了 ' + miss + ' 回）。';
+        };
+      });
+      var pr = q('#pz-prog');
+      if (pr) pr.textContent = '接上了 ' + done + '/' + pairs.length + ' 句' + (miss ? '（错了 ' + miss + ' 回）' : '');
+      if (done === pairs.length) H.solve('halves');
+    }
+    H.setBtns([{ label: '先不接', fn: function () { H.close(); } }]);
+    draw();
+  }
+
+  /* ============ 18. 连环锁（幕五 · 五道环 · 一百秒 · 超时从第一道重来） ============
+     规矩：一百秒内把五枚环一枚一枚解完；解不完，五枚一起弹回去，从第一枚重来。
+     每枚环是一道**自己**的机关；而且每轮重新生成 —— 答案不跟上一轮一样，背答案没用。 */
+  var CHAIN_LIMIT = 100;
+  var CHAIN_NAMES = ['一', '二', '三', '四', '五'];
+  var CHAIN_MARKS = ['雾', '灯', '海', '名', '岸', '钟', '贝', '船'];
+  var CHAIN_PAIRS = [
+    ['替记', '拿自己的一段记，替别人背一笔债'],
+    ['雾客', '雾里站着不动的人'],
+    ['当金', '记能换成的钱'],
+    ['入册', '镇上立过的契都在这本里'],
+    ['望归灯', '每夜要亮一百分钟'],
+    ['雾铃', '起雾时挂在码头上响的东西'],
+    ['潮到三刻', '旧钟上的三点四十五分']
+  ];
+  var CHAIN = (function () {
+    function mkTap(R) { return { kind: 'tap', name: '记数', n: 4 + R(5) }; }
+    function mkNotch(R) { var s = R(8), k = 1 + R(7); return { kind: 'notch', name: '对位', start: s, step: k, target: (s + k) % 8 }; }
+    function mkWeigh(R) { return { kind: 'weigh', name: '配重', target: 1 + R(15) }; }
+    function mkPair(R) { return { kind: 'pair', name: '对牌', pairs: shuffle(CHAIN_PAIRS.slice(), R).slice(0, 3) }; }
+    function mkSeq(R) { var s = [], i; for (i = 0; i < 4; i++) s.push(R(4)); return { kind: 'seq', name: '灯序', seq: s }; }
+    /* 一轮 = 五枚环（次序也洗牌）。rand 可注入（测试用固定种子验"两轮答案不一样"） */
+    function makeRun(rand) {
+      var R = rand || rnd;
+      var nodes = shuffle([mkTap(R), mkNotch(R), mkWeigh(R), mkPair(R), mkSeq(R)], R);
+      nodes.forEach(function (n, i) { n.no = i; n.done = false; });
+      return { nodes: nodes, idx: 0, tLeft: CHAIN_LIMIT, fails: 0, done: false, started: false };
+    }
+    var run = makeRun(), live = false, note = '', token = 0;
+    function secs() { return Math.max(0, Math.ceil(run.tLeft)); }
+    function pct() { return Math.max(0, Math.min(100, run.tLeft / CHAIN_LIMIT * 100)); }
+    function paint() {
+      var a = q('#pz-chain-left'); if (a) a.textContent = secs() + ' 秒';
+      var b = q('#pz-chain-bar'); if (b) b.style.width = pct() + '%';
+    }
+    function head() {
+      return '<div class="ch-clock"><span class="ch-lab">表</span><b id="pz-chain-left">' + secs() + ' 秒</b>' +
+        '<span class="ch-bar"><i id="pz-chain-bar" style="width:' + pct() + '%"></i></span>' +
+        '<span class="ch-try">第 ' + (run.fails + 1) + ' 次</span></div>';
+    }
+    function panel() {
+      token++; live = true;
+      H.setTitle('✦ 连环锁');
+      H.setBody('<p class="pz-tip">铁闸上五枚铜环，一枚扣一枚。每枚环上是一道自己的机关。</p>' +
+        '<div class="pz-clue">一百秒。从第一枚开始，一枚一枚解；五枚都解进闸里，闸自己开。<br>' +
+        '表走完还没解完 —— 五枚一起弹回去，从第一枚重来；<b>下一轮的机关重新打过，答案跟这一轮不一样</b>。</div>' +
+        head() +
+        '<div class="ch-rings">' + run.nodes.map(function (n, i) {
+          var cls = n.done ? 'done' : (i === run.idx ? 'now' : 'off');
+          return '<button class="ch-ring ' + cls + '" data-i="' + i + '"><b>' + CHAIN_NAMES[i] + '</b><small>' + n.name + '</small></button>';
+        }).join('') + '</div>' +
+        '<div class="pz-progress" id="pz-chain-msg">' + (note || (run.started ? ('接着解第 ' + (run.idx + 1) + ' 枚。') : '推开第一枚环，表就开始走。')) + '</div>');
+      qa('.ch-ring').forEach(function (b, i) {
+        if (i === run.idx && !run.done) b.onclick = function () { openNode(); };
+        else b.disabled = true;
+      });
+      H.setBtns([{ label: '合上机关（表还在走）', fn: function () { H.close(); } }]);
+      paint();
+      H.refresh();
+    }
+    /* 一道环解开了：锁进闸里，接着下一枚 */
+    function after(n) {
+      n.done = true; H.sfx('open');
+      run.idx++;
+      if (run.idx >= run.nodes.length) { run.done = true; live = false; token++; H.solve('chainlink'); return; }
+      note = '第 ' + run.idx + ' 枚锁进去了。';
+      panel();
+    }
+    /* 表走完：五枚一起弹回去，机关重新打过 */
+    function expire() {
+      var f = run.fails + 1;
+      run = makeRun(); run.fails = f;
+      note = '表走完了 —— 五枚环一起弹回去。机关重新打过：这一轮的五个机关，答案跟上一轮全不一样。';
+      H.sfx('wrong');
+      H.toast('连环锁弹回去了 · 从第一道重来');
+      live = live && !!q('#pz-chain-left');
+      if (live) panel();
+    }
+    function openNode() {
+      var n = run.nodes[run.idx];
+      if (!n || run.done) return;
+      run.started = true;
+      ({ tap: microTap, notch: microNotch, weigh: microWeigh, pair: microPair, seq: microSeq })[n.kind](n);
+      H.refresh();
+    }
+
+    /* —— 一、记数：环闪几下，就按几下 —— */
+    function microTap(n) {
+      var my = ++token, taps = 0, playing = true;
+      H.setBody('<p class="pz-tip">这枚环上刻着数。它闪几下，你就按几下 —— 数错就重来。</p>' + head() +
+        '<div class="ch-big" id="pz-tap">按</div>' +
+        '<div class="pz-progress" id="pz-prog">看着……</div>');
+      function flash() {
+        var b = q('#pz-tap'); if (!b) return;
+        b.classList.add('lit'); H.sfx('bell');
+        setTimeout(function () { var x = q('#pz-tap'); if (x) x.classList.remove('lit'); }, 170);
+      }
+      for (var i = 0; i < n.n; i++) (function (k) {
+        setTimeout(function () { if (my === token) flash(); }, 320 + 330 * k);
+      })(i);
+      setTimeout(function () {
+        if (my !== token) return;
+        playing = false;
+        var pr = q('#pz-prog'); if (pr) pr.textContent = '你来按。按完了报数。';
+      }, 320 + 330 * n.n + 220);
+      q('#pz-tap').onclick = function () {
+        if (playing) return;
+        taps++; H.sfx('click');
+        var pr = q('#pz-prog'); if (pr) pr.textContent = '你按了 ' + taps + ' 下';
+      };
+      H.setBtns([
+        { label: '再闪一遍', fn: function () { microTap(n); } },
+        { label: '报数', fn: function () {
+          var pr = q('#pz-prog');
+          if (playing) { if (pr) pr.textContent = '先让它闪完。'; return; }
+          if (taps === n.n) { after(n); return; }
+          H.sfx('wrong'); taps = 0;
+          if (pr) pr.textContent = '不对。再闪一遍，重数。';
+        } },
+        { label: '回到机关', fn: function () { panel(); } }
+      ]);
+    }
+
+    /* —— 二、对位：八格刻度，往右走 k 格停住 —— */
+    function microNotch(n) {
+      var cur = n.start;
+      function draw() {
+        var c = q('#pz-marks'); if (!c) return;
+        c.innerHTML = CHAIN_MARKS.map(function (m, i) {
+          return '<span class="ch-mark' + (i === cur ? ' now' : '') + '">' + m + '</span>';
+        }).join('');
+        var pr = q('#pz-prog');
+        if (pr) pr.textContent = '现在指在「' + CHAIN_MARKS[cur] + '」（第 ' + cur + ' 格）。铁牌上写着：往右走 ' + n.step + ' 格。';
+      }
+      H.setBody('<p class="pz-tip">八格刻度，一格一格地挪。走一格 = 挪到下一格。</p>' + head() +
+        '<div class="ch-marks" id="pz-marks"></div>' +
+        '<div class="pz-progress" id="pz-prog"></div>');
+      H.setBtns([
+        { label: '‹ 退一格', fn: function () { cur = (cur + 7) % 8; H.sfx('click'); draw(); } },
+        { label: '进一格 ›', fn: function () { cur = (cur + 1) % 8; H.sfx('click'); draw(); } },
+        { label: '报数', fn: function () {
+          if (cur === n.target) { after(n); return; }
+          H.sfx('wrong');
+          q('#pz-prog').textContent = '不是这一格。往右是往下面那头走。';
+        } },
+        { label: '回到机关', fn: function () { panel(); } }
+      ]);
+      draw();
+    }
+
+    /* —— 三、配重：四枚砝码各一次，压到刻的数 —— */
+    function microWeigh(n) {
+      var W = [1, 2, 4, 8], sel = [0, 0, 0, 0];
+      function sum() { return W.reduce(function (a, w, i) { return a + (sel[i] ? w : 0); }, 0); }
+      function draw() {
+        qa('#pz-ws .pz-opt').forEach(function (b, i) { b.classList.toggle('on', !!sel[i]); });
+        var s = q('#pz-sum'); if (s) s.textContent = sum();
+      }
+      H.setBody('<p class="pz-tip">盘上的配重要压到刻的数。四枚砝码，每枚最多上一次。</p>' + head() +
+        '<div class="pz-progress">要压：<b>' + n.target + '</b> 两　现在盘上：<b id="pz-sum">0</b> 两</div>' +
+        '<div class="pz-row" id="pz-ws">' + W.map(function (w, i) {
+          return '<button class="pz-opt" data-i="' + i + '">' + w + ' 两</button>';
+        }).join('') + '</div>');
+      qa('#pz-ws .pz-opt').forEach(function (b, i) {
+        b.onclick = function () { sel[i] = sel[i] ? 0 : 1; H.sfx('click'); draw(); };
+      });
+      H.setBtns([
+        { label: '报数', fn: function () {
+          if (sum() === n.target) { after(n); return; }
+          H.sfx('wrong');
+          q('#pz-prog').textContent = '不对——盘上是 ' + sum() + ' 两。';
+        } },
+        { label: '回到机关', fn: function () { panel(); } }
+      ]);
+      draw();
+    }
+
+    /* —— 四、对牌：三张牌配三句话 —— */
+    function microPair(n) {
+      var lefts = shuffle(n.pairs.map(function (pr, i) { return { i: i, t: pr[0] }; }));
+      var rights = shuffle(n.pairs.map(function (pr, i) { return { i: i, t: pr[1] }; }));
+      var sel = null, hit = {}, miss = 0;
+      function draw() {
+        var done = Object.keys(hit).length;
+        q('#pz-pair-l').innerHTML = lefts.map(function (x) {
+          return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + (sel === x.i ? ' sel' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
+        }).join('');
+        q('#pz-pair-r').innerHTML = rights.map(function (x) {
+          return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
+        }).join('');
+        qa('#pz-pair-l .pz-opt').forEach(function (b) {
+          b.onclick = function () { var i = +b.getAttribute('data-i'); if (hit[i]) return; sel = i; H.sfx('click'); draw(); };
+        });
+        qa('#pz-pair-r .pz-opt').forEach(function (b) {
+          b.onclick = function () {
+            var j = +b.getAttribute('data-i');
+            if (hit[j]) return;
+            if (sel === null) { q('#pz-prog').textContent = '先在左边点一张。'; return; }
+            if (j === sel) { hit[j] = 1; sel = null; H.sfx('open'); draw(); return; }
+            miss++; sel = null; H.sfx('wrong');
+            q('#pz-prog').textContent = '配不上（错了 ' + miss + ' 回）。';
+          };
+        });
+        var pr = q('#pz-prog');
+        if (pr) pr.textContent = '配上了 ' + done + '/' + n.pairs.length + ' 对' + (miss ? '（错了 ' + miss + ' 回）' : '');
+        if (done === n.pairs.length) after(n);
+      }
+      H.setBody('<p class="pz-tip">三张牌，三句话。左边点一张，再点右边配得上的那句。</p>' + head() +
+        '<div class="hp-wrap"><div class="hp-col" id="pz-pair-l"></div><div class="hp-col" id="pz-pair-r"></div></div>' +
+        '<div class="pz-progress" id="pz-prog"></div>');
+      H.setBtns([{ label: '回到机关', fn: function () { panel(); } }]);
+      draw();
+    }
+
+    /* —— 五、灯序：四盏灯按顺序亮一遍，照着点回去 —— */
+    function microSeq(n) {
+      var my = ++token, seqTok = 0, input = [], armed = false;
+      H.setBody('<p class="pz-tip">四盏灯按顺序亮一遍。照着顺序点回去。</p>' + head() +
+        '<div class="ch-lamps" id="pz-lamps">' + [1, 2, 3, 4].map(function (k, i) {
+          return '<button class="ch-lamp" data-i="' + i + '">' + k + '</button>';
+        }).join('') + '</div>' +
+        '<div class="ch-seq" id="pz-seqline"></div>' +
+        '<div class="pz-progress" id="pz-prog">看着……</div>');
+      function lamp(i) {
+        var b = qa('#pz-lamps .ch-lamp')[i]; if (!b) return;
+        b.classList.add('lit'); H.sfx('bell');
+        setTimeout(function () { if (b) b.classList.remove('lit'); }, 190);
+      }
+      function play() {
+        if (my !== token) return;
+        armed = false; input = []; var mine = ++seqTok;
+        var line = q('#pz-seqline'); if (line) line.textContent = '';
+        var pr = q('#pz-prog'); if (pr) pr.textContent = '看着……';
+        n.seq.forEach(function (k, idx) {
+          setTimeout(function () { if (my === token && mine === seqTok) lamp(k); }, 300 + 360 * idx);
+        });
+        setTimeout(function () {
+          if (my !== token || mine !== seqTok) return;
+          armed = true;
+          var p2 = q('#pz-prog'); if (p2) p2.textContent = '你来点（' + n.seq.length + ' 下）';
+        }, 300 + 360 * n.seq.length + 200);
+      }
+      qa('#pz-lamps .ch-lamp').forEach(function (b, i) {
+        b.onclick = function () {
+          if (!armed) return;
+          lamp(i); input.push(i);
+          var line = q('#pz-seqline'); if (line) line.textContent = input.join(' · ');
+          var k = input.length - 1;
+          if (input[k] !== n.seq[k]) {
+            armed = false; H.sfx('wrong');
+            q('#pz-prog').textContent = '第 ' + (k + 1) + ' 下就错了。再亮一遍。';
+            setTimeout(play, 700);
+            return;
+          }
+          if (input.length === n.seq.length) after(n);
+        };
+      });
+      H.setBtns([
+        { label: '再亮一遍', fn: play },
+        { label: '回到机关', fn: function () { panel(); } }
+      ]);
+      play();
+    }
+
+    function tick(dt) {
+      if (!run.started || run.done) return;
+      run.tLeft -= dt;
+      if (run.tLeft <= 0) { expire(); return; }
+      if (live) paint();
+    }
+    function enter() { note = run.done ? '闸已经开了 —— 名字在闸后面。' : note; panel(); }
+    function leave() { live = false; token++; }
+    return { makeRun: makeRun, enter: enter, leave: leave, tick: tick, peek: function () { return run; },
+      reset: function () { run = makeRun(); note = ''; }, LIMIT: CHAIN_LIMIT, MARKS: CHAIN_MARKS, PAIRS: CHAIN_PAIRS };
+  })();
+  function chainlink() { CHAIN.enter(); }
+
   var IMPL = {
     code: lampcode, dial: dial, read: read_book, logic: ledger, numbers: scales,
     grid: sluice, order: diary, filter: search, compose: name_, simon: song,
-    quiz: three_asks, choice: finale
+    quiz: three_asks, choice: finale,
+    lights: lights, count: abacus, toggles: switches, shift: cipher, pair: halves, chain: chainlink
   };
 
   function open(id) {
@@ -585,7 +1118,12 @@
 
   global.PUZZLES23 = {
     attach: attach, open: open, IMPL: IMPL,
+    /* 引擎每帧喂 dt：连环锁的表靠它走（关着面板也走 —— 机关不会等你） */
+    tick: function (dt) { CHAIN.tick(dt); },
+    /* 引擎关面板时通知谜题层：机关面板合上了，表照样走；旧的定时器一律作废 */
+    onModalClose: function () { CHAIN.leave(); },
     /* 给单测用：不经过 DOM 也能验的纯逻辑 */
-    _logic: { makeLedger: makeLedger, LEDGER_RULES: LEDGER_RULES, SHAPES: SHAPES, SLUICE: SLUICE, conns: conns, flood: flood, DIARY_ORDER: DIARY_ORDER, PIECES: PIECES, SEARCH: SEARCH }
+    _logic: { makeLedger: makeLedger, LEDGER_RULES: LEDGER_RULES, SHAPES: SHAPES, SLUICE: SLUICE, conns: conns, flood: flood, DIARY_ORDER: DIARY_ORDER, PIECES: PIECES, SEARCH: SEARCH,
+      LIGHTS: LIGHTS, makeBill: makeBill, makeGates: makeGates, makeCipher: makeCipher, CIPHER_TABLE: CIPHER_TABLE, shuffle: shuffle, CHAIN: CHAIN }
   };
 })(typeof window !== 'undefined' ? window : globalThis);
