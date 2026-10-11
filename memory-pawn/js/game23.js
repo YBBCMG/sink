@@ -1094,69 +1094,1100 @@
     softGlow(c, px, py - 2, 16, '226,232,240', 0.06);
   }
 
-  /* 出发位置：门楼 + 台阶 + 一盏灯笼，地上还有朝外的脚印 */
-  function drawPortal(c, p, col) {
-    var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
-    var side = (p.x <= 0) ? -1 : (p.x >= GRID_W - 1 ? 1 : 0);      /* 左右边缘 = 横着出门 */
-    var j, bx;
-    softGlow(c, px, py, 30, '255,208,132', 0.15);
-    if (!side) {
-      /* 正面门：门楣 + 两根柱，门洞里是黑的，三级台阶在门前 */
-      var cy = (p.y >= GRID_H - 1) ? py - 9 : py;                  /* 贴下沿就整体上提，别让台阶被裁掉 */
-      slab(c, px - 17, cy - 20, 34, 5, '#77828f');
-      slab(c, px - 15, cy - 15, 4, 30, '#5c6673');
-      slab(c, px + 11, cy - 15, 4, 30, '#5c6673');
-      var og = c.createLinearGradient(0, cy - 15, 0, cy + 11);
-      og.addColorStop(0, 'rgba(6,9,14,.30)'); og.addColorStop(0.75, 'rgba(8,11,17,.78)'); og.addColorStop(1, 'rgba(255,196,110,.22)');
-      c.fillStyle = og; c.fillRect(px - 11, cy - 15, 22, 26);
-      c.strokeStyle = 'rgba(255,208,132,.30)'; c.lineWidth = 1.4;
-      c.strokeRect(px - 10, cy - 14, 20, 24);
-      c.fillStyle = '#2b3546'; c.fillRect(px + 12.6, cy - 14, 1.6, 5);
-      softGlow(c, px + 13.4, cy - 7, 16, '255,196,110', 0.38);
-      c.fillStyle = '#c9542f'; c.beginPath(); c.ellipse(px + 13.4, cy - 7, 4, 5.2, 0, 0, Math.PI * 2); c.fill();
-      c.fillStyle = '#f0c46a'; c.fillRect(px + 11, cy - 2.6, 4.8, 1.6);
-      for (j = 0; j < 3; j++) {
-        var sw = 26 + j * 6;
-        slab(c, px - sw / 2, cy + 11 + j * 4.6, sw, 4.6, j % 2 ? '#6a7684' : '#7d8a99', 'rgba(0,0,0,.42)');
-      }
-      c.fillStyle = 'rgba(255,214,140,.26)';
-      for (j = 0; j < 2; j++) { c.beginPath(); c.ellipse(px - 3 + j * 6, cy + 25 + j * 1.2, 2, 3, 0, 0, Math.PI * 2); c.fill(); }
-      softGlow(c, px, cy + 8, 30, '255,206,132', 0.22);          /* 门口那片暖光池 */
-    } else {
-      /* 侧门：门洞朝地图外，台阶横着往外三级 */
-      var s3 = side;
-      slab(c, px - 10, py - 17, 20, 4.4, '#77828f');
-      slab(c, px - 10, py + 12.6, 20, 4.4, '#5c6673');
-      var og2 = c.createLinearGradient(px, 0, px + s3 * 15, 0);
-      og2.addColorStop(0, 'rgba(6,9,14,.32)'); og2.addColorStop(1, 'rgba(6,9,14,.82)');
-      c.fillStyle = og2; c.fillRect(px - 9, py - 13, 18, 26);
-      c.strokeStyle = 'rgba(255,208,132,.28)'; c.lineWidth = 1.4;
-      c.strokeRect(px - 8, py - 12, 16, 24);
-      for (j = 0; j < 3; j++) {
-        var hj = 22 + j * 4, xj = px + s3 * (1.5 + j * 5.4) - (s3 > 0 ? 0 : 5.4);
-        slab(c, xj, py - hj / 2, 5.4, hj, j % 2 ? '#6a7684' : '#7d8a99', 'rgba(0,0,0,.42)');
-      }
-      c.fillStyle = 'rgba(255,214,140,.26)';
-      for (j = 0; j < 3; j++) {
-        bx = px + s3 * (16 + j * 6);
-        c.beginPath(); c.ellipse(bx, py - 3 + (j % 2) * 6, 3, 1.9, 0, 0, Math.PI * 2); c.fill();
-      }
-      softGlow(c, px, py - 15, 20, '255,196,110', 0.34);
-      c.fillStyle = '#d9683c'; c.beginPath(); c.ellipse(px, py - 15, 4, 5, 0, 0, Math.PI * 2); c.fill();
-      c.fillStyle = '#f5cf7a'; c.fillRect(px - 2.6, py - 10.4, 5.2, 1.8);
+  /* ================= 交互点"建模"：一处一个样子 =================
+     以前只有谜题有家伙什，其余交互点共用 drawTrace（地上一团白印）；
+     门楼也全长一个样、只占一格。现在：
+       · 门屋长成"占 4~9 格"的房子（门上是房子就 3 格宽 × 3 格高）；
+       · 每个交互点有自己的模型，同一场景里绝不重样。 */
+
+  /* 门往上两格都是房子 → 长成 9 格（3×3）；否则 6 格（3×2） */
+  function houseAbove(sc, x, y) {
+    if (x < 0 || x >= sc.w || y - 1 < 0) return false;
+    if (!D.isSolidIn(sc.id, x, y - 1)) return false;
+    return (y - 2 >= 0) && D.isSolidIn(sc.id, x, y - 2);
+  }
+  function otherAt(sc, x, y, self) {
+    var hit = null;
+    sc.places.forEach(function (q) { if (q !== self && q.x === x && q.y === y) hit = q; });
+    sc.portals.forEach(function (q) { if (q !== self && q.x === x && q.y === y) hit = q; });
+    return hit;
+  }
+  /* 门屋的"占地"：给自检 / 测试用的口径，也是 bake 决定画不画的唯一出处
+     正面门 3 格宽 ×（门上是房子就 3 行 = 9 格，否则 2 行 = 6 格）；
+     地图沿上的边门 1~2 格宽 × 3 行（进深被邻居占了就只占沿上那一列）；
+     地图沿上"隔壁就有一扇正经门"的出口直接不画（kind:'skip'）——否则一堵塞全是门。 */
+  function gatePlan(sid, po) {
+    var sc = D.SCENES[sid];
+    if (!sc) return null;
+    var twin = po.to ? sc.places.some(function (q) {
+      return q !== po && q.to && Math.abs(q.x - po.x) + Math.abs(q.y - po.y) <= 1;
+    }) : false;
+    if (twin) return { kind: 'skip', w: 0, h: 0, cells: 0 };
+    if (po.x <= 0 || po.x >= sc.w - 1) {
+      var inward = po.x <= 0 ? 1 : -1;
+      var blocked = otherAt(sc, po.x + inward, po.y, po) ? true : false;
+      return { kind: 'side', w: blocked ? 1 : 2, h: 3, cells: (blocked ? 1 : 2) * 3 };
+    }
+    var rows = houseAbove(sc, po.x, po.y) ? 3 : 2;
+    return { kind: 'front', w: 3, h: rows, cells: 3 * rows };
+  }
+  /* 一个交互点最后用的是哪套模型（测试据此断言"同场景里两两不重样"） */
+  function artOf(p) {
+    if (p.npc) return 'figure:' + (p.npc || p.id);
+    if (PLACE_ART[p.id] && ART_FN[PLACE_ART[p.id]]) return 'art:' + PLACE_ART[p.id];
+    if (p.kind === 'portal') return 'gate:' + (GATE_STYLE[p.id] || 'plain');
+    if (p.kind === 'puzzle') return 'prop:' + (PROP_OF[p.puz] || 'spark');
+    if (p.kind === 'item') return 'chest';
+    if (p.kind === 'buy') return 'goods';
+    if (p.kind === 'jobs') return 'board';
+    if (p.kind === 'work') return 'site:' + p.id;
+    return 'trace';
+  }
+  /* 匾额：一块黑漆板 + 金边 + 三道笔画（不写真字，远处看就是三个字） */
+  function plaque(c, cx, cy, w, h) {
+    c.fillStyle = '#20180f'; c.fillRect(cx - w / 2, cy - h / 2, w, h);
+    c.strokeStyle = 'rgba(201,162,39,.85)'; c.lineWidth = 1.2;
+    c.strokeRect(cx - w / 2 + 0.6, cy - h / 2 + 0.6, w - 1.2, h - 1.2);
+    c.fillStyle = 'rgba(240,208,124,.9)';
+    c.fillRect(cx - w / 2 + 5, cy - 2.6, w / 3 - 5, 1.6);
+    c.fillRect(cx - w / 6 + 1, cy - 4, w / 3 - 4, 1.6);
+    c.fillRect(cx + w / 6 - 1, cy - 0.6, w / 3 - 5, 1.6);
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(cx - w / 2 + 1, cy - h / 2 + 1, w - 2, 1.4);
+  }
+  /* 灯笼：挂在一根横挑的木杆下，红纸 + 暖光 */
+  function lantern(c, x, y, big) {
+    var w = big ? 11 : 8.4, h = big ? 14 : 10.6;
+    softGlow(c, x, y + 1, big ? 30 : 22, '255,196,110', 0.34);
+    c.fillStyle = '#2b3546'; c.fillRect(x - 0.9, y - h / 2 - 7, 1.8, 7);
+    c.fillStyle = '#3a3126'; c.fillRect(x - w / 2 - 1.6, y - h / 2 - 1.6, w + 3.2, 2.4);
+    var lg = c.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
+    lg.addColorStop(0, '#8f2f1c'); lg.addColorStop(0.42, '#d9603a'); lg.addColorStop(1, '#a83b22');
+    c.fillStyle = lg;
+    c.beginPath(); c.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(60,20,12,.55)'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(x - w / 2 + 0.8, y); c.lineTo(x + w / 2 - 0.8, y); c.stroke();
+    c.fillStyle = '#3a3126'; c.fillRect(x - w / 2 - 1.6, y + h / 2 - 0.8, w + 3.2, 2.4);
+    c.fillStyle = '#f5cf7a'; c.fillRect(x - w / 2 + 1.4, y - h / 2 + 2.4, w - 2.8, 1.4);
+    c.fillStyle = '#c9542f'; c.fillRect(x - 1.1, y + h / 2 + 1.6, 2.2, 4.2);
+  }
+  /* 石阶：几级往外铺开 */
+  function steps(c, cx, y, n, baseW, grow) {
+    for (var i = 0; i < n; i++) {
+      var sw = baseW + i * grow;
+      slab(c, cx - sw / 2, y + i * 4.8, sw, 4.8, i % 2 ? '#66717f' : '#7b8896', 'rgba(0,0,0,.42)');
     }
   }
+
+  /* 正面门屋：3 格宽 ×（2 或 3）格高；门口朝下，台阶铺在门前 */
+  function drawGateFront(c, p) {
+    var sc = scene();
+    var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
+    var rows = houseAbove(sc, p.x, p.y) ? 3 : 2;
+    var half = CELL * 1.5, x0 = px - half, w = half * 2;
+    var sill = py + CELL * 0.40;
+    var top = sill - rows * CELL;
+    var doorW = Math.min(50, w - 34), doorH = Math.min(rows * CELL - 30, 90);
+    var j, bx, by;
+    /* 落影 */
+    for (j = 3; j >= 1; j--) {
+      c.fillStyle = 'rgba(0,0,0,' + (0.08 + j * 0.045).toFixed(2) + ')';
+      c.fillRect(x0 + j * 1.8, sill + j * 1.9, w, 4 + j * 1.6);
+    }
+    /* 墙身：错缝砖 */
+    var wallTone = mix(sc.palette.solid, '#7c6c50', 0.40);
+    var wg = c.createLinearGradient(0, top, 0, sill);
+    wg.addColorStop(0, shade(wallTone, 0.18));
+    wg.addColorStop(0.6, shade(wallTone, -0.02));
+    wg.addColorStop(1, shade(wallTone, -0.34));
+    c.fillStyle = wg; c.fillRect(x0, top, w, sill - top);
+    c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 1;
+    var bn = 0;
+    for (by = top + 10; by < sill - 3; by += 10, bn++) {
+      c.beginPath(); c.moveTo(x0 + 1, by + 0.5); c.lineTo(x0 + w - 1, by + 0.5); c.stroke();
+      for (bx = x0 + (bn % 2 ? 14 : 5); bx < x0 + w - 2; bx += 19) {
+        c.beginPath(); c.moveTo(bx + 0.5, by - 9.5); c.lineTo(bx + 0.5, by); c.stroke();
+      }
+    }
+    c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(x0, top, w, 1.6);
+    /* 檐下暗带 + 屋顶（瓦楞 + 屋脊 + 受光檐口） */
+    c.fillStyle = 'rgba(0,0,0,.42)'; c.fillRect(x0, top, w, 6);
+    var roofH = 17, rx = x0 - 8, rw = w + 16, ry = top - roofH;
+    var roofTone = mix(sc.palette.solid, '#6b7784', 0.55);
+    var rg = c.createLinearGradient(0, ry, 0, top);
+    rg.addColorStop(0, shade(roofTone, 0.30)); rg.addColorStop(0.56, shade(roofTone, 0.08)); rg.addColorStop(1, shade(roofTone, -0.28));
+    c.fillStyle = rg; c.fillRect(rx, ry, rw, roofH);
+    c.strokeStyle = 'rgba(0,0,0,.28)'; c.lineWidth = 1;
+    for (j = rx + 8; j < rx + rw - 1; j += 8) { c.beginPath(); c.moveTo(j + 0.5, ry + 1); c.lineTo(j + 0.5, ry + roofH - 1); c.stroke(); }
+    c.fillStyle = shade(roofTone, 0.55); c.fillRect(rx, ry + roofH * 0.42, rw, 2.6);
+    c.fillStyle = 'rgba(255,255,255,.18)'; c.fillRect(rx, ry, rw, 2);
+    c.strokeStyle = 'rgba(0,0,0,.5)'; c.strokeRect(rx + 0.5, ry + 0.5, rw - 1, roofH - 1);
+    /* 门洞：门楣石 + 两根门柱 + 里头是黑的、底下透出暖光 */
+    var dx0 = px - doorW / 2, dy0 = sill - doorH;
+    slab(c, dx0 - 7, dy0 - 9, doorW + 14, 10, '#6f7a88');
+    slab(c, dx0 - 7, dy0, 7, doorH, '#5d6773');
+    slab(c, dx0 + doorW, dy0, 7, doorH, '#5d6773');
+    var og = c.createLinearGradient(0, dy0, 0, sill);
+    og.addColorStop(0, 'rgba(4,6,10,.94)');
+    og.addColorStop(0.68, 'rgba(9,12,18,.74)');
+    og.addColorStop(1, 'rgba(255,196,110,.30)');
+    c.fillStyle = og; c.fillRect(dx0, dy0, doorW, doorH);
+    c.strokeStyle = 'rgba(255,208,132,.28)'; c.lineWidth = 1.4;
+    c.strokeRect(dx0 + 0.7, dy0 + 0.7, doorW - 1.4, doorH - 1.4);
+    /* 门里两扇木门（半掩）：门缝里透一线光 */
+    c.fillStyle = '#3d2f1e';
+    c.fillRect(dx0 + 1.4, dy0 + 2, doorW / 2 - 3.4, doorH - 3);
+    c.fillRect(dx0 + doorW / 2 + 2, dy0 + 2, doorW / 2 - 3.4, doorH - 3);
+    c.fillStyle = 'rgba(255,214,140,.42)'; c.fillRect(px - 1.1, dy0 + 2, 2.2, doorH - 3);
+    /* 匾额压在门楣上 */
+    plaque(c, px, dy0 - 17, Math.min(62, doorW + 8), 13);
+    /* 两盏灯笼挂在门柱外侧 */
+    lantern(c, dx0 - 16, dy0 + 12, true);
+    lantern(c, dx0 + doorW + 16, dy0 + 12, true);
+    /* 门口那级门槛 + 石阶 */
+    slab(c, px - doorW / 2 - 2, sill, doorW + 4, 5, '#8b98a6', 'rgba(0,0,0,.45)');
+    steps(c, px, sill + 5, 3, doorW + 6, 7);
+    softGlow(c, px, sill - 4, 34, '255,206,132', 0.22);
+    /* 两侧石墩：把 3 格宽在门口这一行补齐，别让墙凭空断掉 */
+    for (j = -1; j <= 1; j += 2) {
+      slab(c, px + j * (half - 20) - 9, sill - 12, 18, 17, '#5b6570', 'rgba(0,0,0,.42)');
+      c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px + j * (half - 20) - 9, sill - 12, 18, 2);
+    }
+    gateExtras(c, p, px, sill, half);
+  }
+
+  /* 同一座门屋在不同地方也得看出是谁家：当铺挂幌子、史馆立石狮、盐埕口堆盐包 */
+  var GATE_STYLE = { pawn_door: 'shop', arch_door: 'hall', saltgate: 'pier' };
+  function gateExtras(c, p, px, sill, half) {
+    var st = GATE_STYLE[p.id], i, j;
+    if (st === 'shop') {
+      /* 记当铺：檐下挂一面幌子（布幡），门口摆一条长凳——门口有人等过 */
+      var bx = px + half - 20, by = sill - 92;
+      c.strokeStyle = '#4a3a24'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(bx + 5, by); c.lineTo(bx + 5, by + 8); c.stroke();
+      c.fillStyle = '#2f3a4e'; c.fillRect(bx - 5, by + 8, 20, 34);
+      c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(bx - 5, by + 8, 20, 2);
+      c.fillStyle = 'rgba(201,162,39,.85)'; c.fillRect(bx - 5, by + 15, 20, 3);
+      c.fillRect(bx - 5, by + 30, 20, 3);
+      c.fillStyle = 'rgba(226,214,186,.75)';
+      c.fillRect(bx - 1, by + 21, 12, 1.4); c.fillRect(bx + 2, by + 25.4, 6, 1.4);
+      c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1; c.strokeRect(bx - 5, by + 8, 20, 34);
+      plank(c, px - half + 6, sill + 8, 30, 5);
+      c.fillStyle = '#4a3a24'; c.fillRect(px - half + 9, sill + 13, 3, 8); c.fillRect(px - half + 30, sill + 13, 3, 8);
+    } else if (st === 'hall') {
+      /* 岛史馆：门口立一对石狮，门上加铜环，匾换成没上漆的石匾 */
+      for (i = -1; i <= 1; i += 2) {
+        var lx = px + i * (half - 13);
+        slab(c, lx - 7, sill - 20, 14, 26, '#666c74');
+        c.fillStyle = '#8b9099';
+        c.beginPath(); c.ellipse(lx, sill - 25, 6.4, 5.4, 0, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.arc(lx, sill - 31, 4.2, 0, Math.PI * 2); c.fill();
+        for (j = 0; j < 5; j++) {
+          var an = Math.PI + j * (Math.PI / 4);
+          c.beginPath(); c.arc(lx + Math.cos(an) * 4.4, sill - 31 + Math.sin(an) * 4.4, 1.5, 0, Math.PI * 2); c.fill();
+        }
+        c.fillStyle = 'rgba(40,44,52,.85)';
+        c.beginPath(); c.arc(lx - 1.6, sill - 32, 0.7, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.arc(lx + 1.6, sill - 32, 0.7, 0, Math.PI * 2); c.fill();
+      }
+      c.fillStyle = '#6d7784'; c.fillRect(px - 31, sill - 106, 62, 14);
+      c.strokeStyle = 'rgba(240,240,232,.35)'; c.lineWidth = 1;
+      for (i = 0; i < 3; i++) { c.strokeRect(px - 24 + i * 17, sill - 103, 11, 8); }
+      for (i = -1; i <= 1; i += 2) {
+        c.strokeStyle = 'rgba(201,162,39,.9)'; c.lineWidth = 1.6;
+        c.beginPath(); c.arc(px + i * 14, sill - 46, 3.4, 0, Math.PI * 2); c.stroke();
+      }
+    } else if (st === 'pier') {
+      /* 盐埕口：门口堆两只盐包，边上再插一段木栅栏 */
+      for (i = 0; i < 2; i++) {
+        var sx = px - half + 10 + i * 21;
+        c.fillStyle = i ? '#d8dee2' : '#c3ccd2';
+        c.beginPath(); c.ellipse(sx, sill - 7, 10, 9, 0, 0, Math.PI * 2); c.fill();
+        c.fillStyle = 'rgba(255,255,255,.6)';
+        c.beginPath(); c.ellipse(sx - 2.4, sill - 9, 5, 3.4, -0.3, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = 'rgba(120,132,142,.75)'; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(sx - 9, sill - 2); c.lineTo(sx + 9, sill - 3); c.stroke();
+      }
+      for (i = 0; i < 3; i++) { c.fillStyle = '#6b5327'; c.fillRect(px + half - 30 + i * 10, sill - 21, 3, 25); }
+      c.fillStyle = '#8a733f'; c.fillRect(px + half - 32, sill - 17, 30, 3);
+      c.fillRect(px + half - 32, sill - 7, 30, 3);
+    }
+  }
+
+  /* 边门：贴左右地图沿的门屋 —— 1 格宽（地图沿那一列）× 3 格高，门朝地图里开。
+     第一版把"朝里"和"贴沿"两边写反了，门洞 / 灯笼 / 台阶全画到画布外面去，
+     所以地图沿上的门看着像一段光秃秃的墙。这里以 inward = -dir 为准重写。 */
+  function drawGateSide(c, p, dir) {
+    var sc = scene();
+    var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
+    var inward = -dir;                              /* 地图里面是哪一边 */
+    var faceX = px + inward * (CELL * 0.5);         /* 墙朝地图里的那张脸 */
+    var backX = px - inward * (CELL * 0.5);         /* 贴地图沿的那条边 */
+    var x1 = Math.min(faceX, backX), w1 = CELL;
+    var top = py - CELL * 1.5, bot = py + CELL * 1.5;
+    var blocked = otherAt(sc, p.x + inward, p.y, p) ? true : false;
+    var dz = blocked ? CELL * 0.42 : CELL * 0.60;   /* 门洞只开在靠里的那半边 */
+    var doorH = 44, dy0 = py - doorH / 2;
+    var dx0 = inward > 0 ? faceX - dz : faceX;
+    var j, by, bx, bn;
+    /* 落影 */
+    for (j = 3; j >= 1; j--) {
+      c.fillStyle = 'rgba(0,0,0,' + (0.07 + j * 0.04).toFixed(2) + ')';
+      c.fillRect(x1 + j * inward * 1.6, bot - 4 + j * 1.8, w1, 4 + j * 1.6);
+    }
+    /* 墙身：错缝砖 */
+    var wallTone = mix(sc.palette.solid, '#7c6c50', 0.40);
+    var wg = c.createLinearGradient(0, top, 0, bot);
+    wg.addColorStop(0, shade(wallTone, 0.18));
+    wg.addColorStop(0.62, shade(wallTone, -0.02));
+    wg.addColorStop(1, shade(wallTone, -0.32));
+    c.fillStyle = wg; c.fillRect(x1, top, w1, bot - top);
+    c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 1;
+    bn = 0;
+    for (by = top + 10; by < bot - 2; by += 10, bn++) {
+      c.beginPath(); c.moveTo(x1 + 1, by + 0.5); c.lineTo(x1 + w1 - 1, by + 0.5); c.stroke();
+      for (bx = x1 + (bn % 2 ? 12 : 4); bx < x1 + w1 - 2; bx += 17) {
+        c.beginPath(); c.moveTo(bx + 0.5, by - 9.5); c.lineTo(bx + 0.5, by); c.stroke();
+      }
+    }
+    c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(x1, top, w1, 1.6);
+    /* 瓦檐：从墙顶朝地图里挑出来一截，才像门屋，不像一段光墙 */
+    var roofTone = mix(sc.palette.solid, '#6b7784', 0.55);
+    var rx = inward > 0 ? x1 : x1 - 15, rw = w1 + 15;
+    var rg = c.createLinearGradient(0, top - 12, 0, top);
+    rg.addColorStop(0, shade(roofTone, 0.30)); rg.addColorStop(1, shade(roofTone, -0.26));
+    c.fillStyle = rg; c.fillRect(rx, top - 12, rw, 12);
+    c.strokeStyle = 'rgba(0,0,0,.30)'; c.lineWidth = 1;
+    for (j = rx + 7; j < rx + rw - 1; j += 7) {
+      c.beginPath(); c.moveTo(j + 0.5, top - 11); c.lineTo(j + 0.5, top - 1); c.stroke();
+    }
+    c.fillStyle = 'rgba(255,255,255,.18)'; c.fillRect(rx, top - 12, rw, 2);
+    c.fillStyle = 'rgba(0,0,0,.40)'; c.fillRect(rx, top - 1.5, rw, 2.5);
+    c.strokeStyle = 'rgba(0,0,0,.5)'; c.strokeRect(rx + 0.5, top - 11.5, rw - 1, 11);
+    /* 门洞：石框 + 里头是黑的、底下透出屋里的暖光 */
+    var og = c.createLinearGradient(dx0, 0, dx0 + dz, 0);
+    og.addColorStop(0, inward > 0 ? 'rgba(255,196,110,.30)' : 'rgba(4,6,10,.94)');
+    og.addColorStop(1, inward > 0 ? 'rgba(4,6,10,.94)' : 'rgba(255,196,110,.30)');
+    c.fillStyle = og; c.fillRect(dx0, dy0, dz, doorH);
+    c.strokeStyle = 'rgba(255,208,132,.26)'; c.lineWidth = 1.3;
+    c.strokeRect(dx0 + 0.7, dy0 + 0.7, dz - 1.4, doorH - 1.4);
+    slab(c, inward > 0 ? dx0 - 6 : dx0, dy0 - 8, dz + 6, 8, '#6f7a88');       /* 门楣石 */
+    /* 门槛 + 台阶：横着朝地图里铺，一级比一级矮 */
+    slab(c, inward > 0 ? faceX - 3 : faceX - 15, py + 8, 18, 5, '#8b98a6', 'rgba(0,0,0,.45)');
+    for (j = 0; j < 3; j++) {
+      var sw2 = 18 - j * 4.4;
+      slab(c, inward > 0 ? faceX - 3 + j * 1.6 : faceX + 3 - sw2 - j * 1.6, py + 13 + j * 4.6, sw2, 4.6,
+        j % 2 ? '#66717f' : '#7b8896', 'rgba(0,0,0,.42)');
+    }
+    /* 灯笼挂在门洞上沿、地图里那一侧 */
+    lantern(c, faceX + inward * 17, dy0 - 6, false);
+    softGlow(c, faceX + inward * 12, py + 10, 28, '255,206,132', 0.22);
+    /* 门口那片暖光池 + 朝外的一串脚印 */
+    c.fillStyle = 'rgba(255,214,140,.24)';
+    for (j = 0; j < 3; j++) {
+      c.beginPath();
+      c.ellipse(faceX + inward * (20 + j * 9), py + 16 + (j % 2) * 6, 3, 1.9, 0, 0, Math.PI * 2);
+      c.fill();
+    }
+  }
+
+  function drawGate(c, p) {
+    if (p.x <= 0) drawGateSide(c, p, -1);
+    else if (p.x >= GRID_W - 1) drawGateSide(c, p, 1);
+    else drawGateFront(c, p);
+  }
+
+  /* ---------------- 每个交互点一个模型 ---------------- */
+
+  /* 礁石上的刻痕（望归灯） */
+  function artRockCarve(c, px, py) {
+    shadowUnder(c, px, py + 15, 18, 6);
+    c.fillStyle = '#39414a';
+    c.beginPath();
+    c.moveTo(px - 19, py + 14); c.lineTo(px - 21, py - 3); c.lineTo(px - 11, py - 14);
+    c.lineTo(px + 4, py - 17); c.lineTo(px + 16, py - 9); c.lineTo(px + 19, py + 4);
+    c.lineTo(px + 13, py + 14); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.09)';
+    c.beginPath(); c.moveTo(px - 19, py + 14); c.lineTo(px - 21, py - 3); c.lineTo(px - 11, py - 14);
+    c.lineTo(px - 3, py - 16); c.lineTo(px - 6, py + 12); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(28,24,20,.55)';
+    c.beginPath(); c.moveTo(px + 13, py + 14); c.lineTo(px + 16, py - 9); c.lineTo(px + 19, py + 4); c.closePath(); c.fill();
+    /* 潮线：一条白边 */
+    c.strokeStyle = 'rgba(214,228,238,.35)'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(px - 17, py + 7); c.lineTo(px + 15, py + 9); c.stroke();
+    /* 刻痕：一道深、两道浅，像用铁钉刻的 */
+    c.strokeStyle = 'rgba(232,238,244,.62)'; c.lineWidth = 1.1;
+    for (var i = 0; i < 3; i++) {
+      c.beginPath();
+      c.moveTo(px - 12 + i * 11, py - 10);
+      c.lineTo(px - 10 + i * 11, py - 1);
+      c.lineTo(px - 13 + i * 11, py + 6);
+      c.stroke();
+    }
+    c.strokeStyle = 'rgba(232,238,244,.34)';
+    c.beginPath(); c.moveTo(px - 15, py - 12); c.lineTo(px + 12, py - 11); c.stroke();
+    softGlow(c, px, py - 2, 20, '210,226,240', 0.10);
+  }
+
+  /* 母亲的第二本抄本：两本合着的旧书叠着，夹一根烧黑的火柴 */
+  function artStackBooks(c, px, py) {
+    shadowUnder(c, px, py + 13, 15, 5);
+    plank(c, px - 14, py + 1, 28, 10);
+    c.fillStyle = '#4a3a24'; c.fillRect(px - 12, py + 2, 24, 8);
+    c.fillStyle = 'rgba(239,230,208,.75)'; c.fillRect(px - 11, py + 6, 22, 3);
+    plank(c, px - 12, py - 8, 24, 9);
+    c.fillStyle = '#3c2f1c'; c.fillRect(px - 10, py - 7, 20, 7);
+    c.fillStyle = 'rgba(239,230,208,.6)'; c.fillRect(px - 10, py - 4, 20, 2.6);
+    c.fillStyle = 'rgba(201,162,39,.75)'; c.fillRect(px - 9, py - 6.4, 18, 1);
+    /* 书面压痕：上一页隔着纸印过来的一个"记"字，画三道短横示意 */
+    c.fillStyle = 'rgba(120,100,60,.55)';
+    c.fillRect(px - 5, py - 2.4, 10, 1); c.fillRect(px - 3, py - 0.6, 6, 1);
+    /* 烧黑一半的火柴梗 */
+    c.strokeStyle = '#2a2118'; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(px + 12, py - 9); c.lineTo(px + 19, py - 3); c.stroke();
+    c.strokeStyle = '#8a6b2f'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(px + 18, py - 4); c.lineTo(px + 21, py - 1.6); c.stroke();
+    softGlow(c, px, py - 2, 20, '255,206,132', 0.10);
+  }
+
+  /* 母亲的针线盒：开了盖的铁皮盒 + 线轴 + 两枚纽扣 + 弯针 */
+  function artSewBox(c, px, py) {
+    shadowUnder(c, px, py + 14, 14, 5);
+    slab(c, px - 15, py - 4, 30, 18, '#6d6a5e');
+    c.fillStyle = 'rgba(0,0,0,.40)'; c.fillRect(px - 13, py - 2, 26, 14);
+    c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(px - 15, py - 4, 30, 2);
+    /* 掀开的盒盖斜靠在后头 */
+    c.save(); c.translate(px - 9, py - 10); c.rotate(-0.34);
+    slab(c, -12, -5, 24, 7, '#7d7a6c');
+    c.restore();
+    /* 线轴 */
+    slab(c, px + 5, py - 3, 9, 11, '#d9d2bd');
+    c.fillStyle = 'rgba(120,110,90,.35)';
+    for (var i = 0; i < 3; i++) { c.fillRect(px + 5, py + i * 3.2, 9, 1); }
+    /* 两枚纽扣：一白一棕，四孔 */
+    var btns = [[-9, 1, '#e8e2d2'], [-3, 5, '#5a4630']];
+    btns.forEach(function (b) {
+      c.fillStyle = b[2]; c.beginPath(); c.arc(px + b[0], py + b[1], 3.6, 0, Math.PI * 2); c.fill();
+      c.fillStyle = 'rgba(40,32,20,.7)';
+      c.fillRect(px + b[0] - 1.8, py + b[1] - 1.6, 1, 1); c.fillRect(px + b[0] + 0.8, py + b[1] - 1.6, 1, 1);
+      c.fillRect(px + b[0] - 1.8, py + b[1] + 0.6, 1, 1); c.fillRect(px + b[0] + 0.8, py + b[1] + 0.6, 1, 1);
+    });
+    /* 弯了的针 */
+    c.strokeStyle = '#cfd6de'; c.lineWidth = 0.9;
+    c.beginPath(); c.moveTo(px - 13, py - 1); c.quadraticCurveTo(px - 8, py - 5, px - 4, py - 7.5); c.stroke();
+    softGlow(c, px, py, 18, '255,206,132', 0.08);
+  }
+
+  /* 灯台下的灰烬：一堆灰 + 翘出来的一角硬纸 */
+  function artAshPile(c, px, py) {
+    shadowUnder(c, px, py + 13, 16, 5);
+    var g = c.createRadialGradient(px, py + 4, 2, px, py + 4, 20);
+    g.addColorStop(0, 'rgba(96,92,86,.95)'); g.addColorStop(1, 'rgba(70,68,64,.35)');
+    c.fillStyle = g;
+    c.beginPath(); c.ellipse(px, py + 6, 17, 8.5, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(122,118,110,.85)';
+    c.beginPath(); c.ellipse(px - 3, py + 2, 11, 6, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(48,46,44,.8)';
+    c.beginPath(); c.ellipse(px + 4, py + 8, 9, 4, 0, 0, Math.PI * 2); c.fill();
+    /* 灰里露出的一角硬纸 */
+    c.fillStyle = 'rgba(226,214,186,.9)';
+    c.beginPath(); c.moveTo(px + 1, py - 1); c.lineTo(px + 11, py - 6); c.lineTo(px + 13, py + 1); c.lineTo(px + 4, py + 2); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(60,48,30,.5)'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(px + 4, py - 0.6); c.lineTo(px + 11, py - 3.4); c.stroke();
+    /* 没灭透的一点红 */
+    c.fillStyle = 'rgba(214,96,48,.55)';
+    c.beginPath(); c.arc(px - 7, py + 5, 1.6, 0, Math.PI * 2); c.fill();
+    softGlow(c, px, py + 2, 16, '198,120,66', 0.10);
+  }
+
+  /* 灯油桶与灯罩：木桶 + 漏斗 + 立在布上的玻璃灯罩 */
+  function artOilRig(c, px, py) {
+    shadowUnder(c, px, py + 15, 17, 6);
+    /* 油桶 */
+    c.fillStyle = '#5c4a2c'; c.fillRect(px - 17, py - 8, 18, 22);
+    c.fillStyle = 'rgba(0,0,0,.30)'; c.fillRect(px - 17, py - 2, 18, 2.4); c.fillRect(px - 17, py + 5, 18, 2.4);
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px - 17, py - 8, 18, 2);
+    c.fillStyle = '#4a3a22';
+    c.beginPath(); c.ellipse(px - 8, py - 8, 9, 3.4, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(226,178,92,.55)';
+    c.beginPath(); c.ellipse(px - 8, py - 8, 6.4, 2.2, 0, 0, Math.PI * 2); c.fill();
+    /* 桶嘴上的漏斗 */
+    c.fillStyle = '#8b98a6';
+    c.beginPath(); c.moveTo(px - 13, py - 17); c.lineTo(px - 3, py - 17); c.lineTo(px - 6.6, py - 10); c.lineTo(px - 9.4, py - 10); c.closePath(); c.fill();
+    /* 灯罩立在麻布上 */
+    c.fillStyle = 'rgba(198,188,164,.55)';
+    c.beginPath(); c.ellipse(px + 12, py + 11, 10, 4, 0, 0, Math.PI * 2); c.fill();
+    softGlow(c, px + 12, py - 6, 22, '255,206,132', 0.26);
+    var lg = c.createLinearGradient(px + 12, py - 15, px + 12, py + 1);
+    lg.addColorStop(0, 'rgba(255,243,207,.92)'); lg.addColorStop(1, 'rgba(226,166,60,.72)');
+    c.fillStyle = lg;
+    c.beginPath();
+    c.moveTo(px + 6.6, py + 1); c.lineTo(px + 8, py - 14); c.lineTo(px + 16, py - 14); c.lineTo(px + 17.4, py + 1);
+    c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px + 9.6, py - 13); c.lineTo(px + 8.6, py); c.stroke();
+    slab(c, px + 6, py - 16.4, 12, 2.8, '#3c4655');
+    slab(c, px + 7, py + 1, 10, 2.4, '#3c4655');
+  }
+
+  /* 望海台：木栏杆 + 挂着的风灯 + 一盘缆绳，栏杆外就是黑海 */
+  function artLookout(c, px, py) {
+    c.fillStyle = 'rgba(0,0,0,.30)';
+    c.fillRect(px - 22, py + 10, 44, 3);
+    /* 两根立柱 + 两道横杆 */
+    var i;
+    for (i = -1; i <= 1; i += 2) {
+      slab(c, px + i * 18 - 2.4, py - 20, 4.8, 32, '#6b5327', 'rgba(0,0,0,.45)');
+    }
+    plank(c, px - 22, py - 18, 44, 4);
+    plank(c, px - 22, py - 8, 44, 4);
+    /* 竖栏杆 */
+    c.fillStyle = '#5b4520';
+    for (i = 0; i < 5; i++) { c.fillRect(px - 16 + i * 8, py - 14, 2.2, 7); }
+    /* 挂在栏杆上的风灯 */
+    softGlow(c, px + 12, py - 25, 20, '255,206,132', 0.30);
+    c.fillStyle = '#2b3546'; c.fillRect(px + 11, py - 18, 2, 7);
+    slab(c, px + 6, py - 31, 12, 13, '#39424e');
+    c.fillStyle = 'rgba(255,240,200,.9)'; c.fillRect(px + 8, py - 29, 8, 9);
+    c.fillStyle = '#39424e'; c.fillRect(px + 5.6, py - 32.4, 13, 2.6);
+    /* 缆绳盘 */
+    c.strokeStyle = '#8a733f'; c.lineWidth = 2.6;
+    for (i = 0; i < 3; i++) {
+      c.beginPath(); c.ellipse(px - 13, py + 8 - i * 2.4, 9 - i * 0.6, 3.4, 0, 0, Math.PI * 2); c.stroke();
+    }
+    c.strokeStyle = 'rgba(255,255,255,.10)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px - 22, py + 10); c.lineTo(px + 22, py + 10); c.stroke();
+  }
+
+  /* 码头：桩子 + 雾铃 + 剩半截的断绳（少一只铃） */
+  function artFogBell(c, px, py) {
+    shadowUnder(c, px, py + 15, 13, 5);
+    slab(c, px - 3, py - 24, 6, 38, '#4a3a22');                 /* 桩子 */
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px - 3, py - 24, 6, 2);
+    plank(c, px - 17, py - 22, 20, 4);                          /* 挑出去的横木 */
+    /* 还挂着的那只铃 */
+    softGlow(c, px - 12, py - 12, 18, '226,196,120', 0.22);
+    c.fillStyle = '#8a6b2f';
+    c.beginPath(); c.arc(px - 12, py - 13, 6.4, Math.PI, 0); c.fill();
+    c.fillStyle = '#c9a227'; c.fillRect(px - 18, py - 13.4, 12, 3.4);
+    c.fillStyle = '#6b5327'; c.beginPath(); c.arc(px - 12, py - 10.4, 1.4, 0, Math.PI * 2); c.fill();
+    /* 断了的那截绳：绳头散成三股 */
+    c.strokeStyle = '#8a733f'; c.lineWidth = 1.8;
+    c.beginPath(); c.moveTo(px + 1, py - 21); c.lineTo(px + 7, py - 13); c.stroke();
+    c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px + 7, py - 13); c.lineTo(px + 11, py - 8); c.stroke();
+    c.beginPath(); c.moveTo(px + 7, py - 13); c.lineTo(px + 10, py - 10.6); c.stroke();
+    c.beginPath(); c.moveTo(px + 7, py - 13); c.lineTo(px + 12, py - 11.4); c.stroke();
+    softGlow(c, px + 8, py - 11, 14, '210,220,232', 0.10);
+  }
+
+  /* 镇口的告示牌：石碑 + 一张大红印的布告（和镇里那块木告示板不同） */
+  function artNoticeStone(c, px, py) {
+    shadowUnder(c, px, py + 15, 14, 5);
+    slab(c, px - 12, py + 7, 24, 8, '#5b6570');                 /* 石座 */
+    slab(c, px - 15, py - 19, 30, 27, '#6d7784');               /* 碑面 */
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px - 15, py - 19, 30, 2);
+    c.fillStyle = 'rgba(0,0,0,.28)'; c.fillRect(px - 15, py + 5, 30, 3);
+    /* 布告纸 + 四角钉 */
+    c.fillStyle = '#e6dcbe'; c.fillRect(px - 10, py - 15, 20, 19);
+    c.fillStyle = 'rgba(70,58,34,.55)';
+    for (var i = 0; i < 5; i++) { c.fillRect(px - 7, py - 12 + i * 3.4, 14 - (i % 3) * 3, 1.1); }
+    c.fillStyle = '#a8352a'; c.beginPath(); c.arc(px + 4.6, py - 4, 3.4, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(255,220,210,.55)'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(px + 3, py - 5.4); c.lineTo(px + 6.2, py - 2.6); c.stroke();
+    c.fillStyle = '#c9a227';
+    [[-9.4, -14.4], [8.4, -14.4], [-9.4, 3.4], [8.4, 3.4]].forEach(function (q) {
+      c.beginPath(); c.arc(px + q[0], py + q[1], 1.2, 0, Math.PI * 2); c.fill();
+    });
+    softGlow(c, px, py - 4, 20, '255,206,132', 0.08);
+  }
+
+  /* 海边的灯座：石台 + 空铁架 + 一滴新蜡（谁在这儿点过灯） */
+  function artLampSeat(c, px, py) {
+    shadowUnder(c, px, py + 15, 12, 5);
+    slab(c, px - 11, py + 4, 22, 12, '#5f6a76');
+    c.fillStyle = 'rgba(255,255,255,.10)'; c.fillRect(px - 11, py + 4, 22, 2);
+    /* 灯座上的凹槽 + 蜡痕 */
+    slab(c, px - 8, py - 3, 16, 8, '#4b5561');
+    c.fillStyle = 'rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(px, py - 2, 6.4, 2.6, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(240,232,214,.85)';
+    c.beginPath(); c.ellipse(px, py - 3, 5.4, 2.2, 0, 0, Math.PI * 2); c.fill();
+    /* 新蜡：白得干净，边上还挂着一滴 */
+    c.fillStyle = '#f2ece0'; c.fillRect(px - 1.6, py - 9, 3.2, 6.4);
+    c.beginPath(); c.moveTo(px - 1.6, py - 9); c.lineTo(px, py - 12); c.lineTo(px + 1.6, py - 9); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(242,236,224,.75)';
+    c.beginPath(); c.ellipse(px + 7, py - 1.6, 3.4, 1.8, 0, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.ellipse(px - 7.6, py - 0.6, 2.6, 1.5, 0, 0, Math.PI * 2); c.fill();
+    /* 铁架：三根斜撑 */
+    c.strokeStyle = '#3a4149'; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(px - 10, py + 4); c.lineTo(px - 3, py - 8); c.stroke();
+    c.beginPath(); c.moveTo(px + 10, py + 4); c.lineTo(px + 3, py - 8); c.stroke();
+    softGlow(c, px, py - 4, 22, '190,206,224', 0.10);
+  }
+
+  /* 柜台下的信札：一摞信封 + 麻绳十字捆 + 一枚火漆印，边上摊开一封 */
+  function artLetterBundle(c, px, py) {
+    shadowUnder(c, px, py + 13, 15, 5);
+    /* 摊开的一封 */
+    c.save(); c.translate(px + 6, py + 6); c.rotate(0.12);
+    c.fillStyle = '#ded2b2'; c.fillRect(-13, -6, 26, 13);
+    c.strokeStyle = 'rgba(70,58,34,.5)'; c.lineWidth = 0.8; c.strokeRect(-12.5, -5.5, 25, 12);
+    c.beginPath(); c.moveTo(-12, -5); c.lineTo(0, 1.6); c.lineTo(12, -5); c.stroke();
+    c.restore();
+    /* 摞起来的信 */
+    for (var i = 0; i < 3; i++) {
+      c.fillStyle = i % 2 ? '#cfc2a0' : '#e0d5b8';
+      c.fillRect(px - 13 + i * 0.6, py - 11 + i * 3.4, 26, 6);
+      c.strokeStyle = 'rgba(70,58,34,.42)'; c.lineWidth = 0.8;
+      c.strokeRect(px - 12.7 + i * 0.6, py - 10.7 + i * 3.4, 25.4, 5.4);
+    }
+    /* 麻绳十字捆 */
+    c.strokeStyle = '#9c8348'; c.lineWidth = 1.7;
+    c.beginPath(); c.moveTo(px, py - 12); c.lineTo(px, py + 3); c.stroke();
+    c.beginPath(); c.moveTo(px - 13, py - 4); c.lineTo(px + 13, py - 4); c.stroke();
+    /* 火漆印 */
+    c.fillStyle = '#9c3128'; c.beginPath(); c.arc(px + 1.6, py - 4, 3.6, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(255,220,210,.45)'; c.beginPath(); c.arc(px + 0.8, py - 4.8, 1.2, 0, Math.PI * 2); c.fill();
+    softGlow(c, px, py - 4, 18, '255,206,132', 0.08);
+  }
+
+  /* 柜台的秤盘：黄铜浅盘 + 两只砝码 + 挂钩链子，搁在小几上 */
+  function artBrassPan(c, px, py) {
+    shadowUnder(c, px, py + 14, 13, 5);
+    plank(c, px - 14, py + 3, 28, 12);                            /* 小几 */
+    c.fillStyle = 'rgba(0,0,0,.32)'; c.fillRect(px - 14, py + 8, 28, 2);
+    /* 盘 */
+    var pg = c.createLinearGradient(0, py - 6, 0, py + 4);
+    pg.addColorStop(0, '#f0d68a'); pg.addColorStop(1, '#a8812c');
+    c.fillStyle = pg;
+    c.beginPath(); c.ellipse(px - 3, py - 3, 12.5, 5.4, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(120,92,28,.8)'; c.lineWidth = 1;
+    c.beginPath(); c.ellipse(px - 3, py - 3, 12.5, 5.4, 0, 0, Math.PI * 2); c.stroke();
+    c.fillStyle = 'rgba(60,44,12,.35)';
+    c.beginPath(); c.ellipse(px - 3, py - 2.4, 10.4, 3.8, 0, 0, Math.PI * 2); c.fill();
+    /* 三根吊链 + 提梁 */
+    c.strokeStyle = '#c9a227'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px - 13, py - 4); c.lineTo(px - 3, py - 16); c.stroke();
+    c.beginPath(); c.moveTo(px + 7, py - 4); c.lineTo(px - 3, py - 16); c.stroke();
+    c.beginPath(); c.moveTo(px - 3, py - 8); c.lineTo(px - 3, py - 16); c.stroke();
+    c.fillStyle = '#c9a227'; c.beginPath(); c.arc(px - 3, py - 17, 2.4, 0, Math.PI * 2); c.fill();
+    /* 盘里的两只砝码 */
+    slab(c, px - 8, py - 7, 6, 5, '#8f99a4');
+    slab(c, px + 1, py - 8, 7, 6, '#7d8792');
+    softGlow(c, px - 3, py - 4, 18, '255,216,140', 0.12);
+  }
+
+  /* 里间的门：木框 + 半撩起来的布帘 + 门帘钩，帘后透暖光 */
+  function artBackDoor(c, px, py) {
+    slab(c, px - 16, py - 26, 32, 40, '#3d2f1e');
+    c.fillStyle = '#241c12'; c.fillRect(px - 12, py - 22, 24, 34);
+    softGlow(c, px, py - 4, 22, '255,206,132', 0.28);
+    c.fillStyle = 'rgba(255,214,140,.30)'; c.fillRect(px - 12, py - 22, 24, 34);
+    /* 布帘：从右往左撩起一半，褶子用明暗竖条 */
+    var cg = c.createLinearGradient(px - 14, 0, px + 12, 0);
+    cg.addColorStop(0, '#6d5a44'); cg.addColorStop(0.5, '#8a7458'); cg.addColorStop(1, '#5c4b38');
+    c.fillStyle = cg;
+    c.beginPath();
+    c.moveTo(px - 14, py - 24); c.lineTo(px + 8, py - 24);
+    c.quadraticCurveTo(px + 2, py - 2, px + 6, py + 12); c.lineTo(px - 14, py + 12);
+    c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.28)'; c.lineWidth = 1;
+    for (var i = 0; i < 4; i++) {
+      c.beginPath(); c.moveTo(px - 12 + i * 5, py - 22); c.lineTo(px - 10 + i * 5, py + 10); c.stroke();
+    }
+    /* 帘钩 + 环 */
+    c.strokeStyle = '#a9853c'; c.lineWidth = 1.4;
+    c.beginPath(); c.moveTo(px + 8, py - 22); c.lineTo(px + 10, py + 12); c.stroke();
+    c.fillStyle = '#c9a227'; c.beginPath(); c.arc(px + 8.6, py - 8, 2.2, 0, Math.PI * 2); c.fill();
+    slab(c, px - 18, py - 28, 36, 5, '#4a3a24');
+  }
+
+  /* 当铺的账本：摊开的账册（竖格）+ 算盘 + 印章盒 */
+  function artLedgerOpen(c, px, py) {
+    shadowUnder(c, px, py + 12, 16, 5);
+    plank(c, px - 16, py - 1, 32, 13);
+    c.fillStyle = '#efe6d0';
+    c.beginPath(); c.moveTo(px - 13, py - 10); c.lineTo(px - 0.7, py - 6.4); c.lineTo(px - 0.7, py + 2); c.lineTo(px - 13, py - 1.6); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(px + 13, py - 10); c.lineTo(px + 0.7, py - 6.4); c.lineTo(px + 0.7, py + 2); c.lineTo(px + 13, py - 1.6); c.closePath(); c.fill();
+    /* 竖栏格线：账本才有的竖格子 */
+    c.strokeStyle = 'rgba(120,70,50,.5)'; c.lineWidth = 0.7;
+    for (var i = 0; i < 4; i++) {
+      c.beginPath(); c.moveTo(px - 11 + i * 3.2, py - 8.4 + i * 0.6); c.lineTo(px - 11 + i * 3.2, py - 1.2 + i * 0.6); c.stroke();
+      c.beginPath(); c.moveTo(px + 11 - i * 3.2, py - 8.4 + i * 0.6); c.lineTo(px + 11 - i * 3.2, py - 1.2 + i * 0.6); c.stroke();
+    }
+    c.fillStyle = '#4a3a20'; c.fillRect(px - 0.9, py - 7, 1.8, 9);
+    /* 算盘搁在摊开的账上（当铺的账要打得响） */
+    plank(c, px - 3, py + 3.4, 22, 7);
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(px - 1, py + 5, 18, 1);
+    c.fillStyle = '#c9a227';
+    for (i = 0; i < 4; i++) { c.fillRect(px + 1 + i * 4.4, py + 5.6, 2.2, 3); }
+    c.fillStyle = '#9c3128'; c.fillRect(px - 16, py + 4, 7, 6);   /* 印章盒 */
+    softGlow(c, px, py - 3, 20, '255,206,132', 0.10);
+  }
+
+  /* 盐工的晒盐簿：簿子搁在盐块上，纸面结了一层白霜 */
+  function artSaltRegister(c, px, py) {
+    shadowUnder(c, px, py + 13, 15, 5);
+    /* 一摞盐块当桌子 */
+    slab(c, px - 14, py + 2, 28, 13, '#cfd6dc', 'rgba(120,132,142,.6)');
+    c.fillStyle = 'rgba(255,255,255,.5)'; c.fillRect(px - 13, py + 3, 26, 2);
+    c.fillStyle = 'rgba(150,162,172,.45)'; c.fillRect(px - 13, py + 8, 26, 1.4);
+    /* 摊开的簿子 */
+    c.fillStyle = '#e7e0cc';
+    c.beginPath(); c.moveTo(px - 12, py - 8); c.lineTo(px - 0.7, py - 5); c.lineTo(px - 0.7, py + 3); c.lineTo(px - 12, py + 0.4); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(px + 12, py - 8); c.lineTo(px + 0.7, py - 5); c.lineTo(px + 0.7, py + 3); c.lineTo(px + 12, py + 0.4); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(96,76,42,.5)'; c.lineWidth = 0.8;
+    for (var i = 0; i < 3; i++) {
+      c.beginPath(); c.moveTo(px - 10, py - 5.6 + i * 2.4); c.lineTo(px - 2.4, py - 3.6 + i * 2.4); c.stroke();
+      c.beginPath(); c.moveTo(px + 10, py - 5.6 + i * 2.4); c.lineTo(px + 2.4, py - 3.6 + i * 2.4); c.stroke();
+    }
+    c.fillStyle = '#4a3a20'; c.fillRect(px - 0.8, py - 5.4, 1.6, 8);
+    /* 结在纸上的盐霜：几粒白点 */
+    c.fillStyle = 'rgba(255,255,255,.85)';
+    for (i = 0; i < 7; i++) {
+      var hx = hash(i, 3, 91), hy = hash(i, 7, 93);
+      c.fillRect(px - 11 + hx * 22, py - 6 + hy * 8, 1.4, 1.4);
+    }
+    /* 木刮板 */
+    c.strokeStyle = '#8a733f'; c.lineWidth = 2.4;
+    c.beginPath(); c.moveTo(px + 14, py + 12); c.lineTo(px + 21, py - 1); c.stroke();
+    softGlow(c, px, py, 18, '226,236,244', 0.10);
+  }
+
+  /* 盐堆与三天的记号：白色盐堆 + 三根记数木签 + 插着的木铲 */
+  function artSaltHeap(c, px, py) {
+    shadowUnder(c, px, py + 14, 17, 6);
+    var g = c.createLinearGradient(0, py - 16, 0, py + 14);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.55, '#e6ecf0'); g.addColorStop(1, '#b9c4cc');
+    c.fillStyle = g;
+    c.beginPath();
+    c.moveTo(px - 20, py + 13); c.quadraticCurveTo(px - 12, py - 18, px, py - 19);
+    c.quadraticCurveTo(px + 13, py - 17, px + 20, py + 13); c.closePath(); c.fill();
+    /* 堆面上的盐粒 */
+    c.fillStyle = 'rgba(255,255,255,.75)';
+    for (var i = 0; i < 8; i++) {
+      c.fillRect(px - 12 + hash(i, 1, 95) * 24, py - 8 + hash(i, 2, 97) * 16, 1.6, 1.6);
+    }
+    /* 三天的记号：三根木签插成一排 */
+    for (i = 0; i < 3; i++) {
+      var sx = px - 8 + i * 8;
+      c.fillStyle = '#8a733f'; c.fillRect(sx - 1, py - 12 + i * 2.4, 2.2, 14);
+      c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(sx - 1, py - 12 + i * 2.4, 2.2, 1.6);
+    }
+    /* 木铲插在堆里 */
+    c.strokeStyle = '#6b5327'; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(px + 16, py + 12); c.lineTo(px + 12, py - 4); c.stroke();
+    c.fillStyle = '#7d6a44';
+    c.beginPath(); c.moveTo(px + 10, py - 4); c.lineTo(px + 17, py - 5); c.lineTo(px + 16, py - 12); c.lineTo(px + 10, py - 11); c.closePath(); c.fill();
+    softGlow(c, px, py + 2, 22, '232,242,250', 0.12);
+  }
+
+  /* 潮位尺：一根刻着格子的木尺立在石槽里，刻度下半截是湿的 */
+  function artTideGauge(c, px, py) {
+    shadowUnder(c, px, py + 15, 11, 5);
+    slab(c, px - 12, py + 6, 24, 10, '#5f6a76');                  /* 石槽 */
+    c.fillStyle = 'rgba(30,40,52,.55)'; c.beginPath(); c.ellipse(px, py + 6, 10, 3, 0, 0, Math.PI * 2); c.fill();
+    slab(c, px - 4, py - 30, 8, 37, '#cbbf9c');                   /* 尺身 */
+    c.fillStyle = 'rgba(0,0,0,.18)'; c.fillRect(px + 1, py - 30, 3, 37);
+    /* 刻度：每 4 像素一格，重点处加长 */
+    c.strokeStyle = 'rgba(50,40,24,.75)'; c.lineWidth = 1;
+    for (var i = 0; i < 9; i++) {
+      var ty = py - 26 + i * 4, long = (i % 3 === 0);
+      c.beginPath(); c.moveTo(px - 4, ty + 0.5); c.lineTo(px - 4 + (long ? 8 : 5), ty + 0.5); c.stroke();
+    }
+    /* 湿痕：下半截颜色深，边上挂一小撮水 */
+    c.fillStyle = 'rgba(40,56,72,.40)'; c.fillRect(px - 4, py - 6, 8, 13);
+    c.fillStyle = 'rgba(150,190,215,.45)';
+    c.beginPath(); c.ellipse(px + 4, py - 6, 2.2, 1.2, 0, 0, Math.PI * 2); c.fill();
+    /* 顶上钉的一块小木牌 */
+    plank(c, px - 7, py - 37, 14, 8);
+    softGlow(c, px, py - 14, 18, '206,226,240', 0.10);
+  }
+
+  /* 潮位桩（把日记残页排成时间的那根桩）：粗木桩 + 钉子 + 钉着的纸 */
+  function artTidePost(c, px, py) {
+    shadowUnder(c, px, py + 15, 12, 5);
+    slab(c, px - 6, py - 30, 12, 44, '#6b5327');                  /* 粗桩 */
+    c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(px - 6, py - 30, 4, 44);
+    c.fillStyle = 'rgba(0,0,0,.30)'; c.fillRect(px - 6, py - 18, 12, 2); c.fillRect(px - 6, py - 6, 12, 2);
+    /* 钉在上头的三张纸：一张翘着 */
+    var papers = [[-14, -26, 13, 11, -0.10], [1, -24, 12, 10, 0.07], [-8, -12, 14, 10, 0.03]];
+    papers.forEach(function (q, i) {
+      c.save(); c.translate(px + q[0] + q[2] / 2, py + q[1] + q[3] / 2); c.rotate(q[4]);
+      c.fillStyle = i === 2 ? '#e8dcbb' : '#dccfae';
+      c.fillRect(-q[2] / 2, -q[3] / 2, q[2], q[3]);
+      c.fillStyle = 'rgba(70,58,34,.5)';
+      c.fillRect(-q[2] / 2 + 1.5, -q[3] / 2 + 3, q[2] - 4, 1);
+      c.fillRect(-q[2] / 2 + 1.5, -q[3] / 2 + 5.6, q[2] - 6, 1);
+      c.restore();
+    });
+    c.fillStyle = '#8f99a4';
+    [[-9, -26], [6, -24], [-2, -12]].forEach(function (q) {
+      c.beginPath(); c.arc(px + q[0], py + q[1], 1.3, 0, Math.PI * 2); c.fill();
+    });
+    /* 桩脚绕着的绳 */
+    c.strokeStyle = '#8a733f'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(px - 8, py + 8); c.lineTo(px + 8, py + 5); c.stroke();
+    softGlow(c, px, py - 8, 20, '226,236,244', 0.08);
+  }
+
+  /* 潮水冲上岸的东西：缠成团的一张网 + 两只浮子 + 一段浮木 + 海带 */
+  function artDriftWrack(c, px, py) {
+    shadowUnder(c, px, py + 14, 17, 6);
+    /* 浮木 */
+    c.save(); c.translate(px - 4, py + 6); c.rotate(-0.18);
+    plank(c, -17, -4, 34, 8);
+    c.fillStyle = 'rgba(0,0,0,.22)'; c.fillRect(-17, 0, 34, 2);
+    c.restore();
+    /* 渔网：几个交叠的菱形网格 */
+    c.strokeStyle = 'rgba(226,222,206,.55)'; c.lineWidth = 0.9;
+    for (var i = -2; i <= 2; i++) {
+      c.beginPath();
+      c.moveTo(px - 14 + i * 6, py - 4); c.lineTo(px - 8 + i * 6, py + 4);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(px - 8 + i * 6, py - 4); c.lineTo(px - 14 + i * 6, py + 4);
+      c.stroke();
+    }
+    /* 两只浮子 */
+    c.fillStyle = '#c9542f';
+    c.beginPath(); c.ellipse(px + 10, py - 6, 4.6, 3.4, -0.4, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#e8e2d2';
+    c.beginPath(); c.ellipse(px + 10, py - 6, 4.6, 3.4, -0.4, Math.PI * 0.86, Math.PI * 1.86); c.fill();
+    c.fillStyle = '#a83b22'; c.beginPath(); c.arc(px + 14, py + 2, 2.6, 0, Math.PI * 2); c.fill();
+    /* 海带 */
+    c.strokeStyle = 'rgba(74,96,72,.85)'; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(px - 15, py + 9); c.quadraticCurveTo(px - 6, py + 2, px + 2, py + 10); c.stroke();
+    softGlow(c, px, py, 20, '210,226,236', 0.08);
+  }
+
+  /* 馆里的入册簿：斜搁在诵经架上的大册 + 笔 + 墨水瓶 */
+  function artLecternBook(c, px, py) {
+    shadowUnder(c, px, py + 14, 14, 5);
+    /* 架子腿 */
+    c.strokeStyle = '#4a3a24'; c.lineWidth = 2.6;
+    c.beginPath(); c.moveTo(px - 9, py + 13); c.lineTo(px - 13, py - 4); c.stroke();
+    c.beginPath(); c.moveTo(px + 9, py + 13); c.lineTo(px + 13, py - 4); c.stroke();
+    /* 斜面 */
+    c.save(); c.translate(px, py - 1); c.rotate(-0.14);
+    plank(c, -16, -12, 32, 14);
+    c.fillStyle = '#e9e2cd'; c.fillRect(-14, -10.4, 28, 11);
+    c.strokeStyle = 'rgba(96,76,42,.55)'; c.lineWidth = 0.8;
+    for (var i = 0; i < 4; i++) {
+      c.beginPath(); c.moveTo(-12, -9 + i * 2.6); c.lineTo(12, -9 + i * 2.6); c.stroke();
+    }
+    c.fillStyle = '#4a3a20'; c.fillRect(-0.8, -10.4, 1.6, 11);
+    c.restore();
+    /* 笔搁在架边 + 墨水瓶 */
+    c.strokeStyle = '#e8e2d2'; c.lineWidth = 1.8;
+    c.beginPath(); c.moveTo(px + 6, py + 2); c.lineTo(px + 18, py - 6); c.stroke();
+    c.strokeStyle = '#3a2f18'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(px + 16, py - 4.4); c.lineTo(px + 19, py - 6.4); c.stroke();
+    slab(c, px - 20, py + 4, 8, 8, '#2f3a46', 'rgba(0,0,0,.5)');
+    c.fillStyle = 'rgba(20,26,34,.85)'; c.beginPath(); c.ellipse(px - 16, py + 4, 3.4, 1.4, 0, 0, Math.PI * 2); c.fill();
+    softGlow(c, px, py - 4, 20, '255,206,132', 0.10);
+  }
+
+  /* 没编号的那格书架：书架的中间一格空着（层板上只有一个灰印） */
+  function artEmptyShelf(c, px, py) {
+    shadowUnder(c, px, py + 15, 14, 5);
+    plank(c, px - 15, py - 21, 30, 38);
+    for (var r = 0; r < 3; r++) {
+      var ry = py - 17 + r * 12, q;
+      c.fillStyle = 'rgba(0,0,0,.34)'; c.fillRect(px - 13, ry + 9, 26, 2);
+      if (r === 1) {
+        /* 空格：层板上留一道没擦净的灰印 */
+        c.fillStyle = 'rgba(200,196,182,.16)'; c.fillRect(px - 11, ry + 2, 22, 7);
+        c.strokeStyle = 'rgba(120,112,96,.5)'; c.lineWidth = 0.8;
+        c.strokeRect(px - 11, ry + 2, 22, 7);
+        continue;
+      }
+      for (q = 0; q < 4; q++) {
+        var sh = 6 + hash(r + 2, q + 4, 61) * 4;
+        c.fillStyle = ['#b9a06a', '#8f7a48', '#d8c48e', '#7d6a44'][(r * 2 + q) % 4];
+        c.fillRect(px - 12 + q * 5.6, ry + 9 - sh, 4.4, sh);
+      }
+    }
+    /* 挂着的小掸子 */
+    c.strokeStyle = '#6b5327'; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(px + 15, py - 18); c.lineTo(px + 17, py - 3); c.stroke();
+    c.fillStyle = 'rgba(198,188,164,.85)';
+    c.beginPath(); c.ellipse(px + 17, py - 1, 3.2, 5, 0.2, 0, Math.PI * 2); c.fill();
+    softGlow(c, px, py - 4, 18, '210,220,232', 0.06);
+  }
+
+  /* 朝北的那扇窗：窗框 + 一道冷光柱 + 窗台上的枯盆栽 */
+  function artNorthWindow(c, px, py) {
+    /* 一道从窗里斜下来的冷光 */
+    c.save();
+    c.globalAlpha = 0.16;
+    var g = c.createLinearGradient(px, py - 20, px + 14, py + 16);
+    g.addColorStop(0, '#cfe0ea'); g.addColorStop(1, 'rgba(207,224,234,0)');
+    c.fillStyle = g;
+    c.beginPath(); c.moveTo(px - 13, py - 18); c.lineTo(px + 13, py - 18); c.lineTo(px + 20, py + 16); c.lineTo(px - 4, py + 16); c.closePath(); c.fill();
+    c.restore();
+    slab(c, px - 15, py - 22, 30, 34, '#3b3630');                 /* 窗框外圈 */
+    c.fillStyle = '#20262e'; c.fillRect(px - 12, py - 19, 24, 28);
+    var wg = c.createLinearGradient(0, py - 19, 0, py + 9);
+    wg.addColorStop(0, '#9fb6c6'); wg.addColorStop(0.7, '#5d6f80'); wg.addColorStop(1, '#6d7f8e');
+    c.fillStyle = wg; c.fillRect(px - 11, py - 18, 22, 26);
+    c.strokeStyle = 'rgba(28,24,20,.8)'; c.lineWidth = 1.4;
+    c.beginPath(); c.moveTo(px, py - 18); c.lineTo(px, py + 8); c.stroke();
+    c.beginPath(); c.moveTo(px - 11, py - 6); c.lineTo(px + 11, py - 6); c.stroke();
+    c.beginPath(); c.moveTo(px - 11, py + 2); c.lineTo(px + 11, py + 2); c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.22)'; c.fillRect(px - 11, py - 18, 22, 1.6);
+    slab(c, px - 17, py + 9, 34, 6, '#6d6455');                    /* 窗台 */
+    /* 窗台上的枯盆栽 */
+    c.fillStyle = '#8a5a3a'; c.fillRect(px + 8, py + 2, 8, 8);
+    c.fillStyle = '#5f4a30'; c.fillRect(px + 8, py + 2, 8, 2);
+    c.strokeStyle = 'rgba(120,110,80,.9)'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(px + 12, py + 2); c.lineTo(px + 11, py - 5); c.stroke();
+    c.beginPath(); c.moveTo(px + 12, py - 1); c.lineTo(px + 15, py - 4); c.stroke();
+    softGlow(c, px, py - 6, 22, '190,214,232', 0.12);
+  }
+
+  /* 火痕墙：一段塌了的墙 + 一道烧黑的火痕 + 壁龛里的小罐 */
+  function artBurnWall(c, px, py) {
+    shadowUnder(c, px, py + 15, 17, 6);
+    slab(c, px - 20, py - 16, 40, 30, '#4a453e');
+    c.fillStyle = 'rgba(255,255,255,.06)'; c.fillRect(px - 20, py - 16, 40, 2);
+    /* 塌口：右上角缺一块 */
+    c.fillStyle = 'rgba(0,0,0,0)';
+    /* 砖缝 */
+    c.strokeStyle = 'rgba(0,0,0,.30)'; c.lineWidth = 1;
+    for (var by = py - 8; by < py + 12; by += 7) {
+      c.beginPath(); c.moveTo(px - 19, by + 0.5); c.lineTo(px + 19, by + 0.5); c.stroke();
+      for (var bx = px - 14; bx < px + 18; bx += 12) {
+        c.beginPath(); c.moveTo(bx + 0.5, by - 6.5); c.lineTo(bx + 0.5, by); c.stroke();
+      }
+    }
+    /* 火痕：从下往上收的黑烟 */
+    var g = c.createLinearGradient(0, py + 13, 0, py - 16);
+    g.addColorStop(0, 'rgba(12,10,8,.88)'); g.addColorStop(0.6, 'rgba(20,16,12,.55)'); g.addColorStop(1, 'rgba(20,16,12,0)');
+    c.fillStyle = g;
+    c.beginPath();
+    c.moveTo(px - 8, py + 13); c.lineTo(px - 11, py - 2); c.lineTo(px - 5, py - 13);
+    c.lineTo(px + 6, py - 14); c.lineTo(px + 9, py - 1); c.lineTo(px + 7, py + 13); c.closePath(); c.fill();
+    /* 壁龛：凹进去的一格，放着一个小罐 */
+    c.fillStyle = '#17140f'; c.fillRect(px + 11, py - 6, 10, 11);
+    c.strokeStyle = 'rgba(180,168,142,.45)'; c.lineWidth = 1; c.strokeRect(px + 11.5, py - 5.5, 9, 10);
+    c.fillStyle = '#6d6156';
+    c.beginPath(); c.ellipse(px + 16, py + 1, 3.2, 3.6, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#4a4238'; c.fillRect(px + 14.4, py - 3.6, 3.2, 2);
+    softGlow(c, px + 16, py, 14, '255,196,110', 0.10);
+  }
+
+  /* 她留在雾里的话：雾里浮着的几笔字 + 一个按在雾上的手印 */
+  function artFogWords(c, px, py) {
+    var i;
+    /* 一团更浓的雾 */
+    c.fillStyle = 'rgba(214,222,232,.16)';
+    c.beginPath(); c.ellipse(px, py - 2, 22, 13, 0, 0, Math.PI * 2); c.fill();
+    /* 浮着的笔画：三道短横 + 一竖，像写到一半散了 */
+    c.strokeStyle = 'rgba(236,242,250,.62)'; c.lineWidth = 1.4;
+    for (i = 0; i < 3; i++) {
+      var yy = py - 9 + i * 6.4;
+      c.beginPath(); c.moveTo(px - 11 + (i % 2) * 2, yy); c.lineTo(px + 6 - (i % 2) * 3, yy - 0.8); c.stroke();
+    }
+    c.beginPath(); c.moveTo(px + 3, py - 12); c.lineTo(px + 1.4, py + 8); c.stroke();
+    c.globalAlpha = 0.4;
+    c.strokeStyle = 'rgba(236,242,250,.7)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px - 9, py - 14); c.lineTo(px + 8, py - 15.4); c.stroke();
+    c.globalAlpha = 1;
+    /* 按在雾上的手印：五指 */
+    c.fillStyle = 'rgba(228,236,246,.22)';
+    c.beginPath(); c.ellipse(px - 2, py + 6, 6, 7.6, 0.2, 0, Math.PI * 2); c.fill();
+    for (i = 0; i < 4; i++) {
+      c.beginPath();
+      c.ellipse(px - 7 + i * 3.4, py - 2.4 + (i === 3 ? 1.6 : 0), 1.5, 3.6, (i - 1.5) * 0.18, 0, Math.PI * 2);
+      c.fill();
+    }
+    softGlow(c, px, py - 2, 26, '226,236,248', 0.14);
+  }
+
+  /* 雾里的另一盏灯：一根挑杆挑着的小灯，罩子糊着一层雾 */
+  function artFogLantern(c, px, py) {
+    c.fillStyle = 'rgba(0,0,0,.26)'; c.beginPath(); c.ellipse(px, py + 15, 11, 4, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#3a4149'; c.lineWidth = 3.4;                  /* 挑杆 */
+    c.beginPath(); c.moveTo(px - 16, py + 14); c.lineTo(px + 10, py + 14); c.stroke();
+    c.beginPath(); c.moveTo(px + 10, py + 14); c.lineTo(px + 16, py - 8); c.stroke();
+    /* 挂着的灯 */
+    c.fillStyle = '#39424e'; c.fillRect(px + 15, py - 8, 1.8, 6);
+    softGlow(c, px + 16, py + 4, 26, '255,226,168', 0.32);
+    slab(c, px + 9, py - 2, 14, 15, '#3f4a57');
+    c.fillStyle = 'rgba(255,238,196,.85)'; c.fillRect(px + 11, py, 10, 11);
+    c.fillStyle = 'rgba(210,222,234,.30)'; c.fillRect(px + 11, py, 10, 4);   /* 玻璃上糊的雾 */
+    c.fillStyle = '#39424e'; c.fillRect(px + 8, py - 4, 16, 2.6);
+    c.fillRect(px + 8, py + 13, 16, 2.4);
+    /* 灯下站过人的地方：一小圈没雾的空地 */
+    c.fillStyle = 'rgba(226,236,246,.10)';
+    c.beginPath(); c.ellipse(px + 16, py + 16, 12, 4.4, 0, 0, Math.PI * 2); c.fill();
+  }
+
+  /* 雾里的船影：只剩一个黑轮廓的船，桅杆上还挂着半张帆 */
+  function artBoatShadow(c, px, py) {
+    c.fillStyle = 'rgba(18,22,28,.55)';
+    c.beginPath();
+    c.moveTo(px - 22, py + 2); c.lineTo(px + 22, py + 2);
+    c.quadraticCurveTo(px + 16, py + 16, px - 2, py + 16);
+    c.quadraticCurveTo(px - 16, py + 15, px - 22, py + 2); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(18,22,28,.6)'; c.lineWidth = 2.6;      /* 桅杆 */
+    c.beginPath(); c.moveTo(px + 2, py + 3); c.lineTo(px + 2, py - 26); c.stroke();
+    c.beginPath(); c.moveTo(px + 2, py - 26); c.lineTo(px + 16, py - 16); c.stroke();
+    /* 半张帆：一个三角，边缘被雾吃掉 */
+    c.fillStyle = 'rgba(180,192,206,.28)';
+    c.beginPath(); c.moveTo(px + 3, py - 25); c.lineTo(px + 15, py - 16); c.lineTo(px + 3, py - 4); c.closePath(); c.fill();
+    /* 缆绳拖进雾里 */
+    c.strokeStyle = 'rgba(180,192,206,.30)'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(px - 22, py + 1); c.quadraticCurveTo(px - 30, py + 8, px - 26, py + 15); c.stroke();
+    /* 船边的雾 */
+    c.fillStyle = 'rgba(214,222,232,.16)';
+    c.beginPath(); c.ellipse(px - 2, py + 8, 26, 10, 0, 0, Math.PI * 2); c.fill();
+  }
+
+  /* 她教你的歌谣：一副木架挂着四根管子（敲的），边上挂着音符 */
+  function artSongChime(c, px, py) {
+    c.fillStyle = 'rgba(0,0,0,.26)'; c.beginPath(); c.ellipse(px, py + 15, 12, 4.2, 0, 0, Math.PI * 2); c.fill();
+    slab(c, px - 2, py - 4, 4, 20, '#4a3a24');                    /* 立杆 */
+    plank(c, px - 16, py - 20, 32, 4);                            /* 横梁 */
+    /* 四根管子：长短不同，颜色有点差别 */
+    var lens = [16, 21, 13, 18];
+    for (var i = 0; i < 4; i++) {
+      var tx = px - 12 + i * 8, tl = lens[i];
+      c.strokeStyle = 'rgba(214,206,180,.5)'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(tx, py - 16); c.lineTo(tx, py - 16 + 3); c.stroke();
+      var tg = c.createLinearGradient(tx - 2, 0, tx + 2, 0);
+      tg.addColorStop(0, '#e6dcc0'); tg.addColorStop(0.5, '#b9a97e'); tg.addColorStop(1, '#8a7c58');
+      c.fillStyle = tg; c.fillRect(tx - 2, py - 13, 4, tl);
+      c.fillStyle = 'rgba(0,0,0,.28)'; c.fillRect(tx - 2, py - 13 + tl - 2, 4, 2);
+    }
+    /* 小木槌 */
+    c.strokeStyle = '#6b5327'; c.lineWidth = 2.2;
+    c.beginPath(); c.moveTo(px + 12, py + 14); c.lineTo(px + 18, py + 1); c.stroke();
+    c.fillStyle = '#8a733f';
+    c.beginPath(); c.ellipse(px + 19, py - 1.6, 4.4, 3.2, -0.4, 0, Math.PI * 2); c.fill();
+    /* 飘着的一个音符 */
+    c.fillStyle = 'rgba(240,228,190,.75)';
+    c.font = '13px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('\u266a', px - 14, py - 26);
+    softGlow(c, px, py - 6, 22, '255,226,168', 0.14);
+  }
+
+  /* 三问：一根杆上挑着三盏灯，答对一句亮一盏 */
+  function artThreeAsks(c, px, py) {
+    c.fillStyle = 'rgba(0,0,0,.26)'; c.beginPath(); c.ellipse(px, py + 15, 12, 4.2, 0, 0, Math.PI * 2); c.fill();
+    slab(c, px - 2.5, py - 6, 5, 22, '#3a3126');                  /* 立杆 */
+    c.strokeStyle = '#3a3126'; c.lineWidth = 2.6;                 /* 三根挑出去的枝 */
+    var tips = [[-15, -16], [0, -23], [15, -16]];
+    tips.forEach(function (q, i) {
+      c.beginPath(); c.moveTo(px, py - 6); c.lineTo(px + q[0], py + q[1] + 6); c.stroke();
+      var lx = px + q[0], ly = py + q[1] + 8;
+      c.fillStyle = '#2b3546'; c.fillRect(lx - 0.8, ly - 6, 1.6, 5);
+      /* 第一盏是亮的，另外两盏还冷着 */
+      var on = (i === 1);
+      softGlow(c, lx, ly + 4, on ? 24 : 14, on ? '255,226,168' : '178,200,216', on ? 0.42 : 0.12);
+      var lg = c.createLinearGradient(0, ly, 0, ly + 11);
+      lg.addColorStop(0, on ? '#fff3cf' : '#c6d4de'); lg.addColorStop(1, on ? '#e8a63c' : '#5d6b78');
+      c.fillStyle = lg;
+      c.beginPath(); c.moveTo(lx - 4.4, ly); c.lineTo(lx - 3.2, ly + 10); c.lineTo(lx + 3.2, ly + 10); c.lineTo(lx + 4.4, ly); c.closePath(); c.fill();
+      c.fillStyle = '#2b3546'; c.fillRect(lx - 5.2, ly - 2.4, 10.4, 2.4);
+      c.fillRect(lx - 4.4, ly + 10, 8.8, 2);
+    });
+    softGlow(c, px, py + 2, 26, '255,226,168', 0.12);
+  }
+
+  /* 还名：碑前摆着凿子和笔、一方砚台、一朵白花 */
+  function artReturnStele(c, px, py) {
+    shadowUnder(c, px, py + 15, 13, 5);
+    slab(c, px - 12, py - 24, 24, 38, '#3b3f45');
+    c.fillStyle = 'rgba(255,255,255,.06)'; c.fillRect(px - 12, py - 24, 4, 38);
+    c.fillStyle = '#2b2620'; c.fillRect(px - 8.4, py - 20, 16.8, 30);
+    /* 补上去的那个名字：一道新刻的笔画（比别的浅） */
+    c.strokeStyle = 'rgba(236,228,204,.85)'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(px - 5, py - 16); c.lineTo(px + 5, py - 16.6); c.stroke();
+    c.beginPath(); c.moveTo(px - 1.6, py - 18); c.lineTo(px - 1.6, py - 8); c.stroke();
+    c.beginPath(); c.moveTo(px - 5.6, py - 12.4); c.lineTo(px + 5.6, py - 13); c.stroke();
+    c.strokeStyle = 'rgba(232,222,198,.35)'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(px - 4.6, py - 3.4); c.lineTo(px + 5, py - 4); c.stroke();
+    c.beginPath(); c.moveTo(px - 4.6, py + 2.4); c.lineTo(px + 5, py + 1.8); c.stroke();
+    /* 碑前的凿子 + 笔 + 砚台 */
+    c.strokeStyle = '#8f99a4'; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(px - 20, py + 8); c.lineTo(px - 8, py + 2); c.stroke();
+    c.strokeStyle = '#e8e2d2'; c.lineWidth = 1.8;
+    c.beginPath(); c.moveTo(px + 6, py + 8); c.lineTo(px + 17, py + 2); c.stroke();
+    c.strokeStyle = '#3a2f18'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(px + 14.6, py + 3.6); c.lineTo(px + 18, py + 2); c.stroke();
+    slab(c, px - 4, py + 6, 9, 7, '#2f3a46', 'rgba(0,0,0,.5)');
+    /* 一朵白花压在碑脚 */
+    c.fillStyle = 'rgba(240,240,232,.9)';
+    for (var i = 0; i < 5; i++) {
+      var a = i * Math.PI * 0.4 - 0.6;
+      c.beginPath(); c.ellipse(px + 10 + Math.cos(a) * 3.4, py + 12 + Math.sin(a) * 2.4, 2.4, 1.8, a, 0, Math.PI * 2); c.fill();
+    }
+    c.fillStyle = '#c9a227'; c.beginPath(); c.arc(px + 10, py + 12, 1.3, 0, Math.PI * 2); c.fill();
+    softGlow(c, px, py - 4, 20, '255,226,168', 0.12);
+  }
+
+  /* 礁缝里的另一个铁盒：贝壳长满的盒子，还挂着海草 */
+  function artBarnacleChest(c, px, py) {
+    shadowUnder(c, px, py + 13, 14, 5);
+    c.fillStyle = '#4e4a3c'; c.fillRect(px - 14, py - 4, 28, 17);
+    var cg = c.createLinearGradient(px, py - 14, px, py - 3);
+    cg.addColorStop(0, '#565245'); cg.addColorStop(1, '#33302a');
+    c.fillStyle = cg;
+    c.beginPath(); c.moveTo(px - 14, py - 4); c.lineTo(px - 14, py - 9);
+    c.quadraticCurveTo(px, py - 19, px + 14, py - 9); c.lineTo(px + 14, py - 4); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.55)'; c.lineWidth = 1; c.strokeRect(px - 13.5, py - 4.5, 27, 17);
+    /* 藤壶：一堆小灰锥 */
+    for (var i = 0; i < 9; i++) {
+      var bx = px - 12 + hash(i, 5, 81) * 24, by = py - 6 + hash(i, 9, 83) * 14;
+      var br = 1.8 + hash(i, 3, 85) * 1.6;
+      c.fillStyle = 'rgba(186,186,176,.85)';
+      c.beginPath(); c.arc(bx, by, br, 0, Math.PI * 2); c.fill();
+      c.fillStyle = 'rgba(90,90,84,.7)';
+      c.beginPath(); c.arc(bx, by, br * 0.42, 0, Math.PI * 2); c.fill();
+    }
+    /* 挂着的一撮海草 */
+    c.strokeStyle = 'rgba(74,96,72,.9)'; c.lineWidth = 2.4;
+    c.beginPath(); c.moveTo(px + 10, py - 3); c.quadraticCurveTo(px + 16, py + 4, px + 12, py + 12); c.stroke();
+    c.strokeStyle = 'rgba(74,96,72,.6)'; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(px - 12, py + 12); c.quadraticCurveTo(px - 17, py + 6, px - 14, py - 1); c.stroke();
+    softGlow(c, px, py - 2, 20, '226,236,244', 0.10);
+  }
+
+  /* id → 模型；没登记的落回老路子（谜题 → drawProp，痕迹 → drawTrace） */
+  var PLACE_ART = {
+    carve: 'rockCarve', copy2: 'stackBooks', tin: 'sewBox', ashes: 'ashPile', oil: 'oilRig', sea: 'lookout',
+    dock: 'fogBell', notice: 'noticeStone', sea_lamp: 'lampSeat',
+    letters: 'letterBundle', scale_pan: 'brassPan', back: 'backDoor', ledger: 'ledgerOpen',
+    saltbook: 'saltRegister', saltpile: 'saltHeap', gauge: 'tideGauge', post: 'tidePost', wrack: 'driftWrack',
+    inbook: 'lecternBook', shelfrow: 'emptyShelf', northwin: 'northWindow', burn: 'burnWall',
+    her_words: 'fogWords', othlamp: 'fogLantern', boatshape: 'boatShadow',
+    song: 'songChime', ask: 'threeAsks', return: 'returnStele', chest2: 'barnacleChest'
+  };
+  var ART_FN = {
+    rockCarve: artRockCarve, stackBooks: artStackBooks, sewBox: artSewBox, ashPile: artAshPile,
+    oilRig: artOilRig, lookout: artLookout, fogBell: artFogBell, noticeStone: artNoticeStone,
+    lampSeat: artLampSeat, letterBundle: artLetterBundle, brassPan: artBrassPan, backDoor: artBackDoor,
+    ledgerOpen: artLedgerOpen, saltRegister: artSaltRegister, saltHeap: artSaltHeap, tideGauge: artTideGauge,
+    tidePost: artTidePost, driftWrack: artDriftWrack, lecternBook: artLecternBook, emptyShelf: artEmptyShelf,
+    northWindow: artNorthWindow, burnWall: artBurnWall, fogWords: artFogWords, fogLantern: artFogLantern,
+    boatShadow: artBoatShadow, songChime: artSongChime, threeAsks: artThreeAsks, returnStele: artReturnStele,
+    barnacleChest: artBarnacleChest
+  };
 
   function drawPlace(c, p) {
     var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
     var sc = scene(), col = sc.palette.accent;
     var lit = (sc.ambient === 'night' || sc.ambient === 'lamp' || sc.ambient === 'dusk');
+    var art = PLACE_ART[p.id];
     c.save();
     if (p.npc) {
       /* 有身份的 NPC 一律画人（祁掌柜 / 柳先生 / 阿罔以前只是地上的一团灰印） */
       drawFigure(c, p.x, p.y, NPC_COL[p.id] || '#8fb8c8', -1, 0);
+    } else if (art && ART_FN[art]) {
+      ART_FN[art](c, px, py, col, lit);
     } else if (p.kind === 'portal') {
-      drawPortal(c, p, col);
+      drawGate(c, p);
     } else if (p.kind === 'puzzle') {
       drawProp(c, PROP_OF[p.puz] || 'spark', px, py, col, lit);
     } else if (p.kind === 'item') {
@@ -1183,10 +2214,16 @@
     var sc = scene(), pal = sc.palette;
     paintGround(c, pal, GROUND[S.scene] || 'stone');
     paintSolids(c, sc, pal);
-    /* 出口格画门楼；places 里那些 kind='portal' 的（镇上的记当铺 / 岛史馆 / 盐埕口）
-       以前被这一行整批跳过 —— 三扇门从来没画出来过，玩家只能靠互动标签猜。 */
+    /* 出口格画门屋；places 里那些 kind='portal' 的（镇上的记当铺 / 岛史馆 / 盐埕口）
+       以前被这一行整批跳过 —— 三扇门从来没画出来过，玩家只能靠互动标签猜。
+       地图沿上那种"旁边就有一扇正经门"的出口（镇子东头的盐埕口）不再另起一座，
+       免得到处都是门、玩家分不清哪个是哪个。 */
     var exitHere = {};
-    sc.portals.forEach(function (p) { exitHere[p.x + ',' + p.y] = 1; drawPlace(c, { x: p.x, y: p.y, kind: 'portal' }); });
+    sc.portals.forEach(function (po) {
+      exitHere[po.x + ',' + po.y] = 1;
+      var g = gatePlan(sc.id, po);
+      if (g && g.kind !== 'skip') drawGate(c, po);
+    });
     sc.places.forEach(function (p) { if (!exitHere[p.x + ',' + p.y]) drawPlace(c, p); });
     bgDirty = false;
   }
@@ -1513,7 +2550,7 @@
   }
 
   /* ---------- 启动 ---------- */
-  var GAME = { booted: false, get S() { return S; }, D: D, fresh: freshState, pack: pack, solvePuzzle: solvePuzzle, PHOTO_RULES: PHOTO_RULES, SCENE_FLAG: SCENE_FLAG, DERIVED: DERIVED, interact: interact, markFlag: markFlag, forceClose: forceClose, dlgOpen: function () { return !!dlg; } };
+  var GAME = { booted: false, get S() { return S; }, D: D, fresh: freshState, pack: pack, solvePuzzle: solvePuzzle, PHOTO_RULES: PHOTO_RULES, SCENE_FLAG: SCENE_FLAG, DERIVED: DERIVED, interact: interact, markFlag: markFlag, forceClose: forceClose, dlgOpen: function () { return !!dlg; }, artOf: artOf, gatePlan: gatePlan, PLACE_ART: PLACE_ART, GATE_STYLE: GATE_STYLE };
   global.GAME23 = GAME;
 
   function boot() {
