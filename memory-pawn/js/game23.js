@@ -22,7 +22,7 @@
   /* ---------- 存档 ---------- */
   function freshState() {
     return {
-      scene: 'lighthouse', x: 3, y: 12, tx: 3, ty: 12, mt: 0, face: 1,
+      scene: 'lighthouse', x: 3, y: 12, tx: 3, ty: 12, mt: 0, face: 1, mx: 3, my: 12,
       act: 1, maxAct: 1, gold: 0, flags: {}, photos: {}, tasks: {}, mem: D.mem23Fresh(), scrolls: 0,
       caught: {}, log: [], seen: {}, ended: null, cleared: false,
       pawned: 0, redeemed: 0, helped: [], introDone: false, t: 0, name: ''
@@ -99,6 +99,7 @@
     S.scene = sid;
     S.x = S.tx = (x == null ? sc.spawn.x : x);
     S.y = S.ty = (y == null ? sc.spawn.y : y);
+    S.mx = S.x; S.my = S.y; bgDirty = true;   /* 换场景重烘焙底图，显示坐标直接对齐 */
     S.mt = 0;
     portalCd = 0.5;
     banner(sc.name, sc.sub);
@@ -520,40 +521,190 @@
   }
 
   /* ---------- 渲染 ---------- */
-  function drawFigure(x, y, col, face) {
-    var px = x * CELL + CELL / 2, py = y * CELL + CELL / 2;
-    ctx.fillStyle = 'rgba(0,0,0,.35)';
-    ctx.beginPath(); ctx.ellipse(px, py + 15, 13, 5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.moveTo(px - 9, py + 14); ctx.lineTo(px + 9, py + 14);
-    ctx.lineTo(px + 7, py - 4); ctx.lineTo(px - 7, py - 4); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.arc(px, py - 10, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.55)';
-    ctx.fillRect(px + (face > 0 ? 2 : -4), py - 12, 2, 2);
+  /* 画布逻辑尺寸固定 960x672；背板按 devicePixelRatio 放大，浏览器再缩放显示。
+     以前画布就是 960 宽被拉大显示，线条和字全是糊的（实机反馈"画质太低"）。 */
+  var VW = 960, VH = 672, SCALE = 1, bg = null, bgDirty = true;
+  var MOVE_SPEED = 6.8;   /* 格/秒：走路是滑的，不是一格一格蹦 */
+  var GROUND = {
+    lighthouse: 'stone', town: 'plank', pawnshop: 'wood',
+    saltflats: 'salt', archive: 'tile', mist: 'gravel'
+  };
+  function hash(x, y, k) {
+    var n = (Math.abs(x) * 374761393 + Math.abs(y) * 668265263 + (k || 0) * 2246822519) >>> 0;
+    n = (n ^ (n >>> 13)) >>> 0; n = (n * 1274126177) >>> 0;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
   }
-  function drawPlace(p) {
+  function shade(col, amt) {
+    var m = /^#([0-9a-fA-F]{6})$/.exec(String(col || ''));
+    if (!m) return String(col || '#000');
+    var v = parseInt(m[1], 16), r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+    if (amt >= 0) { r += (255 - r) * amt; g += (255 - g) * amt; b += (255 - b) * amt; }
+    else { r *= 1 + amt; g *= 1 + amt; b *= 1 + amt; }
+    return 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
+  }
+  function shadowUnder(c, px, py, rx, ry) {
+    c.fillStyle = 'rgba(0,0,0,.30)';
+    c.beginPath(); c.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); c.fill();
+  }
+  /* 地面：每种场景一种铺法 + 逐格确定性微差，破掉"平铺棋盘"的廉价感 */
+  function paintGround(c, pal, style) {
+    c.fillStyle = pal.ground; c.fillRect(0, 0, VW, VH);
+    for (var y = 0; y < GRID_H; y++) for (var x = 0; x < GRID_W; x++) {
+      var px = x * CELL, py = y * CELL;
+      var n1 = hash(x, y, 1), n2 = hash(x, y, 2), n3 = hash(x, y, 3);
+      var base = ((x + y) % 2 === 0) ? pal.ground : pal.ground2;
+      c.fillStyle = shade(base, (n1 - 0.5) * 0.22);
+      c.fillRect(px, py, CELL, CELL);
+      if (style === 'stone') {
+        c.strokeStyle = 'rgba(0,0,0,.20)'; c.lineWidth = 1;
+        c.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1);
+        c.fillStyle = 'rgba(255,255,255,.045)'; c.fillRect(px + 2, py + 2, CELL - 4, 2);
+        if (n2 > 0.88) {
+          c.strokeStyle = 'rgba(0,0,0,.26)'; c.beginPath();
+          c.moveTo(px + 8 + n3 * 8, py + 6); c.lineTo(px + 18 + n3 * 6, py + 22); c.lineTo(px + 28, py + 30); c.stroke();
+        }
+      } else if (style === 'plank' || style === 'wood') {
+        var seam = style === 'wood' ? 12 : 16;
+        c.strokeStyle = 'rgba(0,0,0,.26)'; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(px, py + seam + 0.5); c.lineTo(px + CELL, py + seam + 0.5); c.stroke();
+        c.strokeStyle = 'rgba(255,255,255,.05)';
+        c.beginPath(); c.moveTo(px, py + seam - 0.5); c.lineTo(px + CELL, py + seam - 0.5); c.stroke();
+        if (n2 > 0.62) {
+          c.strokeStyle = 'rgba(0,0,0,.15)'; c.beginPath();
+          c.moveTo(px + 2, py + 4 + n3 * 6); c.lineTo(px + CELL - 3, py + 5 + n3 * 6); c.stroke();
+        }
+        if (n2 > 0.94) { c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.arc(px + 14 + n3 * 18, py + 20, 2.4, 0, Math.PI * 2); c.fill(); }
+      } else if (style === 'salt') {
+        c.fillStyle = 'rgba(255,255,255,' + (0.03 + n1 * 0.05).toFixed(3) + ')';
+        c.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
+        c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1;
+        for (var r = 1; r <= 2; r++) { c.beginPath(); c.arc(px + 10 + r * 12, py + CELL - 6, 8 + r * 5, Math.PI * 1.15, Math.PI * 1.75); c.stroke(); }
+      } else if (style === 'tile') {
+        c.strokeStyle = 'rgba(0,0,0,.16)'; c.lineWidth = 1;
+        c.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1);
+        if (n2 > 0.90) { c.fillStyle = 'rgba(255,255,255,.05)'; c.fillRect(px + 6, py + 6, 8, 8); }
+      } else {
+        for (var d = 0; d < 5; d++) {
+          var hx = hash(x * 7 + d, y, 11), hy = hash(x, y * 7 + d, 13), hr = hash(x + d, y + d, 17);
+          c.fillStyle = hr > 0.5 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.18)';
+          c.beginPath(); c.arc(px + hx * CELL, py + hy * CELL, 1 + hr * 1.6, 0, Math.PI * 2); c.fill();
+        }
+      }
+    }
+    /* 大尺度脏斑/补光：地面不是一块死板棋盘 */
+    for (var i = 0; i < 26; i++) {
+      var gx = hash(i, 3, 5) * VW, gy = hash(i, 4, 6) * VH, gr = 40 + hash(i, 5, 7) * 90;
+      var g = c.createRadialGradient(gx, gy, 2, gx, gy, gr);
+      g.addColorStop(0, hash(i, 6, 8) > 0.5 ? 'rgba(0,0,0,.10)' : 'rgba(255,255,255,.035)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      c.fillStyle = g; c.fillRect(gx - gr, gy - gr, gr * 2, gr * 2);
+    }
+  }
+  /* 障碍：投影 + 上下渐变 + 砖缝，做出厚度（原来是纯色方块） */
+  function paintSolids(c, sc, pal) {
+    sc.solids.forEach(function (s) {
+      var x = s[0] * CELL, y = s[1] * CELL, w = s[2] * CELL, h = s[3] * CELL;
+      c.fillStyle = 'rgba(0,0,0,.30)';
+      c.fillRect(x + 3, y + h - 4, w, 7);
+      var g = c.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, shade(pal.solid, 0.18));
+      g.addColorStop(0.55, pal.solid);
+      g.addColorStop(1, shade(pal.solid, -0.28));
+      c.fillStyle = g; c.fillRect(x, y, w, h);
+      c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(x, y, w, 5);
+      c.strokeStyle = 'rgba(0,0,0,.28)'; c.lineWidth = 1;
+      for (var sx = x + 24; sx < x + w - 2; sx += 24) { c.beginPath(); c.moveTo(sx + 0.5, y + 6); c.lineTo(sx + 0.5, y + h - 2); c.stroke(); }
+      for (var sy = y + 22; sy < y + h - 2; sy += 22) { c.beginPath(); c.moveTo(x + 1, sy + 0.5); c.lineTo(x + w - 1, sy + 0.5); c.stroke(); }
+      c.strokeStyle = 'rgba(0,0,0,.45)'; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    });
+  }
+  function drawFigure(c, x, y, col, face, lift) {
+    var px = x * CELL + CELL / 2, py = y * CELL + CELL / 2 - (lift || 0);
+    c.save();
+    shadowUnder(c, px, py + 15, 12, 4.5);
+    var g = c.createLinearGradient(px - 9, py - 14, px + 9, py + 14);
+    g.addColorStop(0, shade(col, 0.24)); g.addColorStop(0.6, col); g.addColorStop(1, shade(col, -0.32));
+    c.fillStyle = g;
+    c.beginPath(); c.moveTo(px - 9, py + 14); c.lineTo(px + 9, py + 14);
+    c.quadraticCurveTo(px + 11, py - 2, px + 6, py - 6); c.lineTo(px - 6, py - 6);
+    c.quadraticCurveTo(px - 11, py - 2, px - 9, py + 14); c.closePath(); c.fill();
+    c.fillStyle = shade(col, 0.10);
+    c.beginPath(); c.arc(px, py - 10, 7, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(0,0,0,.26)';
+    c.beginPath(); c.arc(px, py - 12, 7, Math.PI * 1.05, Math.PI * 1.95); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px - 7, py + 13.5); c.lineTo(px + 7, py + 13.5); c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.62)';
+    c.fillRect(px + (face > 0 ? 2 : -4), py - 11, 2, 2);
+    /* 手里那盏小灯：暖点 + 光晕，人物在暗场里也有存在感 */
+    var lx = px + (face > 0 ? 11 : -11), ly = py + 4;
+    var lg = c.createRadialGradient(lx, ly, 1, lx, ly, 15);
+    lg.addColorStop(0, 'rgba(255,214,132,.55)'); lg.addColorStop(1, 'rgba(255,214,132,0)');
+    c.fillStyle = lg; c.beginPath(); c.arc(lx, ly, 15, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#ffdf9e'; c.fillRect(lx - 1.5, ly - 2, 3, 4);
+    c.restore();
+  }
+  function drawPlace(c, p) {
     var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
     var col = scene().palette.accent;
-    ctx.save();
-    if (p.kind === 'npc') drawFigure(p.x, p.y, '#8fb8c8', -1);
-    else if (p.kind === 'puzzle') {
-      ctx.fillStyle = '#3a2f18'; ctx.strokeStyle = col; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.rect(px - 15, py - 15, 30, 30); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = col; ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('✦', px, py + 1);
+    c.save();
+    if (p.kind === 'npc') {
+      drawFigure(c, p.x, p.y, '#8fb8c8', -1, 0);
+    } else if (p.kind === 'puzzle') {
+      shadowUnder(c, px, py + 15, 16, 6);
+      c.fillStyle = '#2a2416'; c.fillRect(px - 16, py - 4, 32, 18);
+      c.fillStyle = '#3a2f18'; c.strokeStyle = shade(col, -0.20); c.lineWidth = 2;
+      c.beginPath(); c.rect(px - 15, py - 15, 30, 30); c.fill(); c.stroke();
+      c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(px - 13, py - 13, 26, 6);
+      var g = c.createRadialGradient(px, py, 2, px, py, 26);
+      g.addColorStop(0, 'rgba(255,226,150,.26)'); g.addColorStop(1, 'rgba(255,226,150,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(px, py, 26, 0, Math.PI * 2); c.fill();
+      c.fillStyle = col; c.font = '20px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('\u2726', px, py + 1);
     } else if (p.kind === 'item' || p.kind === 'buy') {
-      ctx.fillStyle = '#4a3a20'; ctx.strokeStyle = col; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.rect(px - 14, py - 11, 28, 22); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(px - 14, py - 3); ctx.lineTo(px + 14, py - 3); ctx.stroke();
+      shadowUnder(c, px, py + 13, 15, 5);
+      c.fillStyle = '#4a3a20'; c.strokeStyle = shade(col, -0.15); c.lineWidth = 2;
+      c.beginPath(); c.rect(px - 14, py - 11, 28, 22); c.fill(); c.stroke();
+      c.fillStyle = 'rgba(255,255,255,.09)'; c.fillRect(px - 12, py - 9, 24, 5);
+      c.beginPath(); c.moveTo(px - 14, py - 3); c.lineTo(px + 14, py - 3); c.stroke();
+      c.fillStyle = shade(col, 0.10); c.fillRect(px - 3, py - 8, 6, 5);
     } else if (p.kind === 'portal') {
-      ctx.fillStyle = '#1d2733'; ctx.strokeStyle = col; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.rect(px - 13, py - 18, 26, 36); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = col; ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('↥', px, py + 6);
+      c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 1;
+      for (var i = 0; i < 3; i++) {
+        c.fillStyle = shade('#2b3546', 0.12 - i * 0.07);
+        c.fillRect(px - 16 + i * 5, py + 12 - i * 9, 32 - i * 10, 9);
+        c.strokeRect(px - 16 + i * 5 + 0.5, py + 12 - i * 9 + 0.5, 32 - i * 10 - 1, 8);
+      }
     } else {
-      ctx.fillStyle = 'rgba(255,255,255,.35)';
-      ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
+      /* "细看"类：地上留一道痕迹，别只放个白点 */
+      c.fillStyle = 'rgba(255,255,255,.10)';
+      c.beginPath(); c.ellipse(px, py - 2, 11, 5, hash(p.x, p.y, 21) * 3, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(px - 8, py + 4); c.lineTo(px + 7, py - 2); c.stroke();
     }
-    ctx.restore();
+    c.restore();
+  }
+  /* 静态世界预烘焙：地面 + 障碍 + 道具 + 门口台阶只画一次，之后每帧一次 drawImage。
+     细节可以放心加，帧率反而比原来每帧重画 280 格更稳。 */
+  function bake() {
+    if (!bg || !bg.getContext) { bgDirty = false; return; }
+    var c = bg.getContext('2d');
+    if (!c || !c.setTransform) { bgDirty = false; return; }
+    c.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+    c.clearRect(0, 0, VW, VH);
+    var sc = scene(), pal = sc.palette;
+    paintGround(c, pal, GROUND[S.scene] || 'stone');
+    paintSolids(c, sc, pal);
+    sc.portals.forEach(function (p) { drawPlace(c, { x: p.x, y: p.y, kind: 'portal' }); });
+    sc.places.forEach(function (p) { if (p.kind !== 'portal') drawPlace(c, p); });
+    bgDirty = false;
+  }
+  function setupCanvas() {
+    SCALE = Math.max(1, Math.min(2, global.devicePixelRatio || 1));
+    canvas.width = Math.round(VW * SCALE); canvas.height = Math.round(VH * SCALE);
+    bg = document.createElement('canvas');
+    bg.width = canvas.width; bg.height = canvas.height;
+    bgDirty = true;
   }
   function label(text, x, y, hi) {
     ctx.save();
@@ -567,60 +718,76 @@
   }
   function render() {
     var sc = scene(), pal = sc.palette, t = S.t;
-    ctx.fillStyle = pal.sky; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    /* 地面 */
-    for (var y = 0; y < GRID_H; y++) for (var x = 0; x < GRID_W; x++) {
-      ctx.fillStyle = ((x + y) % 2 === 0) ? pal.ground : pal.ground2;
-      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
-    }
-    /* 障碍 */
-    ctx.fillStyle = pal.solid;
-    sc.solids.forEach(function (s) {
-      ctx.fillRect(s[0] * CELL, s[1] * CELL, s[2] * CELL, s[3] * CELL);
-      ctx.fillStyle = 'rgba(255,255,255,.06)';
-      ctx.fillRect(s[0] * CELL, s[1] * CELL, s[2] * CELL, 4);
-      ctx.fillStyle = pal.solid;
-    });
-    /* 出口高亮 */
+    if (ctx.setTransform) ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+    if (bgDirty) bake();
+    ctx.fillStyle = pal.sky; ctx.fillRect(0, 0, VW, VH);
+    if (bg) ctx.drawImage(bg, 0, 0, VW, VH);
+    /* 出口：脉冲高亮 + 标签 */
     sc.portals.forEach(function (p) {
-      ctx.fillStyle = 'rgba(201,162,39,.20)';
+      var pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
+      ctx.fillStyle = 'rgba(201,162,39,' + (0.10 + 0.10 * pulse).toFixed(2) + ')';
       ctx.fillRect((p.x - 1) * CELL, (p.y - 1) * CELL, CELL * 3, CELL * 3);
-      label(p.label || '出口', p.x, p.y, false);
+      label(p.label || '\u51fa\u53e3', p.x, p.y, false);
     });
-    sc.places.forEach(function (p) { drawPlace(p); });
     /* 可交互提示 */
     var near = nearestPlace();
     if (near) { label(near.name, near.x, near.y, true); ctx.fillStyle = '#e0b25c'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('E', near.x * CELL + CELL + 8, near.y * CELL + 26); }
     /* 氛围 */
-    if (sc.ambient === 'night') { ctx.fillStyle = 'rgba(6,10,20,.42)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+    if (sc.ambient === 'night') { ctx.fillStyle = 'rgba(6,10,20,.24)'; ctx.fillRect(0, 0, VW, VH); }
     if (sc.ambient === 'lamp' || sc.ambient === 'night') {
-      var g = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 40, canvas.width / 2, canvas.height / 2, canvas.width * 0.62);
-      g.addColorStop(0, 'rgba(240,196,106,.16)'); g.addColorStop(1, 'rgba(0,0,0,.45)');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      var g = ctx.createRadialGradient(VW / 2, VH / 2, 40, VW / 2, VH / 2, VW * 0.62);
+      g.addColorStop(0, 'rgba(240,196,106,.20)'); g.addColorStop(1, 'rgba(0,0,0,.28)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
     }
     if (sc.ambient === 'fog') {
       for (var i = 0; i < 5; i++) {
-        var fx = ((t * 12 + i * 220) % (canvas.width + 400)) - 200;
+        var fx = ((t * 12 + i * 220) % (VW + 400)) - 200;
         var gg = ctx.createRadialGradient(fx, 120 + i * 110, 10, fx, 120 + i * 110, 230);
         gg.addColorStop(0, 'rgba(210,220,232,.20)'); gg.addColorStop(1, 'rgba(210,220,232,0)');
-        ctx.fillStyle = gg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = gg; ctx.fillRect(0, 0, VW, VH);
       }
     }
-    if (sc.ambient === 'dusk') { ctx.fillStyle = 'rgba(60,30,10,.16)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+    if (sc.ambient === 'dusk') { ctx.fillStyle = 'rgba(60,30,10,.10)'; ctx.fillRect(0, 0, VW, VH); }
     if (sc.ambient === 'wind') {
       ctx.strokeStyle = 'rgba(230,235,240,.18)'; ctx.lineWidth = 2;
       for (var k = 0; k < 7; k++) {
-        var yy = ((t * 90 + k * 97) % canvas.height);
-        ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(canvas.width, yy + 30); ctx.stroke();
+        var yy = ((t * 90 + k * 97) % VH);
+        ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(VW, yy + 30); ctx.stroke();
       }
     }
+    /* 焦点补光：每个可交互点脚下那一圈暖光，画面有落点而不是一片糊 */
+    if (sc.ambient !== 'fog') {
+      sc.places.forEach(function (pl) {
+        if (pl.kind !== 'puzzle' && pl.kind !== 'item' && pl.kind !== 'buy') return;
+        var fx = pl.x * CELL + CELL / 2, fy = pl.y * CELL + CELL / 2;
+        var fg = ctx.createRadialGradient(fx, fy, 4, fx, fy, 58);
+        fg.addColorStop(0, 'rgba(255,206,132,.13)'); fg.addColorStop(1, 'rgba(255,206,132,0)');
+        ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(fx, fy, 58, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+    /* 灯下浮尘：暖场景里慢慢往上飘，画面立刻活一点 */
+    if (sc.ambient === 'lamp' || sc.ambient === 'night' || sc.ambient === 'dusk') {
+      for (var d = 0; d < 30; d++) {
+        var dn = hash(d, 0, 7), dn2 = hash(d, 1, 9);
+        var dxp = (dn * VW + Math.sin(t * 0.6 + d) * 16 + VW) % VW;
+        var dyp = (dn2 * VH - t * (5 + dn * 9) + VH * 8) % VH;
+        var da = 0.08 + 0.20 * (0.5 + 0.5 * Math.sin(t * 1.7 + d * 1.3));
+        ctx.fillStyle = 'rgba(255,214,140,' + da.toFixed(2) + ')';
+        ctx.fillRect(dxp, dyp, 2, 2);
+      }
+    }
+    /* 暗角：视线自然收到中间 */
+    var vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.42, VW / 2, VH / 2, VW * 0.72);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.22)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
     /* 玩家画在氛围之后：之前被夜色/雾蒙版盖住，玩家根本找不到自己（实机反馈） */
     drawSelf(t);
   }
 
   /* 「我在哪儿」：光晕 + 呼吸圈 + 头顶小箭头，怎么都能一眼看到 */
   function drawSelf(t) {
-    var cx = S.tx * CELL + CELL / 2, cy = S.ty * CELL + CELL / 2;
+    var mv = Math.abs(S.tx - S.mx) + Math.abs(S.ty - S.my);
+    var cx = S.mx * CELL + CELL / 2, cy = S.my * CELL + CELL / 2;
     var pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
     var ring = ctx.createRadialGradient(cx, cy, 2, cx, cy, 30 + pulse * 6);
     ring.addColorStop(0, 'rgba(255,232,170,' + (0.30 + 0.12 * pulse).toFixed(2) + ')');
@@ -630,7 +797,7 @@
     ctx.strokeStyle = 'rgba(255,226,150,' + (0.35 + 0.25 * pulse).toFixed(2) + ')';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(cx, cy + 12, 13 + pulse * 2, 5 + pulse, 0, 0, Math.PI * 2); ctx.stroke();
-    drawFigure(S.tx, S.ty, '#f3ead6', S.face);
+    drawFigure(ctx, S.mx, S.my, '#f3ead6', S.face, mv > 0.02 ? Math.abs(Math.sin(t * 11)) * 1.8 : 0);
     var bob = Math.sin(t * 3.4) * 2;
     ctx.fillStyle = 'rgba(255,228,150,.9)';
     ctx.beginPath();
@@ -645,21 +812,34 @@
     if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) $('scene-banner').classList.remove('on'); }
     if (moveCd > 0) moveCd -= dt;
     if (portalCd > 0) portalCd -= dt;
-    if (S.mt > 0) {
-      S.mt -= dt;
-      if (S.mt <= 0) { S.x = S.tx; S.y = S.ty; S.mt = 0; onArrive(); }
-    } else {
-      /* 站在出口上就换场景（不是只在"刚走完一步"那瞬间才判） */
-      if (portalCd <= 0 && !modalOpen && !dlg) {
-        var pp = D.portalAt(S.scene, S.x, S.y);
-        if (pp) { enterScene(pp.to, pp.tx, pp.ty); return; }
+    /* 平滑位移：mx/my 是"眼睛看到的位置"（浮点格坐标），x/y 是"落定的格子"。
+       走到格心才落定并判出口 —— 之前是每 0.14 秒整格瞬移，实机看就是一下下跳。 */
+    var mdx = S.tx - S.mx, mdy = S.ty - S.my;
+    var dist = Math.abs(mdx) + Math.abs(mdy);
+    if (dist > 0.0001) {
+      var step = MOVE_SPEED * dt;
+      if (step >= dist) {
+        S.mx = S.tx; S.my = S.ty; S.x = S.tx; S.y = S.ty; S.mt = 0;
+        var scBefore = S.scene;
+        onArrive();
+        if (S.scene !== scBefore) return;
+      } else {
+        S.mx += mdx / dist * step; S.my += mdy / dist * step;
       }
-      if (!modalOpen && !dlg && !$('dev-panel').classList.contains('show') && !$('end-modal').classList.contains('show')) {
-        var dx = 0, dy = 0;
-        if (keys.left) dx = -1; else if (keys.right) dx = 1;
-        else if (keys.up) dy = -1; else if (keys.down) dy = 1;
-        if ((dx || dy) && moveCd <= 0) tryMove(dx, dy);
-      }
+    }
+    /* 站在出口上就换场景（不是只在"刚走完一步"那瞬间才判） */
+    if (portalCd <= 0 && !modalOpen && !dlg) {
+      var pp = D.portalAt(S.scene, S.x, S.y);
+      if (pp) { enterScene(pp.to, pp.tx, pp.ty); return; }
+    }
+    if (!modalOpen && !dlg && !$('dev-panel').classList.contains('show') && !$('end-modal').classList.contains('show')) {
+      var dx = 0, dy = 0;
+      if (keys.left) dx = -1; else if (keys.right) dx = 1;
+      else if (keys.up) dy = -1; else if (keys.down) dy = 1;
+      /* 到格心才接下一步：按住时零停顿地连成滑行，轻点则精确只走一格。
+         （提前接步会让"点一下"多滑一两格，手感发飘——测试⑤就是这么抓出来的） */
+      var remain = Math.abs(S.tx - S.mx) + Math.abs(S.ty - S.my);
+      if ((dx || dy) && moveCd <= 0 && remain < 0.05) tryMove(dx, dy);
     }
   }
   function tryMove(dx, dy) {
@@ -673,7 +853,7 @@
       if (hit) { interact(); }
       return;
     }
-    S.tx = nx; S.ty = ny; S.mt = 0.16; moveCd = 0.14;
+    S.tx = nx; S.ty = ny; moveCd = 0.02;   /* 位移本身由 update 按速度推进 */
     sfx('click');
   }
   function onArrive() {
@@ -834,6 +1014,8 @@
 
   function boot() {
     canvas = $('world'); ctx = canvas.getContext('2d');
+    setupCanvas();
+    window.addEventListener('resize', function () { setupCanvas(); });
     var q = global.location && global.location.search || '';
     if (q.indexOf('fresh=1') >= 0) { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } }
     S = load() || freshState();
@@ -900,7 +1082,7 @@
       S: S, D: D, api: {
         enter: enterScene, flag: markFlag, solve: solvePuzzle, ending: ending, say: say,
         get state() { return S; }, interact: interact, modalOpen: function () { return modalOpen; },
-        setPos: function (x, y) { S.x = S.tx = x; S.y = S.ty = y; S.mt = 0; }
+        setPos: function (x, y) { S.x = S.tx = x; S.y = S.ty = y; S.mx = x; S.my = y; S.mt = 0; }
       }
     };
   }
