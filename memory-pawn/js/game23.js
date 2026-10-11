@@ -828,9 +828,9 @@
     }).join('') || '<div class="arc-lock">还没有发生什么。</div>';
   }
   /* 任务页只回答一件事：**现在我该干什么**。
-     以前把五幕 46 条一次摊开 —— 后面的幕次既剧透又干扰，看到的是目录不是待办。
-     现在：只列当前这一幕还没做的（下一条主线顶在"现在"），本幕了掉的一行带过，
-     过去几幕只留一行账；**后面几幕的标题一个字都不出现**（有测试钉着）。 */
+     口径改过两回：① 以前把五幕 46 条一次摊开 —— 后面的幕次既剧透又干扰，看到的是目录不是待办；
+     ② 2026-10-11 用户拍板「只显示目前要做的是什么」：同幕其余项**标题和线索都不再列**，
+        只留一行报数（另有 N 项在雾里）。**后面几幕的标题一个字都不出现**（有测试钉着）。 */
   function refreshTasks() {
     var p = $('pane-tasks'); if (!p) return;
     var list = D.tasksOfAct(S.act);
@@ -845,11 +845,10 @@
         (legList(next).length ? ('<div class="leg-route">路线：' + legRoute(next) +
           (legAt(next) ? '<br>这一段：' + legHintOf(next) : '') + '</div>') : '') + '</div>';
     }
-    todo.filter(function (t) { return !next || t.id !== next.id; }).forEach(function (t) {
-      html += '<div class="arc-item">' + (t.kind === 'main' ? '◆ ' : '○ ') + '<b>' + t.title + '</b>' + t.brief +
-        '<br><span style="color:var(--dim)">线索：' + t.hint + '</span>' +
-        (legList(t).length ? ('<div class="leg-route">路线：' + legRoute(t) + '</div>') : '') + '</div>';
-    });
+    /* 同幕其余项：只报数，不列标题、不列线索（列出来就是一张目录，不是"现在该干什么"） */
+    var rest = todo.filter(function (t) { return !next || t.id !== next.id; });
+    if (rest.length) html += '<div class="arc-item" style="color:var(--dim)">另有 ' + rest.length +
+      ' 项在雾里 —— 不摊开，只报个数。</div>';
     if (!todo.length) html += '<div class="arc-item">这一幕该做的都做了 —— 往前走，下一幕自己会来。</div>';
     if (done.length) {
       html += '<div class="arc-h">本幕已了（' + done.length + '）</div>' + done.map(function (t) {
