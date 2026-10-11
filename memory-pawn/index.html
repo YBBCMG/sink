@@ -398,6 +398,11 @@
   .sl-cell { width: 38px !important; height: 38px !important; }
 }
 /* 手机：弹窗（对话/谜题）打开时收起触屏控件——实测 375 宽下面板会被方向盘压住半格网格 */
+/* 「记」面板：这是游戏的名字所在 —— 当出去的记，正文在你这里就是空的 */
+.mem-tag { display: inline-block; min-width: 42px; color: #f0c060; font-weight: 700; margin-right: 6px; }
+.mem-w { color: #9aa4c8; font-size: 12px; margin-left: 6px; }
+.mem-blank { color: #6f7896; font-style: italic; }
+.arc-item.locked .mem-tag { color: #8a7f66; }
 body.mp-modal #dpad,
 body.mp-modal #btn-e { display: none !important; }
 #m-btns button { min-height: 44px; }   /* 触屏可点面积 */
@@ -552,11 +557,13 @@ body.mp-modal #btn-e { display: none !important; }
       <section id="panel-sec" style="flex:1; min-height:220px;">
         <div id="tabs">
           <button id="tab-log" class="on">日志</button>
+          <button id="tab-mem">记</button>
           <button id="tab-tasks">任务</button>
           <button id="tab-album">相簿</button>
           <button id="tab-archive">世界档案</button>
         </div>
         <div id="pane-log" class="pane on"></div>
+        <div id="pane-mem" class="pane"></div>
         <div id="pane-tasks" class="pane"></div>
         <div id="pane-album" class="pane"></div>
         <div id="pane-archive" class="pane"></div>
