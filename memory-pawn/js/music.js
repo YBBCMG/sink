@@ -9,8 +9,11 @@
   var LOOP_DEF = 32;                 // 默认 8 小节 × 4 拍
   var AHEAD = 0.3;                   // 提前调度秒数
   var TICK_MS = 50;
-  var MASTER_V = 0.7;                // master 增益（dip 渐出后回升到同一值）
-  var MEL_V = 0.14, BASS_V = 0.11;   // 旋律/低音单音音量（v18 调大：原 0.062/0.05 太轻）
+  var MASTER_V = 0.85;               // master 增益（dip 渐出后回升到同一值）
+  var MEL_V = 0.24, BASS_V = 0.17;   // 旋律/低音单音音量
+  /* 音量沿革：v18 原值 0.062/0.05 → v18 调大 0.14/0.11（master 0.7）
+     → v20 再调大 0.24/0.17（master 0.85）：旋律峰值 0.098 → 0.204（约 +6.4 dB）
+     上限依据：mel 最长 2 拍、相邻两音最多重叠 2 个，加低音 1 个 ⇒ 峰值 ≈ 0.85×(0.24×2+0.17) = 0.55 < 1.0，不削波 */
 
   /* ---------- 音色 ---------- */
   function freq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
@@ -58,7 +61,6 @@
   }
 
   /* ---------- 曲目库（[beat, midi, durBeats, vol?]；LOOP 拍循环） ---------- */
-  var MEL_V, BASS_V;
   var TRACKS = {
     /* 序章 · 雾夜八音盒（A 小，60） */
     prologue: { bpm: 60, loop: 32, mel: [
