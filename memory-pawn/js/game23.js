@@ -995,14 +995,19 @@
         c.beginPath(); c.ellipse(dx2, py - 0.6, 4.6, 1.7, 0, 0, Math.PI * 2); c.fill();
       }
     } else if (kind === 'stele') {
-      /* 名字碑：石面 + 刻痕 + 底座 */
-      shadowUnder(c, px, py + 15, 11, 4.5);
-      slab(c, px - 10, py - 17, 20, 32, '#3b3f45');
-      c.fillStyle = 'rgba(255,255,255,.06)'; c.fillRect(px - 10, py - 17, 4, 32);
-      c.fillStyle = '#2b2620'; c.fillRect(px - 6.5, py - 13, 13, 24);
-      c.strokeStyle = 'rgba(232,222,198,.55)'; c.lineWidth = 0.8;
-      for (i = 0; i < 4; i++) { c.beginPath(); c.moveTo(px - 4.5, py - 10 + i * 5); c.lineTo(px + 4.5, py - 10 + i * 5); c.stroke(); }
-      softGlow(c, px, py - 2, 20, warm, lit ? 0.16 : 0.07);
+      /* 名字碑：石面 + 刻痕 + 底座；石板得亮一档 —— 史馆那张深色底上
+         原来的 #3b3f45 几乎看不见（2026-10-11 视觉复核抓到的）。 */
+      shadowUnder(c, px, py + 15, 12, 5);
+      slab(c, px - 8, py + 11, 16, 6, '#5d646c');
+      slab(c, px - 11, py - 18, 22, 30, '#79828d');
+      c.fillStyle = 'rgba(255,255,255,.16)'; c.fillRect(px - 11, py - 18, 5, 30);
+      c.fillStyle = 'rgba(28,26,22,.55)'; c.fillRect(px + 5, py - 18, 6, 30);
+      c.fillStyle = '#8d959e'; c.fillRect(px - 7.5, py - 14, 15, 23);
+      c.strokeStyle = 'rgba(40,36,28,.75)'; c.lineWidth = 0.9;
+      for (i = 0; i < 4; i++) { c.beginPath(); c.moveTo(px - 5.5, py - 11 + i * 5); c.lineTo(px + 5.5, py - 11 + i * 5); c.stroke(); }
+      c.fillStyle = 'rgba(236,228,204,.7)';
+      c.fillRect(px - 5.5, py - 11, 11, 1); c.fillRect(px - 3.5, py - 6, 7, 1);
+      softGlow(c, px, py - 2, 22, warm, lit ? 0.22 : 0.12);
     } else {
       /* 通用谜题：石台 + 记忆的光 */
       shadowUnder(c, px, py + 14, 12, 5);
