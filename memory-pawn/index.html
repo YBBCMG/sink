@@ -365,6 +365,18 @@
 #scene-banner.on { opacity: 1; }
 #scene-banner small { display: block; font-size: 11px; letter-spacing: 1px; color: var(--dim, #8b8b8b); margin-top: 2px; }
 
+/* 幕间卡：换一幕的时候得让玩家知道"进新的一幕了"（以前只有场景横幅，看不出换了幕） */
+#act-card {
+  position: absolute; left: 0; right: 0; top: 33%; text-align: center; pointer-events: none;
+  opacity: 0; transition: opacity .55s ease; z-index: 7;
+}
+#act-card.on { opacity: 1; }
+#act-card .ac-no { font-size: 12px; letter-spacing: 7px; color: var(--gold2, #e0b25c); }
+#act-card .ac-name { font-size: 30px; letter-spacing: 6px; color: #f4ecd8; margin: 4px 0 7px;
+  text-shadow: 0 2px 20px #000, 0 0 30px rgba(240,196,106,.30); }
+#act-card .ac-line { font-size: 13px; color: #cec4ae; letter-spacing: 1px; text-shadow: 0 2px 12px #000; }
+#act-card .ac-rule { height: 1px; margin: 9px 22%; background: linear-gradient(90deg, transparent, rgba(201,162,39,.65), transparent); }
+
 /* 通用谜题控件 */
 .pz-tip { font-size: 12.5px; color: var(--dim, #9a9a9a); margin: 2px 0 8px; }
 .pz-clue { font-size: 12.5px; color: var(--gold2, #e0b25c); background: var(--panel2, #221c14);
@@ -490,6 +502,11 @@ body.mp-modal #btn-e { display: none !important; }
 .arc-item b { color: var(--gold2, #e0b25c); margin-right: 6px; }
 .arc-item.locked { color: var(--dim, #6c6c6c); border-style: dashed; }
 .arc-lock { text-align: center; color: var(--dim, #9a9a9a); font-size: 13px; padding: 30px 10px; }
+/* 任务页：现在要干的那一件顶在最上面，后面几幕不出现 */
+.arc-item.task-now { border-color: var(--gold, #c9a227); background: linear-gradient(180deg, rgba(201,162,39,.15), rgba(201,162,39,.03)); }
+.tn-tag { display: inline-block; font-size: 11px; color: #241d08; background: var(--gold2, #e0b25c); border-radius: 4px; padding: 0 5px; margin-right: 6px; }
+.arc-item.done-line { color: var(--dim, #9a9a9a); background: none; border-style: dashed; padding: 3px 10px; }
+.arc-note { text-align: center; color: var(--dim, #9a9a9a); font-size: 12px; line-height: 1.8; padding: 10px 6px; }
 
 </style>
 </head>
@@ -513,6 +530,7 @@ body.mp-modal #btn-e { display: none !important; }
     <div id="world-wrap">
       <canvas id="world" width="960" height="672"></canvas>
       <div id="scene-banner"></div>
+      <div id="act-card"></div>
       <div id="toast"></div>
       <div id="touch-ui" aria-hidden="true">
         <div id="dpad">
@@ -572,10 +590,10 @@ body.mp-modal #btn-e { display: none !important; }
   </main>
   <div id="footer-tips">WASD / 方向键 走动 · E 互动 · 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式</div>
 </div>
-<script src="js/story23.js?v=24"></script>
-<script src="js/audio.js?v=24"></script>
-<script src="js/music.js?v=24"></script>
-<script src="js/puzzles23.js?v=24"></script>
-<script src="js/game23.js?v=24"></script>
+<script src="js/story23.js?v=25"></script>
+<script src="js/audio.js?v=25"></script>
+<script src="js/music.js?v=25"></script>
+<script src="js/puzzles23.js?v=25"></script>
+<script src="js/game23.js?v=25"></script>
 </body>
 </html>
