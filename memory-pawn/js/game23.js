@@ -2760,7 +2760,9 @@
     c.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     c.clearRect(0, 0, VW, VH);
     var sc = scene(), pal = sc.palette;
-    paintGround(c, pal, GROUND[S.scene] || 'stone');
+    /* 地面画法：v31.1 起也交给 art31.js（硬边像素铺法 + 2×2 抖），
+       没加载到就回退本文件的老画法（渐变 + strokeRect）。 */
+    (typeof ART31 !== 'undefined' && ART31 && ART31.paintGround ? ART31.paintGround : function (cc, s2, p2) { paintGround(cc, p2, GROUND[s2.id] || 'stone'); })(c, sc, pal);
     /* 建筑画法：v31 起交给 art31.js（硬边像素、每栋专属形制）。
        没加载到 art31（或它半路炸了）就自动回退本文件的老画法，绝不白屏。 */
     (typeof ART31 !== 'undefined' && ART31 && ART31.paintSolids ? ART31.paintSolids : paintSolids)(c, sc, pal);
