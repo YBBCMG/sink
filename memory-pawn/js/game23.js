@@ -24,6 +24,7 @@
     return {
       scene: 'lighthouse', x: 3, y: 12, tx: 3, ty: 12, mt: 0, face: 1, mx: 3, my: 12,
       act: 1, maxAct: 1, gold: 0, flags: {}, photos: {}, tasks: {}, mem: D.mem23Fresh(), scrolls: 0,
+      legs: {}, oil: 2,          /* legs：跑腿走到第几段；oil：灯油罐数（反制用） */
       caught: {}, log: [], seen: {}, ended: null, cleared: false,
       pawned: 0, redeemed: 0, helped: [], introDone: false, t: 0, name: ''
     };
@@ -34,7 +35,8 @@
   }
   function pack() {
     return { v: 23, scene: S.scene, x: S.x, y: S.y, act: S.act, maxAct: S.maxAct, gold: S.gold,
-      flags: S.flags, photos: S.photos, tasks: S.tasks, mem: S.mem, scrolls: S.scrolls, caught: S.caught, log: S.log.slice(-200),
+      flags: S.flags, photos: S.photos, tasks: S.tasks, mem: S.mem, scrolls: S.scrolls, caught: S.caught,
+      legs: S.legs || {}, oil: S.oil == null ? 2 : S.oil, log: S.log.slice(-200),
       seen: S.seen, ended: S.ended, cleared: S.cleared, pawned: S.pawned, redeemed: S.redeemed,
       helped: S.helped, introDone: S.introDone, t: Math.round(S.t) };
   }
@@ -156,6 +158,7 @@
       var open = (D.TEXT.actOpen && D.TEXT.actOpen[act]) || [];
       if (open.length) say(open, null);
       music('m' + Math.min(act, 5));
+      S.oil = (S.oil || 0) + 1;      /* 新的一幕：柜上再给一罐灯油 */
     } else {
       S.act = Math.max(S.act, act);
     }
@@ -167,8 +170,76 @@
       if (mobN && !(opts && opts.silent)) addLog('雾里有东西在爬 —— ' + mobN + ' 只。它们咬不走钱，只咬记。');
     }
     syncThreat();
+    runLegs();                    /* 跑腿任务：进对场景就算走到那一段 */
     dirty.hud = 1; dirty.tasks = 1;
     save();
+  }
+
+  /* ---------- 跑腿：任务要跨场景来回跑 ---------- */
+  /* 一条腿 = { scene, flag?, hint }：
+     没有 flag 的腿 = "到那个场景就算走到"（回程腿常这么写）；
+     有 flag 的腿 = "得在那个场景里，那件事真的办了"。顺序硬性，走完才结算。 */
+  function legList(t) { return (t && t.legs) || []; }
+  function legAt(t) { var k = (S.legs && S.legs[t.id]) || 0; return k < legList(t).length ? legList(t)[k] : null; }
+  function legSceneName(sid) { var sc = D.SCENES[sid]; return sc ? sc.name : sid; }
+  function legHintOf(t) { var lg = legAt(t); return lg ? ((lg.hint || '') + (lg.scene ? '（' + legSceneName(lg.scene) + '）' : '')) : ''; }
+  function legRoute(t) {
+    var k = (S.legs && S.legs[t.id]) || 0;
+    return legList(t).map(function (lg, i) {
+      var mark = i < k ? '✓' : (i === k ? '●' : '○');
+      return mark + ' ' + legSceneName(lg.scene);
+    }).join(' → ');
+  }
+  function runLegs(quiet) {
+    if (!S.legs) S.legs = {};
+    var changed = false;
+    D.TASKS.forEach(function (t) {
+      if (!legList(t).length) return;
+      var k = S.legs[t.id] || 0, moved = false;
+      while (k < t.legs.length) {
+        var lg = t.legs[k];
+        var here = !lg.scene || lg.scene === S.scene;
+        var done = !lg.flag || !!S.flags[lg.flag];
+        if (here && done) { k++; moved = true; } else break;
+      }
+      if (moved) {
+        S.legs[t.id] = k; changed = true;
+        if (k < t.legs.length) {
+          var nx = t.legs[k];
+          if (!quiet) toast('差事推进 · ' + t.title + '：接着去 ' + legSceneName(nx.scene) + (nx.hint ? '（' + nx.hint + '）' : ''));
+          addLog('… 跑腿：' + t.title + ' 走到第 ' + k + '/' + t.legs.length + ' 段');
+        }
+      }
+      /* 纯跑腿任务（errand）：走完整条路线，这条差事就算办成 —— 旗标从路上来。
+         其余"跑腿 + 办事"的任务：路线只是路，事还得真办（旗标由别处给）。 */
+      if (k >= t.legs.length && t.errand && !S.flags[t.flag]) {
+        S.flags[t.flag] = 1; changed = true; runDerived();
+      }
+      /* 事办完了 + 路线走完了 → 任务才算完成 */
+      if (k >= t.legs.length && S.flags[t.flag] && !S.tasks[t.id]) {
+        S.tasks[t.id] = 1; changed = true;
+        toast('任务完成 · ' + t.title);
+        addLog('✓ 任务完成：' + t.title + '（跑完 ' + t.legs.length + ' 段：' + legRoute(t) + '）');
+        sfx('open');
+      }
+    });
+    if (changed) { dirty.hud = 1; dirty.tasks = 1; save(); }
+    return changed;
+  }
+
+  /* ---------- 反制：泼灯油（定住十几秒，圈里圈外都算）---------- */
+  var OIL_R = 5.4, OIL_T = 15, OIL_PRICE = 2;
+  function pourOil() {
+    if (!global.MOBS23) return 0;
+    if ((S.oil || 0) <= 0) { toast('灯油见底了 —— 记当铺柜台有卖（' + OIL_PRICE + ' 枚一罐）。'); return 0; }
+    S.oil--;
+    var n = global.MOBS23.oil(S.mx, S.my, OIL_R, OIL_T);
+    sfx('open');
+    addLog('泼了一罐灯油 —— 雾里的东西定住了 ' + OIL_T + ' 秒。');
+    toast(n ? ('灯油泼下去：' + n + ' 只被定住 ' + OIL_T + ' 秒，动不了也吐不出。')
+            : ('地上亮起一摊灯油 —— ' + OIL_T + ' 秒内它不敢踩进来。'));
+    dirty.hud = 1; save();
+    return n || 1;
   }
 
   /* ---------- 记忆损伤（这一轮的新玩法）---------- */
@@ -189,6 +260,28 @@
     return out;
   }
   function fixCost(hurt) { return 2 * Math.max(1, hurt || 1); }
+  /* 记一旦不在身上（被咬 / 当出去），就不该再有地方放着它的正文。
+     实测漏在"日志"里：咬完那一行把整段原文抄了一遍，玩家点开日志就能读完 —— 等于白咬。
+     柜台那份是当铺替你收着的（规则允许）；日志是"你经历过的记录"，缺字就得是缺字。 */
+  function memGone(m) {
+    var st = S.mem[m.id] || {};
+    return st.state !== 'held' || (st.hurt || 0) > 0;
+  }
+  function purgeMemLog() {
+    var cut = 0;
+    S.log = (S.log || []).filter(function (l) {
+      var raw = (l && l.raw) || '', bad = false;
+      D.MEM23.forEach(function (m) {
+        if (bad || !m.text || !memGone(m)) return;
+        /* 整段命中，或者前 12 个字命中 —— 抄一半的日志同样得走 */
+        if (raw.indexOf(m.text) >= 0 || (m.text.length > 12 && raw.indexOf(m.text.slice(0, 12)) >= 0)) bad = true;
+      });
+      if (bad) cut++;
+      return !bad;
+    });
+    if (cut) dirty.log = 1;
+    return cut;
+  }
   function damageMemory(n, why) {
     n = n || 1;
     var hitList = [];
@@ -209,11 +302,13 @@
       st2.hurt = (st2.hurt || 0) + 1;
       if (st2.hurt >= 2) st2.state = 'spoiled';
       hitList.push(v);
-      addLog('被咬掉一口：' + v.tag + ' —— ' + v.text);
+      /* 日志里只留"哪一段被咬"——正文一个字都不抄（抄了，玩家翻日志就能把整段读回来） */
+      addLog('被咬掉一口：' + v.tag + ' —— ' + (st2.state === 'spoiled' ? '整段散了，接不起来。' : '缺了几个字，补得回来。'));
     }
     if (hitList.length) {
       var v2 = hitList[0], now = S.mem[v2.id];
       jolt(0.5);
+      purgeMemLog();                                   /* 之前抄进日志的正文，一并抹掉 */
       toast(now.state === 'spoiled'
         ? '咬碎了一段记：' + v2.tag + '。接不起来了 —— 记当铺柜台能补。'
         : '被咬掉一口：' + v2.tag + '，缺了字。补得回来（记当铺柜台）。');
@@ -297,12 +392,18 @@
     if (!flag || S.flags[flag]) return;
     S.flags[flag] = 1;
     runDerived();
+    var pending = [];
     var hit = D.TASKS.filter(function (t) { return t.flag === flag; });
     hit.forEach(function (t) {
+      if (legList(t).length && ((S.legs && S.legs[t.id]) || 0) < t.legs.length) { pending.push(t); return; }
       S.tasks[t.id] = 1;
       toast('任务完成 · ' + t.title);
       addLog('✓ 任务完成：' + t.title + '（' + t.brief + '）');
       sfx('open');
+    });
+    runLegs(true);                 /* 事办完了 + 路线走完了，就在这一下结算 */
+    pending.forEach(function (t) {
+      if (!S.tasks[t.id]) toast('事办好了 · ' + t.title + ' —— 可这趟差事还没跑完：' + legHintOf(t));
     });
     var opened = doorsOpenedBy(flag);
     if (opened.length) { toast('门开了 · ' + opened.join('、')); addLog('门开了：' + opened.join('、')); }
@@ -382,6 +483,15 @@
     try { if (global.PUZZLES23 && global.PUZZLES23.onModalClose) global.PUZZLES23.onModalClose(); } catch (e) { /* ignore */ }
   }
   function modalBody() { return $('m-body'); }
+  /* 面板（谜题/柜台/日志）开着被咬：画布上的抽搐被面板挡着看不见，抖的得是面板自己 */
+  function biteFlash() {
+    if (!modalOpen) return;
+    var el = $('m-card'); if (!el) return;
+    el.classList.remove('mp-bite');
+    void el.offsetWidth;                       /* 强制重排：连着被咬两次也要各抖一下 */
+    el.classList.add('mp-bite');
+    setTimeout(function () { el.classList.remove('mp-bite'); }, 520);
+  }
 
   /* ---------- 交互 ---------- */
   function nearestPlace() {
@@ -481,6 +591,9 @@
         return '<div class="arc-item"><b>' + m.id + '</b>' + m.text + '<br>' +
           '<button class="pz-btn" data-redeem="' + m.id + '">赎回（−' + m.w + '）</button></div>';
       }).join('') || '<div class="arc-lock">账上没有押着东西。</div>';
+      html += '<div class="arc-h">灯油（' + (S.oil == null ? 2 : S.oil) + ' 罐）—— 泼一罐，雾里的东西定住 15 秒</div>';
+      html += '<div class="arc-item">柜上有灯油卖：' + OIL_PRICE + ' 枚一罐。<br>' +
+        '<button class="pz-btn" data-buyoil="1">买一罐（−' + OIL_PRICE + '）</button></div>';
       var hurtList = damagedMem();
       html += '<div class="arc-h">缺字 / 碎了的（' + hurtList.length + '）—— 补记要付当金</div>';
       html += hurtList.map(function (m) {
@@ -505,21 +618,31 @@
           var id = el.getAttribute('data-pawn'), m = D.mem23ById(id);
           S.mem[id].state = 'pawned'; S.mem[id].pawns++;
           S.gold += m.w; sfx('coin');
-          addLog('当掉了：' + m.text + '（+' + m.w + ' 枚）');
-          toast('当掉 · ' + m.id + '（+' + m.w + '）');
+          addLog('当掉了：' + m.tag + '（+' + m.w + ' 枚）');
+          purgeMemLog();
+          toast('当掉 · ' + m.tag + '（+' + m.w + '）');
           markFlag('first_pawn'); dirty.hud = 1; dirty.mem = 1; save(); render();
+        };
+      });
+      b.querySelectorAll('[data-buyoil]').forEach(function (el) {
+        el.onclick = function () {
+          if (S.gold < OIL_PRICE) { toast('当金不够 —— 一罐灯油 ' + OIL_PRICE + ' 枚。'); return; }
+          S.gold -= OIL_PRICE; S.oil = (S.oil || 0) + 1; sfx('coin');
+          addLog('买了一罐灯油。'); toast('灯油 +1（共 ' + S.oil + ' 罐）');
+          dirty.hud = 1; save(); render();
         };
       });
       b.querySelectorAll('[data-fix]').forEach(function (el) {
         el.onclick = function () {
           var id = el.getAttribute('data-fix'), st3 = S.mem[id], h3 = st3.hurt || 2, cost3 = fixCost(h3);
+          var m3 = D.mem23ById(id);
           if (S.gold < cost3) { toast('补记要 ' + cost3 + ' 枚当金 —— 不够。'); return; }
           S.gold -= cost3; st3.hurt = h3 - 1;
           if (st3.hurt < 2 && st3.state === 'spoiled') st3.state = 'held';
           if (st3.hurt <= 0) st3.hurt = 0;
           sfx('coin'); dirty.hud = 1; dirty.mem = 1; save();
-          addLog('补回来一段：' + id);
-          toast(st3.hurt ? ('补回一半：还缺 ' + st3.hurt + ' 处字。') : ('补好了：' + id + ' 又在身上了。'));
+          addLog('补回来一段：' + ((m3 && m3.tag) || id));
+          toast(st3.hurt ? ('补回一半：还缺 ' + st3.hurt + ' 处字。') : ('补好了：' + ((m3 && m3.tag) || id) + ' 又在身上了。'));
           render();
         };
       });
@@ -617,7 +740,9 @@
     $('hud-album').textContent = n + '/4';
     var bar = $('hud-album-bar'); if (bar) bar.style.width = Math.round(n / 4 * 100) + '%';
     var nt = nextMainTask();
-    $('hud-goal').textContent = nt ? nt.title : '都做完了';
+    var lg = nt ? legHintOf(nt) : '';
+    $('hud-goal').textContent = nt ? (nt.title + (lg ? ' · ' + lg : '')) : '都做完了';
+    var ho = $('hud-oil'); if (ho) ho.textContent = (S.oil == null ? 2 : S.oil);
     var hw = $('hud-hurt-wrap'), hn = damagedMem().length;
     if (hw) {
       hw.style.display = hn ? '' : 'none';
@@ -644,11 +769,14 @@
     var html = '<div class="arc-h">第 ' + S.act + ' 幕 · 现在（还差 ' + todo.length + ' 项）</div>';
     if (next) {
       html += '<div class="arc-item task-now"><span class="tn-tag">现在</span><b>' + next.title + '</b>' + next.brief +
-        '<br><span style="color:var(--dim)">线索：' + next.hint + '</span></div>';
+        '<br><span style="color:var(--dim)">线索：' + next.hint + '</span>' +
+        (legList(next).length ? ('<div class="leg-route">路线：' + legRoute(next) +
+          (legAt(next) ? '<br>这一段：' + legHintOf(next) : '') + '</div>') : '') + '</div>';
     }
     todo.filter(function (t) { return !next || t.id !== next.id; }).forEach(function (t) {
       html += '<div class="arc-item">' + (t.kind === 'main' ? '◆ ' : '○ ') + '<b>' + t.title + '</b>' + t.brief +
-        '<br><span style="color:var(--dim)">线索：' + t.hint + '</span></div>';
+        '<br><span style="color:var(--dim)">线索：' + t.hint + '</span>' +
+        (legList(t).length ? ('<div class="leg-route">路线：' + legRoute(t) + '</div>') : '') + '</div>';
     });
     if (!todo.length) html += '<div class="arc-item">这一幕该做的都做了 —— 往前走，下一幕自己会来。</div>';
     if (done.length) {
@@ -2801,6 +2929,7 @@
   function keydown(e) {
     var k = keyNameOf(e);
     if (k === '`' || k === 'F2') { toggleDev(); e.preventDefault(); return; }
+    if (k === 'f' || k === 'F') { pourOil(); e.preventDefault(); return; }   /* 面板开着也能泼 */
     if (modalOpen) {
       if (k === 'Escape') { closeModal(); }
       if (k === 'Enter' || k === 'e' || k === 'E') {
@@ -2917,6 +3046,8 @@
   /* ---------- 启动 ---------- */
   var GAME = { booted: false, get S() { return S; }, D: D, fresh: freshState, pack: pack, solvePuzzle: solvePuzzle, PHOTO_RULES: PHOTO_RULES, SCENE_FLAG: SCENE_FLAG, DERIVED: DERIVED, interact: interact, markFlag: markFlag, forceClose: forceClose, dlgOpen: function () { return !!dlg; }, artOf: artOf, gatePlan: gatePlan, PLACE_ART: PLACE_ART, GATE_STYLE: GATE_STYLE,
     damageMemory: damageMemory, puzzleWrong: puzzleWrong, puzzleSolved: puzzleSolved,
+    pourOil: pourOil, runLegs: runLegs, legAt: legAt, legHintOf: legHintOf, legRoute: legRoute,
+    OIL: { r: OIL_R, t: OIL_T, price: OIL_PRICE },
     memHurt: memHurt, damagedMem: damagedMem, fuzzyText: fuzzyText, fixCost: fixCost,
     jolt: jolt, lightTiles: lightTiles, MOBS: function () { return global.MOBS23 || null; },
     QUALITY: { scaleCap: SCALE_CAP, scale: function () { return SCALE; }, setup: setupCanvas, amb: AMB, ambOf: ambOf, VW: VW, VH: VH } };
@@ -2929,6 +3060,7 @@
     var q = global.location && global.location.search || '';
     if (q.indexOf('fresh=1') >= 0) { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } }
     S = load() || freshState();
+    purgeMemLog();     /* 老存档里已经抄进日志的正文，进游戏就先抹一次 */
     endingRun = endingsRun();
     window.addEventListener('keydown', keydown);
     window.addEventListener('keyup', keyup);
@@ -2997,6 +3129,9 @@
     };
   }
   function loadFrom(o) {
+    /* 老存档没有这两个字段：补默认，别让跑腿任务 / 灯油变成 undefined */
+    S.legs = (o && o.legs) || {};
+    S.oil = (o && o.oil == null) ? 2 : o.oil;
     var s = freshState();
     Object.keys(o).forEach(function (k) { if (k in s) s[k] = o[k]; });
     return s;
@@ -3031,8 +3166,10 @@
         player: function () { return { x: S.mx, y: S.my }; },
         solid: function (x, y) { return solid(x, y); },
         shadow: shadowUnder,
+        panelOpen: function () { return modalOpen; },      /* 面板开着：怪敢进灯圈、敢隔着面板咬 */
         hit: function (K, how) {
           toast((how === 'touch' ? K.name + '贴上来摸了你一下' : K.name + '朝你吐了一口') + ' —— 咬走一段记。');
+          biteFlash(K);                                    /* 面板挡着看不见画布：抖一下面板本身 */
           damageMemory(1, 'mob:' + K.id);
         },
         wake: function (K) { addLog('雾里抬头了：' + K.name); toast('雾里抬头了：' + K.name + '。它在往你这边挪 —— 灯下它不敢进。'); },
