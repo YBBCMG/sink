@@ -601,27 +601,27 @@
     { id: 't5', act: 1, kind: 'main', title: '守满一夜', brief: '把灯号敲对，让灯亮过第一百分钟。', flag: 'lampcode_ok', hint: '礁石刻痕 + 抄本 = 灯号的次序。' },
     { id: 't47', act: 1, kind: 'main', title: '九宫灯阵', brief: '把灯阵全按亮——按一盏，它和上下左右一起翻。', flag: 'lights_ok', hint: '灯台二层铁架子上的九盏信号灯。' },
     /* 幕二 */
-    { id: 't6', act: 2, kind: 'main', title: '进镇', brief: '下镇，找到记当铺。', flag: 'town_entered', hint: '沿石阶下镇。' },
+    { id: 't6', act: 2, kind: 'main', title: '进镇', brief: '下镇，找到记当铺。', flag: 'town_entered', hint: '沿石阶下镇。', legs: [{ scene: 'lighthouse', hint: '先在礁盘上把该做的做完：点灯、巡礁、敲对灯号' }, { scene: 'town', hint: '沿石阶下镇' }] },
     { id: 't7', act: 2, kind: 'main', title: '第一次寄放', brief: '在当铺当掉一段记，学会"寄放"。', flag: 'first_pawn', hint: '当铺柜台。' },
-    { id: 't8', act: 2, kind: 'main', title: '账本对账', brief: '找出账本上不该记的那一笔。', flag: 'ledger_ok', hint: '账本摊在柜台上。' },
+    { id: 't8', act: 2, kind: 'main', title: '账本对账', brief: '找出账本上不该记的那一笔。', flag: 'ledger_ok', hint: '账本摊在柜台上。', legs: [{ scene: 'pawnshop', hint: '在当铺把账对出来' }, { scene: 'town', hint: '把结果带回镇上告诉陈婶' }] },
     { id: 't9', act: 2, kind: 'side', title: '掌柜的秤', brief: '用三枚砝码称出当金的重量。', flag: 'scales_ok', hint: '柜台上的秤。' },
     { id: 't10', act: 2, kind: 'side', title: '当客的委托', brief: '替镇上的当客办四件事。', flag: 'customers_done', hint: '陈婶、码头、盐仓、海边的灯座。' },
     { id: 't11', act: 2, kind: 'main', title: '赎回那段记忆', brief: '赎回一段记——看清它是谁的。', flag: 'redeemed_sis', hint: '当铺柜台，赎回带"妹妹/姐姐"标签的那段。' },
     { id: 't49', act: 2, kind: 'main', title: '柜台的算盘', brief: '把三张当票的当金算出来，报给掌柜。', flag: 'abacus_ok', hint: '当铺柜台上那把黄杨算盘。' },
     /* 幕三 */
-    { id: 't12', act: 3, kind: 'main', title: '修堤', brief: '把堤上的豁口堵上。', flag: 'dike_fixed', hint: '潮堤的豁口。' },
+    { id: 't12', act: 3, kind: 'main', title: '修堤', brief: '把堤上的豁口堵上。', flag: 'dike_fixed', hint: '潮堤的豁口。', legs: [{ scene: 'town', hint: '先看镇上告示：今晚潮位' }, { scene: 'saltflats', hint: '去潮堤把豁口堵上' }, { scene: 'town', hint: '回镇上报信' }] },
     { id: 't13', act: 3, kind: 'main', title: '闸门引水', brief: '把水引到堤下三个盐池，一格都不能错。', flag: 'sluice_ok', hint: '潮堤闸门。' },
     { id: 't14', act: 3, kind: 'side', title: '阿罔的盐', brief: '替阿罔晒一池三日盐。', flag: 'salt_done', hint: '找阿罔说话。' },
-    { id: 't15', act: 3, kind: 'main', title: '日记残页', brief: '把潮水送回来的纸排成时间。', flag: 'diary_ok', hint: '潮位桩上的纸。' },
+    { id: 't15', act: 3, kind: 'main', title: '日记残页', brief: '把潮水送回来的纸排成时间。', flag: 'diary_ok', hint: '潮位桩上的纸。', legs: [{ scene: 'town', hint: '先在镇上问潮汛' }, { scene: 'saltflats', hint: '潮位桩上把残页排成时间' }, { scene: 'town', hint: '把排好的日子带回镇上' }] },
     { id: 't16', act: 3, kind: 'main', title: '缺页', brief: '面对一件事：你的记，不全是你的。', flag: 'gap_seen', hint: '排完日记之后。' },
     { id: 't51', act: 3, kind: 'main', title: '四块闸板', brief: '照堤上的三条告示，把四块闸板扳到位。', flag: 'switches_ok', hint: '堤头的四块闸板，旁边钉着三条规矩。' },
     { id: 't17', act: 3, kind: 'side', title: '潮退的铁盒', brief: '潮退时去礁缝看看。', flag: 'got_photo2', hint: '等潮退（修完堤）。' },
     /* 幕四 */
-    { id: 't18', act: 4, kind: 'main', title: '进馆', brief: '进岛史馆，找柳先生。', flag: 'archive_entered', hint: '镇尾的岛史馆。' },
-    { id: 't19', act: 4, kind: 'side', title: '念卷宗', brief: '把三册卷宗念给柳先生听。', flag: 'read_scrolls', hint: '柳先生会一直让你念。' },
+    { id: 't18', act: 4, kind: 'main', title: '进馆', brief: '进岛史馆，找柳先生。', flag: 'archive_entered', hint: '镇尾的岛史馆。', legs: [{ scene: 'town', hint: '先在镇上打听柳先生' }, { scene: 'archive', hint: '去镇尾的岛史馆' }] },
+    { id: 't19', act: 4, kind: 'side', title: '念卷宗', brief: '把三册卷宗念给柳先生听。', flag: 'read_scrolls', hint: '柳先生会一直让你念。', legs: [{ scene: 'archive', hint: '把三册卷宗念给柳先生' }, { scene: 'town', hint: '念完回镇上核账' }] },
     { id: 't20', act: 4, kind: 'main', title: '检索替记契', brief: '按年份、事件、人名查出那一册。', flag: 'search_ok', hint: '卷宗架。' },
     { id: 't21', act: 4, kind: 'main', title: '名字重建', brief: '把碑上被凿掉的那个名字补回来。', flag: 'name_ok', hint: '名字碑下的笔画碎片。' },
-    { id: 't22', act: 4, kind: 'main', title: '契约原件', brief: '看契上的签名——那是谁的字。', flag: 'contract_seen', hint: '查完契之后，灯下细看。' },
+    { id: 't22', act: 4, kind: 'main', title: '契约原件', brief: '看契上的签名——那是谁的字。', flag: 'contract_seen', hint: '查完契之后，灯下细看。', legs: [{ scene: 'archive', hint: '在馆里查完那份契' }, { scene: 'town', hint: '把契的事带回镇上' }] },
     { id: 't53', act: 4, kind: 'main', title: '换过字的契', brief: '契上的字按字表往后错过位——推回来，读出那个名字。', flag: 'cipher_ok', hint: '岛史馆靠东墙的石板。' },
     /* 幕五 */
     { id: 't23', act: 5, kind: 'main', title: '进雾', brief: '走进雾里。', flag: 'mist_entered', hint: '契约看完，雾会自己来。' },
@@ -654,7 +654,14 @@
     { id: 't50', act: 2, kind: 'side', title: '当票背面的暗记', brief: '旧当票背面有三种记号，有一种是"替"字头。', flag: 'pawnsig_seen', hint: '记当铺柜台角落那一沓旧票。' },
     { id: 't52', act: 3, kind: 'side', title: '退潮后露出的池底', brief: '废盐池的池底刻着一个名字，刻到一半停了。', flag: 'saltnames_seen', hint: '盐田最南边那口废池。' },
     { id: 't54', act: 4, kind: 'side', title: '停在三点四十五的钟', brief: '岛史馆东墙的挂钟停在潮到三刻，再没走过。', flag: 'stillclock_seen', hint: '岛史馆东墙的木壳挂钟。' },
-    { id: 't55', act: 5, kind: 'side', title: '断句', brief: '雾里的纸被撕成两半——把话接回去。', flag: 'halves_ok', hint: '雾里偏南，散着两半的纸。' }
+    { id: 't55', act: 5, kind: 'side', title: '断句', brief: '雾里的纸被撕成两半——把话接回去。', flag: 'halves_ok', hint: '雾里偏南，散着两半的纸。' },
+    /* 跑腿：一趟要跨两个以上场景，办完还得回来 —— 幕幕都有 */
+    { id: 't60', act: 2, kind: 'side', title: '潮汛捎话', brief: '告示上的潮位、秤盘上的准头，两处都得问到，再回镇上回话。', flag: 'errand_notice_ok', errand: true, hint: '镇上告示板 → 当铺秤盘 → 回镇上', legs: [{ scene: 'town', hint: '先看镇上告示板的潮汛' }, { scene: 'pawnshop', hint: '再去当铺看秤盘上的准头' }, { scene: 'town', hint: '回镇上把两处的话并成一句' }] },
+    { id: 't61', act: 2, kind: 'side', title: '海灯座的口信', brief: '海灯座那位的话，要带到当铺的信匣里，再回来复命。', flag: 'errand_lamp_ok', errand: true, hint: '海灯座 → 当铺信匣 → 回海灯座', legs: [{ scene: 'town', hint: '海灯座下听人说完' }, { scene: 'pawnshop', hint: '把话送进当铺的信匣' }, { scene: 'town', hint: '回海灯座复命' }] },
+    { id: 't62', act: 3, kind: 'side', title: '盐引', brief: '水尺上的数要报给镇上，盐引才批得下来。', flag: 'errand_salt_ok', errand: true, hint: '盐田水尺 → 镇上告示 → 回盐田', legs: [{ scene: 'saltflats', hint: '先读盐田的水尺' }, { scene: 'town', hint: '把数报到镇上告示板' }, { scene: 'saltflats', hint: '回盐田等盐引' }] },
+    { id: 't63', act: 3, kind: 'side', title: '堤上的名册', brief: '盐工名册上的名字，和当铺画押册上的字，得对上一遍。', flag: 'errand_names_ok', errand: true, hint: '盐田名册 → 当铺画押册 → 回盐田', legs: [{ scene: 'saltflats', hint: '看盐田的名册' }, { scene: 'pawnshop', hint: '去当铺对画押册' }, { scene: 'saltflats', hint: '回盐田把人对上名' }] },
+    { id: 't64', act: 4, kind: 'side', title: '两份卷宗', brief: '馆里的册子和镇上的旧告示，两份对不上就得来回跑。', flag: 'errand_files_ok', errand: true, hint: '馆内册子 → 镇上告示 → 回馆', legs: [{ scene: 'archive', hint: '翻馆里的册子' }, { scene: 'town', hint: '回镇上找那份旧告示' }, { scene: 'archive', hint: '把两份卷宗并在一起' }] },
+    { id: 't65', act: 5, kind: 'side', title: '雾里的灯', brief: '雾里那盏灯和馆北的壁龛，量过、核过，才算数。', flag: 'errand_fog_ok', errand: true, hint: '雾里的灯 → 馆北壁龛 → 回雾里', legs: [{ scene: 'mist', hint: '雾里先看那盏灯' }, { scene: 'archive', hint: '回馆北量壁龛' }, { scene: 'mist', hint: '再进雾里把数对上' }] },
   ];
 
   /* ============ 三、谜题（9） ============ */
@@ -962,6 +969,29 @@
           else if (isSolidIn(po.to, po.tx, po.ty)) errs.push('出口落点是障碍：' + sid + ' -> ' + po.to + ' @' + po.tx + ',' + po.ty);
         }
       });
+    });
+    /* 跑腿任务的规矩：至少两段、至少跨两个场景、场景与旗标都得真存在 */
+    var ALLFLAGS = {};
+    Object.keys(SCENES).forEach(function (sid) {
+      (SCENES[sid].places || []).forEach(function (p) { if (p.flag) ALLFLAGS[p.flag] = 1; });
+      if (SCENES[sid].flag) ALLFLAGS[SCENES[sid].flag] = 1;
+    });
+    Object.keys(PUZZLES).forEach(function (pid) { ALLFLAGS[PUZZLES[pid].flag || (pid + '_ok')] = 1; });
+    ['dial_ok', 'first_pawn', 'name_returned', 'read_scrolls', 'redeemed_sis', 'town_entered', 'archive_entered'].forEach(function (f) { ALLFLAGS[f] = 1; });
+    var errands = 0;
+    TASKS.forEach(function (t) {
+      if (t.legs && t.legs.length) {
+        errands++;
+        if (t.legs.length < 2) errs.push('跑腿任务至少要两段：' + t.id);
+        var seen = {};
+        t.legs.forEach(function (lg, i2) {
+          if (!lg.scene || !SCENES[lg.scene]) errs.push('跑腿第 ' + (i2 + 1) + ' 段的场景不存在：' + t.id);
+          else seen[lg.scene] = 1;
+          if (!lg.hint) errs.push('跑腿第 ' + (i2 + 1) + ' 段缺线索：' + t.id);
+          if (lg.flag && !ALLFLAGS[lg.flag]) errs.push('跑腿引用了不存在的旗标：' + t.id + ' ' + lg.flag);
+        });
+        if (Object.keys(seen).length < 2) errs.push('跑腿任务至少要跨两个场景：' + t.id);
+      }
     });
     TASKS.forEach(function (t) {
       if (ids[t.id]) errs.push('任务 id 重复：' + t.id);
