@@ -1481,11 +1481,59 @@
     return 1;
   }
 
+  /* ============================================================
+     四、氛围层（v31.2）：雾带与风痕（每帧画，所以要省）
+     以前是 6 个 250px 径向渐变大团 + 2px stroke 斜线 —— 放大看全是糊边，
+     而且每帧 6 次全屏渐变填充（≈390 万像素/帧）。现在只有几千个小矩形。
+     ============================================================ */
+  function paintFog(c, sc, t, amb) {
+    if (!c || !c.fillRect) return 0;
+    var i, x, y, h, th, drift, cx, cy, rr, seg = 26;
+    var rgb = '214,224,238', col = 'rgba(' + rgb + ',.15)', edge = 'rgba(' + rgb + ',.09)';
+    /* ① 两条波状雾带：沿 x 起伏（不是通栏直条），边沿用错位短段做出毛边（不用点阵条） */
+    for (i = 0; i < 2; i++) {
+      y = snap(70 + i * 236 + Math.sin(t * 0.35 + i * 1.3) * 16);
+      h = snap(74 + i * 16);
+      drift = ((t * (9 + i * 5)) % (VW + 420)) - 210;
+      for (x = -210; x < VW + 210; x += seg) {
+        var wy = y + snap(Math.sin((x + drift) * 0.0062 + i * 1.7) * 18);
+        th = snap(h * (0.46 + 0.54 * (0.5 + 0.5 * Math.sin((x + drift) * 0.0115 + i * 2.1))));
+        R(c, x + drift, wy, seg, th, col);
+        if (((x / seg) | 0) % 2 === 0) R(c, x + drift + 5, wy - 6, 15, 7, edge);
+        else R(c, x + drift + 3, wy + th - 1, 13, 7, edge);
+      }
+    }
+    /* ② 三团浓雾：实心核（不规则块）+ 稀外圈，各自速度横移 */
+    for (i = 0; i < 3; i++) {
+      cx = ((t * (11 + i * 6)) % (VW + 620)) - 310;
+      cy = 128 + i * 216 + snap(Math.sin(t * 0.28 + i * 2) * 22);
+      rr = 74 + i * 22;
+      BLOT(c, cx - rr - 22, cy - rr * 0.66 - 16, rr * 2 + 44, rr * 1.32 + 32, edge, 1, i & 1);
+      BLOB(c, cx, cy, rr, rr * 0.62, 'rgba(' + rgb + ',.20)', rngAt(i, 3, 5));
+      BLOB(c, cx, cy, rr * 0.62, rr * 0.40, 'rgba(' + rgb + ',.14)', rngAt(i, 4, 6));
+    }
+    return 1;
+  }
+  function paintWind(c, sc, t) {
+    if (!c || !c.fillRect) return 0;
+    var k, x, y, off, col = 'rgba(232,238,246,.20)';
+    for (k = 0; k < 9; k++) {
+      y = snap((t * 96 + k * 88) % VH);
+      off = snap((t * 150 + k * 60) % 46);
+      for (x = -46 + off; x < VW; x += 46) {          /* 断续的斜风痕，不是一条通栏直线 */
+        R(c, x - 26, y + snap(x * 0.035) - 1, 30, 2, col);
+        if ((k + (x >> 6)) % 3 === 0) R(c, x - 4, y + snap(x * 0.035) + 3, 14, 1, 'rgba(232,238,246,.12)');
+      }
+    }
+    return 1;
+  }
+
   var ART31 = {
-    version: '31.1',
+    version: '31.2',
     CELL: CELL, VW: VW, VH: VH,
     setup: function (o) { if (o && o.cell) { CELL = o.cell; } },
     plan: PLAN, paintSolids: paintSolids, paintGround: paintGround,
+    paintFog: paintFog, paintWind: paintWind,
     BUILDING: BUILDING, MAT: MAT, PAINT: PAINT, GROUND_OF: GROUND_OF, GROUND_FN: GROUND_FN, BLOT: BLOT,
     /* 下面这些暴露给单测 / 渲染工具用 */
     _u: { shade: shade, mix: mix, blend: blend, ramp: ramp, snap: snap, parseCol: parseCol, rngAt: rngAt, moodOf: moodOf, tonesOf: tonesOf }
