@@ -66,6 +66,13 @@
   }
   #btn-bgm:hover { color: #fff; border-color: var(--gold); }
   #btn-bgm.off { color: var(--dim); text-decoration: line-through; }
+  /* 「档案」按钮漏了样式 —— 裸按钮会走浏览器默认外观（buttonface 白底 + outset 边框），
+     深色顶栏上就成了一块白方块。补齐，跟旁边「↺ 存档点 / ♪ 开 / DEV」同一族。 */
+  #btn-archive {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 8px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  #btn-archive:hover { color: var(--gold2); border-color: var(--gold); }
   /* 开发者模式浮层（z 最高：modal 6 / 结局 7 / 确认 8 之上，可与游戏面板同时操作） */
   #dev-panel {
     position: absolute; top: 10px; right: 10px; width: 312px; max-height: calc(100% - 20px);
@@ -278,6 +285,14 @@
   /* ---------- 手机 / 触屏适配 ---------- */
   html, body { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
   button, input { touch-action: manipulation; }
+  /* 兜底：任何没单独上色的按钮都走主题色 —— 浏览器默认的白色方块（buttonface 底 + outset 边框）不许露头。
+     单独配色的都是 id/class 选择器（#cf-yes / #dev-close / .pz-btn / #dpad button …），优先级高于这条，不受影响。 */
+  button {
+    font-family: inherit; font-size: 13px; color: var(--txt);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 4px 12px; cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: default; }
   /* 虚拟按键：默认隐藏，触屏或窄屏显示；面板层级低于模态/结局/确认框，方向键组可在模态打开时被单独隐藏 */
   #touch-ui { display: none; position: absolute; inset: 0; pointer-events: none; z-index: 7; }
   #dpad {
@@ -314,7 +329,7 @@
     #hud b { font-size: 12.5px; }
     .bar { width: 60px; height: 8px; }
     #relics { font-size: 11px; }
-    #btn-restart, #btn-bgm, #btn-dev { padding: 3px 8px; font-size: 11px; }
+    #btn-restart, #btn-bgm, #btn-dev, #btn-archive { padding: 3px 8px; font-size: 11px; }
     main { flex-direction: column; }
     #world-wrap {
       max-width: min(100%, calc((100vh - 220px) * 10 / 7));
