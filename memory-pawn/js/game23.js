@@ -10,6 +10,7 @@
   var GRID_W = 20, GRID_H = 14, CELL = 48;
   var SAVE_KEY = 'mp23-save-v1', CHECK_KEY = 'mp23-check-v1', END_KEY = 'mp23-endings-v1';
   var LEGACY_KEYS = ['mp-save-v1', 'mp-checkpoint-v1', 'mp-endings-v1', 'mp-archive-v1'];
+  var LEGACY_ACK_KEY = 'mp23-legacy-ack-v1';   /* 版本提示只弹一次：弹过就落这个记号 */
 
   var canvas, ctx, S = null, raf = 0, lastT = 0, toastT = 0, bannerT = 0, actCardT = 0, lockCd = 0;
   var keys = {}, moveCd = 0, portalCd = 0, dirty = { hud: 1, log: 1, tasks: 1, album: 1, arch: 1, mem: 1 };
@@ -54,6 +55,15 @@
     var st = store(); if (!st) return false;
     for (var i = 0; i < LEGACY_KEYS.length; i++) if (st.getItem(LEGACY_KEYS[i])) return true;
     return false;
+  }
+  /* 老档提示的"说过了"记号：老档本身不清（v22 回放还要用），只记住这话已经说过 */
+  function legacyAcked() {
+    var st = store(); if (!st) return false;
+    try { return !!st.getItem(LEGACY_ACK_KEY); } catch (e) { return false; }
+  }
+  function ackLegacy() {
+    var st = store(); if (!st) return;
+    try { st.setItem(LEGACY_ACK_KEY, '1'); } catch (e) { /* 私密模式/配额满：下次顶多再弹一次，不报错 */ }
   }
   function saveCheckpoint() {
     var st = store(); if (!st) return;
@@ -2730,8 +2740,10 @@
     var art = PLACE_ART[p.id];
     c.save();
     if (p.npc) {
-      /* 有身份的 NPC 一律画人（祁掌柜 / 柳先生 / 阿罔以前只是地上的一团灰印） */
-      drawFigure(c, p.x, p.y, NPC_COL[p.id] || '#8fb8c8', -1, 0);
+      /* 有身份的 NPC 一律画人（祁掌柜 / 柳先生 / 阿罔以前只是地上的一团灰印）。
+         v31.3：六个人各有立绘（身形 / 衣色四阶 / 随身物），跟像素建筑一个档 */
+      if (global.ART31 && ART31.paintFigure) ART31.paintFigure(c, p.id, p.x, p.y, -1, 0, 0.35);
+      else drawFigure(c, p.x, p.y, NPC_COL[p.id] || '#8fb8c8', -1, 0);
     } else if (art && ART_FN[art]) {
       ART_FN[art](c, px, py, col, lit);
     } else if (p.kind === 'portal') {
@@ -2956,7 +2968,12 @@
     ctx.strokeStyle = 'rgba(255,226,150,' + (0.35 + 0.25 * pulse).toFixed(2) + ')';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(cx, cy + 12, 13 + pulse * 2, 5 + pulse, 0, 0, Math.PI * 2); ctx.stroke();
-    drawFigure(ctx, S.mx, S.my, '#f3ead6', S.face, mv > 0.02 ? Math.abs(Math.sin(t * 11)) * 1.8 : 0, t * 11);
+    if (global.ART31 && ART31.paintFigure) {
+      /* v31.3：玩家也换成像素立绘（走路时 1px 上下颠，口径跟 NPC 一致） */
+      ART31.paintFigure(ctx, 'you', S.mx, S.my, S.face, mv > 0.02 ? 1 : 0, t * 11);
+    } else {
+      drawFigure(ctx, S.mx, S.my, '#f3ead6', S.face, mv > 0.02 ? Math.abs(Math.sin(t * 11)) * 1.8 : 0, t * 11);
+    }
     var bob = Math.sin(t * 3.4) * 2;
     ctx.fillStyle = 'rgba(255,228,150,.9)';
     ctx.beginPath();
@@ -3253,9 +3270,13 @@
       $('btn-bgm').textContent = global.MUSIC.enabled() ? '♪ 开' : '♪ 关';
       music('prologue');
     }
-    var legacy = legacyNotice();
+    /* 版本提示只弹一次：弹过留记号；已经在玩这一趟（有进度）就再也不提"从头开始" */
+    var legacy = legacyNotice() && !legacyAcked() && !S.introDone;
     enterScene(S.scene, S.x, S.y, { silent: true });
-    if (legacy) say(['（检测到旧版的存档：那是另一个岛的故事，这一趟从头开始。）'], null, { title: '版本提示' });
+    if (legacy) {
+      ackLegacy();
+      say(['（检测到旧版的存档：那是另一个岛的故事，这一趟从头开始。）'], null, { title: '版本提示' });
+    }
     if (!S.introDone && !legacy) {
       S.introDone = true; save();
       say(D.TEXT.prologue.slice(), function () { banner(scene().name, scene().sub); }, { title: '记忆当铺 · 归潮屿', end: '点亮灯' });
