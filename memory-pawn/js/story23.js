@@ -664,6 +664,7 @@
     dial: { id: 'dial', act: 1, scene: 'lighthouse', name: '钟表校准', kind: 'dial', diff: 2,
       brief: '把旧钟拨到"潮到三刻"，灯才拨得亮。' },
     ledger: { id: 'ledger', act: 2, scene: 'pawnshop', name: '账本对账', kind: 'logic', diff: 3,
+      harm: { wrong: 3, dmg: 1 },
       brief: '同时犯两条批注的那一笔，就是不该记的。' },
     scales: { id: 'scales', act: 2, scene: 'pawnshop', name: '秤当金', kind: 'numbers', diff: 3,
       brief: '三枚砝码（1/3/9 两），称出指定的当金；组合唯一。' },
@@ -676,8 +677,10 @@
     name: { id: 'name', act: 4, scene: 'archive', name: '名字重建', kind: 'compose', diff: 3,
       brief: '用笔画碎片拼出被凿掉的那个名字（两个字）。' },
     song: { id: 'song', act: 5, scene: 'mist', name: '记忆序列', kind: 'simon', diff: 2,
+      harm: { wrong: 3, dmg: 1 },
       brief: '把她敲给你的节奏，原样敲回去。' },
     three_asks: { id: 'three_asks', act: 5, scene: 'mist', name: '三问', kind: 'quiz', diff: 3,
+      harm: { wrong: 3, dmg: 1 },
       brief: '三句问话，答案都在这五幕里。' },
     read_book: { id: 'read_book', act: 1, scene: 'lighthouse', name: '残页复原', kind: 'read', diff: 2,
       brief: '被撕走的那半页上写着年份、人名和一件事——从礁石刻痕和灯台记事里推出来。',
@@ -698,12 +701,16 @@
       brief: '九盏信号灯乱着：按一盏，它和上下左右一起翻，全亮才过。',
       lines: ['铁牌上写着：按一盏，连上下左右一起翻', '九盏全亮，海上的船才看得见岸'] },
     abacus: { id: 'abacus', act: 2, scene: 'pawnshop', name: '柜台的算盘', kind: 'count', diff: 2, flag: 'abacus_ok',
+      harm: { wrong: 3, dmg: 1 },
       brief: '三张当票：当金 = 重量（两）× 每两当金（枚）。合起来报一个数。' },
     switches: { id: 'switches', act: 3, scene: 'saltflats', name: '四块闸板', kind: 'toggles', diff: 3, flag: 'switches_ok',
+      harm: { wrong: 3, dmg: 1 },
       brief: '堤头四块闸板：堤石上的三条规矩都得满足，扳到位。' },
     cipher: { id: 'cipher', act: 4, scene: 'archive', name: '换过字的契', kind: 'shift', diff: 3, flag: 'cipher_ok',
+      harm: { wrong: 3, dmg: 1 },
       brief: '契上的字按字表往后错了几位——推回来，读出那两个字。' },
     halves: { id: 'halves', act: 5, scene: 'mist', name: '断句', kind: 'pair', diff: 2, flag: 'halves_ok',
+      harm: { wrong: 3, dmg: 1 },
       brief: '雾里的纸被撕成两半：左边点一句，再点右边接得上的那半句。',
       pairs: [
         ['债不是他欠的。', '是我自己愿意的。'],
@@ -712,6 +719,7 @@
         ['别替我还。', '你把他还给我，就够了。']
       ] },
     chainlink: { id: 'chainlink', act: 5, scene: 'mist', name: '连环锁', kind: 'chain', diff: 4, flag: 'chain_ok',
+      harm: { wrong: 4, dmg: 1 },
       brief: '五枚铜环，一百秒。一枚一枚解；表走完没解完，五枚一起弹回去，从第一道重来。' }
   };
 
