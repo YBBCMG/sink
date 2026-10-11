@@ -28,7 +28,10 @@
     font-size: 14px; line-height: 1.65; padding: 10px;
     overflow: hidden; /* 页面本身不滚——滚轮只作用于右侧面板 */
   }
-  #app { max-width: 1180px; margin: 0 auto; height: 100%; display: flex; flex-direction: column; }
+  /* v31.2 上屏口径：原来 1180px 顶死，画布只能拿到 ~846px（= 0.881 倍缩小）——
+     960 的逻辑画布被浏览器缩着采样，细线和字全是糊的。放到 1360 让画布拿到 ≥960，
+     背板跟屏幕设备像素 1:1（见 game23.js setupCanvas），显示大小反而更足。 */
+  #app { max-width: 1360px; margin: 0 auto; height: 100%; display: flex; flex-direction: column; }
   header#topbar {
     display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
     background: var(--panel); border: 2px solid var(--line); border-radius: 14px;
@@ -750,8 +753,8 @@ body.mp-modal #btn-e { display: none !important; }
 <script src="js/music.js?v=33"></script>
 <script src="js/mobs23.js?v=34"></script>
 <script src="js/puzzles23.js?v=34"></script>
-<script src="js/art31.js?v=34"></script>
-<script src="js/game23.js?v=35"></script>
+<script src="js/art31.js?v=35"></script>
+<script src="js/game23.js?v=36"></script>
 <script src="js/guide23.js?v=33"></script>
 </body>
 </html>
