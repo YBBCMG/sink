@@ -1076,7 +1076,7 @@
     { id: 'm_switches',    w: 1, tag: '堤',   cat: 'thing',  text: '堤头那四块闸板是照潮水的脾气排的。先开哪块、后开哪块，错一块就淹一池盐。' },
     { id: 'm_search',      w: 1, tag: '馆',   cat: 'thing',  text: '卷宗架上每一册都编着号。乙字七号那册最薄，也最常被人翻。' },
     { id: 'm_cipher',      w: 1, tag: '馆',   cat: 'thing',  text: '契上有一个字被换过。新字比旧字浅，用指甲刮一下，还能看见底下那一层。' },
-    { id: 'm_chainlink',   w: 1, tag: '名',   cat: 'thing',  text: '连环锁是铁的，一共七环。开它不用钥匙，要按顺序把七环咬上。' },
+    { id: 'm_chainlink',   w: 1, tag: '名',   cat: 'thing',  text: '连环锁是铁的，一共五环。开它不用钥匙，五枚环各是一道自己的机关。' },
 
     /* cat = place 地（8 条） */
     { id: 'm_pawn_door',   w: 1, tag: '当铺', cat: 'place',  text: '记当铺的门槛比别家矮半寸。掌柜说这是故意的：门槛低，进来的人不用低头。' },
