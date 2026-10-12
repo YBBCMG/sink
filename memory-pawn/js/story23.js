@@ -1038,18 +1038,60 @@
 
   /* ============ 八点五、可当可赎的"记"（幕二当铺的核心玩法） ============ */
   /* state: held = 在身上；pawned = 押在当铺账上。当金 = 痛感 w。 */
+  /* v33 记忆分类：新增 cat（person 人 / thing 物 / place 地 / self 己），与 tag 正交。
+     w 一律 >= 1 —— world-test ⑳ 有铁律「痛感权重必须为正」；而 w = 0 会让这段记既当不掉、
+     也就永远断不了当，归零门控反而永远触发不了。所以新增的 25 条认知记忆取最低痛感 1。
+     文本来自 tools/记忆文本-v33.md 表 A（剧情线交付），一个字没改。 */
   var MEM23 = [
-    { id: 'm_salt', w: 1, tag: '童年', text: '第一次尝到盐。阿罔按了一粒在我舌头上：咸的，过一会儿回甜。' },
-    { id: 'm_drink', w: 1, tag: '码头', text: '第一次喝醉在码头上，吐在人家晒的渔网里。陈婶骂了我半年。' },
-    { id: 'm_bell', w: 2, tag: '雾', text: '起雾的夜里有人摇雾铃，一长一短，是叫人回家。' },
-    { id: 'm_boat', w: 2, tag: '出海', text: '我跟船出过一次海。回来时脚踩在地上还在晃，晃了两天。' },
-    { id: 'm_mother', w: 4, tag: '母亲', text: '母亲的手上有机油味。她握灯芯的时候，指尖是黑的，洗不掉。' },
-    { id: 'm_letter', w: 3, tag: '外地', text: '在外地那几年我写过信，一封都没寄出去。信还压在箱底。' },
-    { id: 'm_first_light', w: 3, tag: '灯', text: '我第一次点着望归灯，划了三根火柴。第三根是蹲下来划的。' },
-    { id: 'm_sister_hand', w: 4, tag: '姐姐', text: '有个人牵着我过礁石，她的手比海水暖。我想不起她的脸。' },
-    { id: 'm_blank', w: 2, tag: '缺页', text: '十五岁之前，只剩下别人转述的那几句话。' },
-    { id: 'm_sis_voice', w: 5, tag: '姐姐', pawnedFromStart: true,
-      text: '（这段记不是你的口气——写字的人在替另一个人记：）他今天问我，我是谁。我说，我是姐姐。他信了。' }
+    { id: 'm_salt',        w: 1, tag: '童年', cat: 'person', text: '第一次尝到盐。阿罔按了一粒在我舌头上：咸的，过一会儿回甜。' },
+    { id: 'm_drink',       w: 1, tag: '码头', cat: 'person', text: '第一次喝醉在码头上，吐在人家晒的渔网里。陈婶骂了我半年。' },
+    { id: 'm_bell',        w: 2, tag: '雾',   cat: 'thing',  text: '起雾的夜里有人摇雾铃，一长一短，是叫人回家。' },
+    { id: 'm_boat',        w: 2, tag: '出海', cat: 'thing',  text: '我跟船出过一次海。回来时脚踩在地上还在晃，晃了两天。' },
+    { id: 'm_mother',      w: 4, tag: '母亲', cat: 'person', text: '母亲的手上有机油味。她握灯芯的时候，指尖是黑的，洗不掉。' },
+    { id: 'm_letter',      w: 3, tag: '外地', cat: 'thing',  text: '在外地那几年我写过信，一封都没寄出去。信还压在箱底。' },
+    { id: 'm_first_light', w: 3, tag: '灯',   cat: 'thing',  text: '我第一次点着望归灯，划了三根火柴。第三根是蹲下来划的。' },
+    { id: 'm_sister_hand', w: 4, tag: '姐姐', cat: 'person', text: '有个人牵着我过礁石，她的手比海水暖。我想不起她的脸。' },
+    { id: 'm_blank',       w: 2, tag: '缺页', cat: 'self',   text: '十五岁之前，只剩下别人转述的那几句话。' },
+    { id: 'm_sis_voice',   w: 5, tag: '姐姐', cat: 'person', pawnedFromStart: true,
+      text: '（这段记不是你的口气——写字的人在替另一个人记：）他今天问我，我是谁。我说，我是姐姐。他信了。' },
+
+    /* ---- v33 新增 28 条：25 条认知记忆（w = 1 最低痛感）+ m_song 1 / m_halves 2 / m_return 2 ---- */
+
+    /* cat = person 人（5 条） */
+    { id: 'm_keeper',      w: 1, tag: '当铺', cat: 'person', text: '祁掌柜的算盘珠子少了一颗，是最大那颗。他说少一颗正好——有一样东西他从来不算钱。' },
+    { id: 'm_arch_door',   w: 1, tag: '馆',   cat: 'person', text: '柳先生的钥匙从来不挂在门上。他说册子丢了还能再抄，钥匙丢了就进不去了。' },
+    { id: 'm_back',        w: 1, tag: '当铺', cat: 'person', text: '里间那道门后面是放当票的柜子。掌柜一年只进去两回：一回取，一回封。' },
+    { id: 'm_pawnsig',     w: 1, tag: '柜台', cat: 'person', text: '每张当票背后都有一个小记号，是掌柜用指甲划的。他说记号不是防别人，是防自己认错。' },
+    { id: 'm_song',        w: 1, tag: '姐姐', cat: 'person', text: '这首歌谣是她在礁石上教我的。一共四个音，敲四下，停一下，再敲三下。' },
+
+    /* cat = thing 物（12 条） */
+    { id: 'm_board',       w: 1, tag: '镇',   cat: 'thing',  text: '告示牌上的活儿是挂出来给人揭的。揭了不做，名字会写在最下面一行。' },
+    { id: 'm_shelf',       w: 1, tag: '柜台', cat: 'thing',  text: '寄售架上每样东西都标着价，只有最上层那格没有。掌柜说那格不卖，是替人放的。' },
+    { id: 'm_scales',      w: 1, tag: '柜台', cat: 'thing',  text: '柜台上的秤是黄铜的。秤盘里有一道刻痕，是当票的边角一年一年磨出来的。' },
+    { id: 'm_ledger',      w: 1, tag: '当铺', cat: 'thing',  text: '账本是蓝布封面，边上磨破了。后一半记的不是钱，是谁把什么留在了这儿。' },
+    { id: 'm_scale_pan',   w: 1, tag: '柜台', cat: 'thing',  text: '秤盘底下压着一枚铜钱，压了很多年，钱上的字磨平了。' },
+    { id: 'm_abacus',      w: 1, tag: '柜台', cat: 'thing',  text: '掌柜的算盘十三档，珠子底下垫着布，打起来不出声。' },
+    { id: 'm_sluice',      w: 1, tag: '堤',   cat: 'thing',  text: '闸门是整块青石凿的，涨潮的时候一个人推不动，要两个人。' },
+    { id: 'm_wrack',       w: 1, tag: '潮',   cat: 'thing',  text: '每次退潮，滩上都留下东西：木片、破网、一只没配对的鞋。没人认领，也没人扔。' },
+    { id: 'm_switches',    w: 1, tag: '堤',   cat: 'thing',  text: '堤头那四块闸板是照潮水的脾气排的。先开哪块、后开哪块，错一块就淹一池盐。' },
+    { id: 'm_search',      w: 1, tag: '馆',   cat: 'thing',  text: '卷宗架上每一册都编着号。乙字七号那册最薄，也最常被人翻。' },
+    { id: 'm_cipher',      w: 1, tag: '馆',   cat: 'thing',  text: '契上有一个字被换过。新字比旧字浅，用指甲刮一下，还能看见底下那一层。' },
+    { id: 'm_chainlink',   w: 1, tag: '名',   cat: 'thing',  text: '连环锁是铁的，一共七环。开它不用钥匙，要按顺序把七环咬上。' },
+
+    /* cat = place 地（8 条） */
+    { id: 'm_pawn_door',   w: 1, tag: '当铺', cat: 'place',  text: '记当铺的门槛比别家矮半寸。掌柜说这是故意的：门槛低，进来的人不用低头。' },
+    { id: 'm_saltgate',    w: 1, tag: '盐',   cat: 'place',  text: '盐埕口那道坡是全镇最咸的一条路。挑盐的人上坡之前都要先歇一口气。' },
+    { id: 'm_notice',      w: 1, tag: '镇',   cat: 'place',  text: '镇口牌子上贴的是潮汛和禁令。上个月那张禁令写着：雾起时不许下海。' },
+    { id: 'm_post',        w: 1, tag: '潮',   cat: 'place',  text: '潮位桩立在大潮那一年。刻字的人手很稳，一道一道，从脚底下刻到自己胸口。' },
+    { id: 'm_gauge',       w: 1, tag: '潮',   cat: 'place',  text: '石尺退潮露五格，涨潮只剩一格。全镇的人都认得第一格——那是能下海的高度。' },
+    { id: 'm_saltnames',   w: 1, tag: '盐',   cat: 'place',  text: '退潮以后，池底会露出刻在石板上的名字。盐工说刻下去就不怕被忘了。' },
+    { id: 'm_fogdoor',     w: 1, tag: '馆',   cat: 'place',  text: '馆北那扇门是两块木板拼的，合不严。起雾的日子，雾从门缝里进来，在地上铺一层。' },
+    { id: 'm_dike',        w: 1, tag: '堤',   cat: 'place',  text: '堤上那道豁口是甲午年冲开的。石头填过三回，每回都被下一场大潮掏出来。' },
+
+    /* cat = self 己（3 条） */
+    { id: 'm_ask',         w: 1, tag: '名',   cat: 'self',   text: '上岛先答三个问题。第一问是问你叫什么——我在岛上答过很多遍，每次答完都要想一想。' },
+    { id: 'm_halves',      w: 2, tag: '名',   cat: 'self',   text: '那句话我只记得后半截：……把名字还给她。前半截还在雾里。' },
+    { id: 'm_return',      w: 2, tag: '名',   cat: 'self',   text: '岛上的人说，名字还回去以后，灯会亮得稳一点，像有人替它添了油。' }
   ];
   function mem23ById(id) {
     for (var i = 0; i < MEM23.length; i++) if (MEM23[i].id === id) return MEM23[i];
