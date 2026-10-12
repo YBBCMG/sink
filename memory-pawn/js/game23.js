@@ -171,7 +171,7 @@
     Object.keys(D.SCENES).forEach(function (sid) {
       var sc = D.SCENES[sid];
       sc.portals.concat(sc.places).forEach(function (q) {
-        if (q.need === flag && q.to) names.push(q.label || q.name || '那扇门');
+        if (q.need === flag && q.to) names.push(q.label || memNameOf(q) || '那扇门');
       });
     });
     return names;
@@ -556,7 +556,15 @@
     awang: 'm_salt', chest2: 'm_sister_hand', saltbook: 'm_salt', saltpile: 'm_salt',
     liu: 'm_blank', namewall: 'm_sister_hand', inbook: 'm_blank', shelfrow: 'm_blank',
     northwin: 'm_blank', burn: 'm_blank', stillclock: 'm_mother',
-    her_words: 'm_sis_voice', othlamp: 'm_boat', boatshape: 'm_boat', her: 'm_sis_voice'
+    her_words: 'm_sis_voice', othlamp: 'm_boat', boatshape: 'm_boat', her: 'm_sis_voice',
+    /* ---- v33：附录 1 的 28 个新挂点 —— 60 个交互点全挂上，一个不漏 ---- */
+    pawn_door: 'm_pawn_door', arch_door: 'm_arch_door', board: 'm_board', saltgate: 'm_saltgate',
+    notice: 'm_notice', keeper: 'm_keeper', shelf: 'm_shelf', scales: 'm_scales',
+    ledger: 'm_ledger', scale_pan: 'm_scale_pan', back: 'm_back', abacus: 'm_abacus',
+    pawnsig: 'm_pawnsig', sluice: 'm_sluice', post: 'm_post', gauge: 'm_gauge',
+    wrack: 'm_wrack', dike: 'm_dike', switches: 'm_switches', saltnames: 'm_saltnames',
+    search: 'm_search', fogdoor: 'm_fogdoor', cipher: 'm_cipher', song: 'm_song',
+    ask: 'm_ask', halves: 'm_halves', chainlink: 'm_chainlink', return: 'm_return'
   };
   /* 写过的替代台词（没写的走下面的通用句） */
   var LOST_SAY = {
@@ -638,8 +646,275 @@
       '潮退下去，礁缝里露出半只铁盒。盒子里没有别的，只有一张照片。',
       '照片上是两个小孩，背对着海，手拉着手。你认得其中一个是你。',
       '另一个是谁，你想不起来了。'
-    ]
+    ],
+    /* ---- v33 表 B：45 处失忆台词（剧情线交付，一个字没改）---- */
+    clock: [
+      '钟还在走，走到三点四十五就停住了。',
+      '谁把它停在这个点上的，你想不起来。你没动它。'
+    ],
+    oil: [
+      '灯油桶是满的，灯罩搁在旁边，擦得干净。',
+      '谁教你剪灯芯、油添到几指高，你想不起来。桶和灯罩都在原处。'
+    ],
+    copy2: [
+      '抄本第二本摊在桌上，字迹跟第一本不一样。',
+      '写字的人跟你是什么关系，你想不起来。本子还能翻。'
+    ],
+    tin: [
+      '针线盒开着，里面是顶针、线头、两枚纽扣。',
+      '谁用这个盒子补过谁的衣裳，你想不起来。盒子还在。'
+    ],
+    ashes: [
+      '灯台底下有一堆灰，扫过又落了一层。',
+      '烧掉的是什么、什么时候烧的，你想不起来。灰还在。'
+    ],
+    sea: [
+      '望海台上风大，栏杆上有一道绳子磨出来的印。',
+      '你在这儿等过谁，想不起来。海还是那个海。'
+    ],
+    lights: [
+      '九宫灯阵一盏一盏都亮着，格子边上刻着号。',
+      '谁教你排这个次序，你想不起来。号还刻着。'
+    ],
+    logbook: [
+      '记事簿翻到最新一页，上一行写着「油满」。',
+      '前面那些页是谁写的，你想不起来。字还在纸上。'
+    ],
+    sea_lamp: [
+      '海边的灯座是空的，底下一圈油渍。',
+      '这儿本来放的是哪盏灯、谁放的，你想不起来。座还在。'
+    ],
+    saltbook: [
+      '晒盐簿摊在盐堆边，页角被盐吃出洞。',
+      '簿上那些名字，你认得字，认不出人。'
+    ],
+    saltpile: [
+      '盐堆上插着三根木签，签上刻着道道。',
+      '三道是什么意思、谁刻的，你想不起来。签还插着。'
+    ],
+    inbook: [
+      '入册簿摊在柜上，最新一行只有年份，没有名字。',
+      '空着那一格本来写谁，你想不起来。格还在。'
+    ],
+    shelfrow: [
+      '没编号的那格书架上落着灰，中间一小块是干净的。',
+      '拿走的是一册什么、谁拿的，你想不起来。空位还在。'
+    ],
+    northwin: [
+      '朝北的窗关不严，窗台上落着一小堆灰。',
+      '你在这扇窗前等过什么，想不起来。窗框上那截钉还在。'
+    ],
+    her_words: [
+      '石头下面压着一张纸，笔画很轻，是竖着写的。',
+      '字是谁写的、写给谁的，你想不起来。纸还在石头下面。'
+    ],
+    othlamp: [
+      '雾里那盏灯亮着，碗沿缺了一块。',
+      '谁点的灯、给谁点的，你想不起来。灯还亮着。'
+    ],
+    boatshape: [
+      '雾里的船影是空的，甲板上有两个并排的脚印。',
+      '船是谁的、为什么搁在这儿，你想不起来。船影还在。'
+    ],
+    pawn_door: [
+      '门开着，门槛比别家矮半寸。',
+      '谁把它削低的、为什么削，你想不起来。门照样进。'
+    ],
+    arch_door: [
+      '馆门锁着，钥匙不在门上。',
+      '钥匙在谁袖子里、怎么进去，你想不起来。门还是那道门。'
+    ],
+    board: [
+      '牌子上挂着三张活儿，字迹各不相同。',
+      '谁挂的、揭了要交给谁，你想不起来。活儿还能揭。'
+    ],
+    saltgate: [
+      '坡又长又陡，路面上全是白印子。',
+      '这道坡通向哪儿、挑盐的人为什么在这儿歇脚，你想不起来。坡还在。'
+    ],
+    notice: [
+      '牌子上贴着潮汛，还有一张禁令。',
+      '禁令是谁写的、为什么禁，你想不起来。字还贴在上面。'
+    ],
+    keeper: [
+      '柜台后站着一个人，一直在打算盘。',
+      '他叫什么、跟你做过什么买卖，你想不起来。算盘还在响。'
+    ],
+    shelf: [
+      '架子上标着价，最上层那格空着。',
+      '那格是替谁留的，你想不起来。架子还能看。'
+    ],
+    scales: [
+      '秤是黄铜的，秤盘里有一道刻痕。',
+      '这道痕是怎么磨出来的，你想不起来。秤还能称。'
+    ],
+    ledger: [
+      '账本摊在柜台上，蓝布封面磨破了。',
+      '后一半记的是什么，你想不起来。本子还能翻。'
+    ],
+    scale_pan: [
+      '秤盘底下压着一枚铜钱。',
+      '谁压的、压了多少年，你想不起来。钱还在盘子底下。'
+    ],
+    back: [
+      '里间的门关着，门缝里有股旧纸味。',
+      '里面放的是什么、谁进去过，你想不起来。门没上锁。'
+    ],
+    abacus: [
+      '算盘摆在柜台角上，珠子是木的。',
+      '谁打的算盘、算什么用的，你想不起来。珠子一颗不少。'
+    ],
+    pawnsig: [
+      '当票背面有个小记号，是指甲划的。',
+      '记号什么意思、谁划的，你想不起来。票还在你手里。'
+    ],
+    sluice: [
+      '闸门是青石的，堤头四块闸板，板角都刻着号。',
+      '先开哪块、后开哪块，你想不起来。板还在，号还刻着。'
+    ],
+    post: [
+      '桩子立在水边，上面刻着一道一道的横线。',
+      '这些线是什么时候刻的，你想不起来。桩还立着。'
+    ],
+    gauge: [
+      '石尺从水里露出五格，第一格被摸得发亮。',
+      '第一格为什么最亮，你想不起来。尺还能读。'
+    ],
+    wrack: [
+      '滩上摊着一堆东西：木片、破网、一只鞋。',
+      '鞋是谁的、这些东西是谁丢的，你想不起来。东西都还在滩上。'
+    ],
+    dike: [
+      '豁口比别处低一截，石头填过又塌了。',
+      '谁填的、塌过几回，你想不起来。豁口还等着人动手。'
+    ],
+    switches: [
+      '四块闸板立在堤头，板上的刻号是漆过的。',
+      '四块板该怎么配，你想不起来。号还在板上。'
+    ],
+    saltnames: [
+      '池底全是刻出来的字，一个挨着一个。',
+      '这些名字都是谁的，你想不起来。字还在石头上。'
+    ],
+    search: [
+      '架子按年份排，每册脊上都贴着号。',
+      '该抽哪一册、按什么条件抽，你想不起来。号还能认。'
+    ],
+    fogdoor: [
+      '北门是两块木板拼的，合不严。',
+      '这扇门通向哪儿、为什么常年不锁，你想不起来。雾从缝里进来。'
+    ],
+    cipher: [
+      '契上有一个字比别的字浅。',
+      '这个字被谁换过、原来是什么，你想不起来。底下那一层还在。'
+    ],
+    song: [
+      '她敲了四下，停了一下，又敲三下。',
+      '这四个音是哪首、她什么时候教的，你想不起来。她又敲了一遍。'
+    ],
+    ask: [
+      '有人问你叫什么。',
+      '名字你说得出来，可你不记得这问题问过多少回了。'
+    ],
+    halves: [
+      '桌上摊着半句话，后半截写着「把名字还给她」。',
+      '前半截在哪儿、这句话原来说的是谁，你想不起来。'
+    ],
+    chainlink: [
+      '锁有七环，每环上都刻着数。',
+      '七环该按什么顺序咬上，你想不起来。环数得清。'
+    ],
+    return: [
+      '名字就在你手上。',
+      '还回去会怎么样、以前有谁还过，你想不起来。手还能伸出去。'
+    ],
   };
+  /* ============ v33：分类 + 名字门控（契约 §三 / §四）============
+     认不出它是什么，但东西还在原处 —— 丢的只是"它跟谁有关"。两条硬规矩照抄 v30：
+       ① 不吃信息：原物、刻痕、号码、纸都在原处；
+       ② 不吃玩法：interact() 的分发一步不少，照样开门 / 开谜题 / 给相簿。
+     降级是双向的：把那段记赎回来，名字当场恢复（memKnown 一翻脸就还回去）。 */
+  var CAT_ORDER = ['person', 'thing', 'place', 'self'];
+  var CAT_CN = { person: '人', thing: '物', place: '地', self: '己' };
+  /* 认不出时的说法：说得清"这东西还在"，不报它的名 */
+  var LOST_NAME = {
+    lamp: '门虚掩着的灯楼',
+    clock: '停住不走的老物件',
+    chest: '一只上了年头的铁盒',
+    book: '一本字迹发旧的手抄',
+    carve: '石头上深深浅浅的道子',
+    hai: '总扛着空灯罩的年轻人',
+    oil: '满着的油桶和擦净的灯罩',
+    copy2: '摊在桌上的另一本册子',
+    tin: '敞着的针线盒子',
+    ashes: '灯台底下的一小堆灰',
+    sea: '风很大的临海平台',
+    lights: '一格一格亮着的灯格子',
+    logbook: '翻到最新一页的簿子',
+    dock: '晒着渔网的水边台阶',
+    chen: '在盐仓门口择菜的人',
+    sea_lamp: '海边那个空着的铁座子',
+    letters: '麻线捆着的一沓旧信',
+    awang: '蹲在盐堆边捻盐的老人',
+    chest2: '卡在石缝里的方盒子',
+    saltbook: '页角被盐吃出洞的簿子',
+    saltpile: '一堆盐，插着三根木签',
+    liu: '守着一屋子纸的人',
+    namewall: '刻满字的石碑',
+    inbook: '摊在柜上的册子',
+    shelfrow: '落着灰的那格架子',
+    northwin: '关不严的一扇窗',
+    burn: '墙上熏黑的一片',
+    stillclock: '指针钉死在那儿的钟',
+    her_words: '石头下压着的一张纸',
+    othlamp: '雾里亮着的那点光',
+    boatshape: '雾里空着的一条船',
+    her: '雾里背对着灯的那个人',
+    pawn_door: '矮半寸的那道门',
+    arch_door: '一道上着锁的大门',
+    board: '挂着三张活儿的牌子',
+    saltgate: '又长又陡的一道坡',
+    notice: '贴着潮汛和禁令的牌子',
+    keeper: '一直在擦柜台的人',
+    shelf: '标着价的一排架子',
+    scales: '黄铜的两只盘子',
+    ledger: '蓝布封面的一本册子',
+    scale_pan: '盘子底下压着的东西',
+    back: '一道虚掩着的小门',
+    abacus: '一排珠子，底下垫着布',
+    pawnsig: '背面有个指甲划的记号',
+    sluice: '整块青石凿的一扇闸',
+    post: '水边一根刻着横线的桩',
+    gauge: '从水里露出五格的石尺',
+    wrack: '滩上摊着的一堆杂物',
+    dike: '低下去的一截缺口',
+    switches: '四块漆过号的板子',
+    saltnames: '池底一片刻出来的字',
+    search: '按年份排的一架子册子',
+    fogdoor: '两块木板拼的门',
+    cipher: '一个字颜色浅些的契纸',
+    song: '四个音，敲了又停',
+    ask: '有人在问你话',
+    halves: '桌上摊着的半句话',
+    chainlink: '七只咬在一起的铁环',
+    return: '名字就在你手上',
+  };
+  function memKnown(id) {
+    var m = D.mem23ById(id);            /* 没挂记忆的点：当"认得"处理，别把没门控的东西弄成哑巴 */
+    if (!m) return true;
+    var st = S.mem[id] || {};
+    return (st.state || 'held') === 'held' && (st.hurt || 0) < 2;
+  }
+  function memNameOf(p) {
+    if (!p) return '';
+    var id = MEM_LINK[p.id];
+    if (!id || memKnown(id)) return p.name || '';
+    if (LOST_NAME[p.id]) return LOST_NAME[p.id];
+    return p.npc ? '一个叫不出名字的人' : '一件叫不出名字的东西';
+  }
+  function memTotalW() {                /* §六-2：当金总量由数据现算，谁加条目它自己跟着动 */
+    return (D.MEM23 || []).reduce(function (n, m) { return n + (m.w || 0); }, 0);
+  }
   function memLinkedSay(p, lines) {
     var id = MEM_LINK[p.id];
     if (!id) return lines;
@@ -686,7 +961,7 @@
       if (p.flag) markFlag(p.flag);
       if (p.to) enterScene(p.to, p.tx, p.ty);
       else if (p.kind === 'jobs') jobsPanel();
-    }, { title: p.name });
+    }, { title: memNameOf(p) });
   }
   function openPuzzle(puzId) {
     var p = D.PUZZLES[puzId]; if (!p) return;
@@ -697,12 +972,12 @@
   function buyItem(p) {
     if (S.flags[p.flag]) { toast('已经在你手里了。'); return; }
     if (S.gold < p.price) { toast('当金不够——要 ' + p.price + ' 枚，你有 ' + S.gold + ' 枚。'); return; }
-    setTitle(p.name);
+    setTitle(memNameOf(p));
     setBody('<p class="pz-tip">' + (p.say || []).join('</p><p class="pz-tip">') + '</p><p class="pz-tip">售价 ' + p.price + ' 枚当金（你有 ' + S.gold + ' 枚）</p>');
     setBtns([
       { label: '买下（' + p.price + ' 枚）', fn: function () {
         S.gold -= p.price; markFlag(p.flag); sfx('coin'); closeModal(); dirty.hud = 1; save();
-        toast('买下了 · ' + p.name);
+        toast('买下了 · ' + memNameOf(p));
       } },
       { label: '先不买', fn: function () { closeModal(); } }
     ]);
@@ -725,14 +1000,14 @@
 
   /* 干活：一次互动就把这件事做完（修堤 / 巡礁 / 晒盐） */
   function workPanel(p) {
-    if (S.flags[p.flag]) { setTitle(p.name); setBody('<p class="pz-tip">' + (p.workDone || '已经做完了。') + '</p>'); setBtns([{ label: '好', fn: closeModal }]); openModal(); return; }
-    setTitle(p.name);
+    if (S.flags[p.flag]) { setTitle(memNameOf(p)); setBody('<p class="pz-tip">' + (p.workDone || '已经做完了。') + '</p>'); setBtns([{ label: '好', fn: closeModal }]); openModal(); return; }
+    setTitle(memNameOf(p));
     setBody('<p class="pz-tip">' + (p.say || []).slice(-1)[0] + '</p>');
     setBtns([
       { label: p.workLabel || '动手', fn: function () {
         markFlag(p.flag); sfx('open'); closeModal();
         toast(p.workDone || '做完了。');
-        addLog('（' + p.name + '）' + (p.workDone || '做完了。'));
+        addLog('（' + memNameOf(p) + '）' + (p.workDone || '做完了。'));
       } },
       { label: '先不做', fn: closeModal }
     ]);
@@ -837,7 +1112,7 @@
       '第三册：一册没编号的薄本，里面夹着一张照片——三个人的合影，脸都被磨掉了，只剩衣服：一件守灯人的旧棉袄。'
     ];
     var i = S.scrolls || 0;
-    setTitle(p.name + ' · 念卷宗');
+    setTitle(memNameOf(p) + ' · 念卷宗');
     if (i >= SCROLLS.length) {
       setBody('<p class="pz-tip">三册都念完了。柳先生点点头，把那张照片推给你：「夹在这里很多年了。你拿着。」</p>');
       setBtns([{ label: '收下照片', fn: function () { closeModal(); markFlag('read_scrolls'); } }]);
@@ -952,7 +1227,7 @@
     }
     var shut = [];
     scene().portals.concat(scene().places).forEach(function (q) {
-      if (q.to && q.need && !S.flags[q.need]) shut.push('<b>' + (q.label || q.name) + '</b> —— 要先做完' + needText(q.need));
+      if (q.to && q.need && !S.flags[q.need]) shut.push('<b>' + (q.label || memNameOf(q)) + '</b> —— 要先做完' + needText(q.need));
     });
     if (shut.length) html += '<div class="arc-h">这里出不去（' + shut.length + '）</div><div class="arc-item locked">' + shut.join('<br>') + '</div>';
     html += '<div class="arc-note">' + (past.length ? past.join(' · ') + ' · 过去了<br>' : '') +
@@ -972,6 +1247,31 @@
   }
   /* 「记」面板：游戏叫记忆当铺，这一栏就是你的记
      规矩和主题一致 —— 当出去的记，在柜台看得见（当铺替你收着），在你身上是空的 */
+  /* v33：按 cat 分组（契约 §六-4）—— 组头带条数、空组不显示；组内保持原顺序 */
+  function memCatGroups(list, blank) {
+    var out = '';
+    CAT_ORDER.forEach(function (cat) {
+      var grp = list.filter(function (x) { return (x.m.cat || 'self') === cat; });
+      if (!grp.length) return;
+      out += '<div class="arc-h mem-cat-head" data-cat-head="' + cat + '">' + CAT_CN[cat] +
+        (blank ? ' · 押在柜上' : ' · 还记得') + '（' + grp.length + '）</div>';
+      out += grp.map(function (x) {
+        var hurt = x.st.hurt || 0, spoiled = x.st.state === 'spoiled';
+        if (blank) {
+          return '<div class="arc-item locked" data-cat="' + cat + '"><b class="mem-tag">' + x.m.tag + '</b>' +
+            '<span class="mem-blank">（想不起来了 · 当票 ' + x.m.w + ' 枚' +
+            (x.st.pawns > 1 ? ' · 当出去过 ' + x.st.pawns + ' 回' : '') + '）</span></div>';
+        }
+        var note = spoiled ? ('碎了 · 补要 ' + fixCost(2) + ' 枚')
+          : (hurt ? ('缺字 ' + hurt + '/2 · 补要 ' + fixCost(hurt) + ' 枚') : ('痛感 ' + x.m.w));
+        return '<div class="arc-item' + (hurt ? ' mem-hurt' : '') + '" data-cat="' + cat + '">' +
+          '<b class="mem-tag">' + x.m.tag + '</b>' +
+          (hurt ? fuzzyText(x.m.text, hurt) : x.m.text) +
+          '<span class="mem-w">' + note + '</span></div>';
+      }).join('');
+    });
+    return out;
+  }
   function refreshMem() {
     var p = $('pane-mem'); if (!p) return;
     var all = D.MEM23, held = [], pawned = [];
@@ -980,21 +1280,10 @@
       (st.state === 'pawned' ? pawned : held).push({ m: m, st: st });
     });
     var html = '<div class="arc-h">在身上的（' + held.length + '/' + all.length + '）</div>';
-    html += held.map(function (x) {
-      var hurt = x.st.hurt || 0, spoiled = x.st.state === 'spoiled';
-      var note = spoiled ? ('碎了 · 补要 ' + fixCost(2) + ' 枚')
-        : (hurt ? ('缺字 ' + hurt + '/2 · 补要 ' + fixCost(hurt) + ' 枚') : ('痛感 ' + x.m.w));
-      return '<div class="arc-item' + (hurt ? ' mem-hurt' : '') + '"><b class="mem-tag">' + x.m.tag + '</b>' +
-        (hurt ? fuzzyText(x.m.text, hurt) : x.m.text) +
-        '<span class="mem-w">' + note + '</span></div>';
-    }).join('') || '<div class="arc-lock">身上一段记都没有了。</div>';
+    html += memCatGroups(held, false) || '<div class="arc-lock">身上一段记都没有了。</div>';
     if (damagedMem().length) html += '<div class="arc-item">被咬过的记能在记当铺柜台补（补一次 2 枚当金起）。</div>';
     html += '<div class="arc-h">押在柜上的（' + pawned.length + '）—— 当出去了，这儿就是空的</div>';
-    html += pawned.map(function (x) {
-      return '<div class="arc-item locked"><b class="mem-tag">' + x.m.tag + '</b>' +
-        '<span class="mem-blank">（想不起来了 · 当票 ' + x.m.w + ' 枚' +
-        (x.st.pawns > 1 ? ' · 当出去过 ' + x.st.pawns + ' 回' : '') + '）</span></div>';
-    }).join('') || '<div class="arc-lock">柜上没押着东西。</div>';
+    html += memCatGroups(pawned, true) || '<div class="arc-lock">柜上没押着东西。</div>';
     html += '<div class="arc-h">账</div>';
     html += '<div class="arc-item">当金结余 <b>' + S.gold + '</b> 枚 · 赎回累计 <b>' + (S.redeemed || 0) + '</b> 次</div>';
     html += '<div class="arc-item">当出去换钱，赎回来付原价 —— 一来一回不赚不亏，只是那段时间里，你会真的想不起它。</div>';
@@ -2971,7 +3260,7 @@
     sc.portals.forEach(function (p) { label(p.label || '出口', p.x, p.y, false); });
     var near = nearestPlace();
     if (near) {
-      label(near.name, near.x, near.y, true);
+      label(memNameOf(near), near.x, near.y, true);
       ctx.fillStyle = '#e0b25c'; ctx.font = 'bold 15px sans-serif';
       ctx.fillText('E', near.x * CELL + CELL + 8, near.y * CELL + 26);
     }
@@ -3327,7 +3616,11 @@
     dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
     raf = requestAnimationFrame(loop);
     window.PAWN_DEBUG = {
-      S: S, D: D, api: {
+      S: S, D: D,
+      /* v33 判据面：分类 / 名字门控 / 派生总量（探针与回归只读） */
+      mem: { link: MEM_LINK, lostName: LOST_NAME, lostSay: LOST_SAY, nameOf: memNameOf, known: memKnown,
+             total: memTotalW, cats: CAT_ORDER, catCn: CAT_CN },
+      api: {
         enter: enterScene, flag: markFlag, solve: solvePuzzle, ending: ending, say: say,
         get state() { return S; }, interact: interact, modalOpen: function () { return modalOpen; },
         setPos: function (x, y) { S.x = S.tx = x; S.y = S.ty = y; S.mx = x; S.my = y; S.mt = 0; }
