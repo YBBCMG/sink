@@ -13,7 +13,7 @@
   var LEGACY_ACK_KEY = 'mp23-legacy-ack-v1';   /* 版本提示只弹一次：弹过就落这个记号 */
   var GUIDE_KEY = 'mp23-guide-v1';             /* 新手引导（guide23.js:20 用的同一个键）：开新档时要一起清 */
 
-  var canvas, ctx, S = null, raf = 0, lastT = 0, toastT = 0, bannerT = 0, actCardT = 0, lockCd = 0;
+  var canvas, ctx, S = null, raf = 0, lastT = 0, toastT = 0, bannerT = 0, actCardT = 0, lockCd = 0, firstSightT = 0;
   var keys = {}, moveCd = 0, portalCd = 0, dirty = { hud: 1, log: 1, tasks: 1, album: 1, arch: 1, mem: 1 };
   var endingRun = [];
 
@@ -122,6 +122,26 @@
     var b = $('scene-banner'); if (!b) return;
     b.innerHTML = main + '<small>' + (sub || '') + '</small>';
     b.classList.add('on'); bannerT = 2.4;
+  }
+  /* 初见：屏幕上方的那一条（用户 2026-10-12：「不需要母亲那句，只需要在初见这个怪的时候弹一个提示」）。
+     只弹一次 —— 记在存档的 flags.met_wuyi 里：重进场景、重开浏览器都不再骚扰，新开一局自然重来。
+     它只说两件事：这是什么、怎么反制；细的留给左上那张"第一夜清单"（fog / oil 两步）。 */
+  function firstSight(K) {
+    var el = $('first-sight'); if (!el) return;
+    el.innerHTML = '<b>初见 · ' + K.name + '</b>' +
+      '<span class="fs-w">' + (K.desc || '') + '</span>' +
+      '<span class="fs-y">灯下它不敢进；兜里有灯油就按 <b>F</b> 泼下去 —— 定住它十几秒。</span>';
+    el.classList.add('on');
+    if (global.document && global.document.body) {
+      global.document.body.classList.add('fs-on');
+      /* 现场量一次高度交给 CSS：手机上左上那张引导纸要让到它下面去（窄屏换行也不会撞上）。
+         jsdom 里量出来是 0 —— 那就不设，CSS 里 110px 兜底。 */
+      try {
+        var h = el.getBoundingClientRect ? Math.ceil(el.getBoundingClientRect().height) : 0;
+        if (h > 0) global.document.body.style.setProperty('--fs-h', h + 'px');
+      } catch (e) { /* 量不到就算了 */ }
+    }
+    firstSightT = 8.5;
   }
   /* 幕间卡：进了新的一幕就把幕号 / 幕名 / 一句引子摊在画面中间（3.4 秒后自己淡掉） */
   function actCard(act) {
@@ -3004,6 +3024,13 @@
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
     if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) $('scene-banner').classList.remove('on'); }
     if (actCardT > 0) { actCardT -= dt; if (actCardT <= 0) $('act-card').classList.remove('on'); }
+    if (firstSightT > 0) {                        /* 初见那条：几秒后自己淡掉，把上沿还给引导纸 */
+      firstSightT -= dt;
+      if (firstSightT <= 0) {
+        var fsEl = $('first-sight'); if (fsEl) fsEl.classList.remove('on');
+        if (global.document && global.document.body) global.document.body.classList.remove('fs-on');
+      }
+    }
     if (lockCd > 0) lockCd -= dt;
     if (moveCd > 0) moveCd -= dt;
     if (portalCd > 0) portalCd -= dt;
@@ -3358,7 +3385,13 @@
           biteFlash(K);                                    /* 面板挡着看不见画布：抖一下面板本身 */
           damageMemory(1, 'mob:' + K.id);
         },
-        wake: function (K) { addLog('雾里抬头了：' + K.name); toast('雾里抬头了：' + K.name + '。它在往你这边挪 —— 灯下它不敢进。'); },
+        wake: function (K) {
+          addLog('雾里抬头了：' + K.name);
+          /* 初见那一拍：屏幕上沿弹一次「它是什么、怎么反制」，并记进存档只此一次；
+             往后再抬头就只剩 toast 那一句（用户 2026-10-12：不要母亲那句，初见弹一个提示即可）。 */
+          if (S.flags && !S.flags.met_wuyi) { S.flags.met_wuyi = 1; firstSight(K); save(); }
+          else toast('雾里抬头了：' + K.name + '。它在往你这边挪 —— 灯下它不敢进。');
+        },
         spit: function () { sfx('blip'); }
       });
       global.MOBS23.spawnFor(S.scene, S.act);
