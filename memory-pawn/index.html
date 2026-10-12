@@ -441,6 +441,9 @@
   opacity: 0; transition: opacity .55s ease; z-index: 7;
 }
 #act-card.on { opacity: 1; }
+/* v39：弹窗开着时把幕间卡收掉 —— 它 top:33% 正好落在题面中段，实测压在潮位表上（z-index 改不动它：
+   #modal 另有一条全局 fixed/60 的规则在后面，所以按状态收，别跟层级较劲） */
+body.mp-modal #act-card.on { opacity: 0; }
 #act-card .ac-no { font-size: 12px; letter-spacing: 7px; color: var(--gold2, #e0b25c); }
 #act-card .ac-name { font-size: 30px; letter-spacing: 6px; color: #f4ecd8; margin: 4px 0 7px;
   text-shadow: 0 2px 20px #000, 0 0 30px rgba(240,196,106,.30); }
@@ -466,6 +469,37 @@
 .pz-opt.sel, .pz-opt.on { box-shadow: inset 0 0 0 1px var(--gold, #c9a227); }
 .pz-opt:hover, .pz-btn:hover { border-color: var(--gold2, #e0b25c); }
 
+/* 告示牌硬委托（js/jobs-hard23.js）—— 三道推理活；沿用 v31.4 硬边皮，不引圆角 */
+.jh-salt { margin: 6px 0 8px; }
+.jh-row { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.jh-name { width: 46px; flex: none; color: var(--gold2, #e0b25c); font-size: 13.5px; }
+.jh-min { font-family: ui-monospace, Consolas, monospace; font-size: 13px; min-width: 38px; min-height: 32px;
+  background: var(--panel2, #221c14); color: var(--txt, #e6e0d6); border: 1px solid var(--line, #3a3226);
+  cursor: pointer; padding: 4px 6px; transition: border-color .1s linear; }
+.jh-min:hover { border-color: var(--gold2, #e0b25c); }
+.jh-min:active { transform: none; }
+.jh-num { min-width: 46px; text-align: center; font-family: ui-monospace, Consolas, monospace; font-size: 15px;
+  color: #fff; background: #141026; border: 1px solid var(--line, #3a3226); padding: 5px 6px; }
+.jh-tide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
+.jh-tide span { font-size: 11.5px; color: var(--dim, #9a9a9a); background: #141026;
+  border: 1px solid var(--line, #3a3226); padding: 3px 5px; text-align: center; }
+.jh-tide b { color: var(--gold2, #e0b25c); }
+.jh-say { font-size: 12.5px; color: var(--txt, #e6e0d6); border-left: 2px solid var(--line, #3a3226);
+  padding: 2px 0 2px 8px; margin: 6px 0; }
+.jh-say b { color: var(--gold2, #e0b25c); }
+.jh-receipts { display: grid; gap: 5px; margin: 6px 0 8px; }
+.jh-receipt { text-align: left; font-family: inherit; font-size: 13px; color: var(--txt, #e6e0d6);
+  background: var(--panel2, #221c14); border: 1px solid var(--line, #3a3226); padding: 7px 10px; cursor: pointer;
+  transition: border-color .1s linear, background-color .1s linear; }
+.jh-receipt b { color: var(--gold2, #e0b25c); margin-right: 8px; }
+.jh-receipt:hover { border-color: var(--gold2, #e0b25c); }
+.jh-receipt.on { box-shadow: inset 0 0 0 1px var(--gold, #c9a227); background: #2b2338; color: #fff; }
+.jh-receipt:active { transform: none; }
+@media (max-width: 420px) {
+  .jh-name { width: 38px; font-size: 12px; }
+  .jh-min { min-width: 32px; min-height: 28px; font-size: 12px; }
+  .jh-tide { grid-template-columns: repeat(2, 1fr); }
+}
 /* 手机：弹窗必须占满视口 —— 原来 position:absolute 依附画布区，375 宽下 4×4 网格只露 2 行、
    复位/开闸按钮直接够不着（实测）。改成视口级遮罩 + 正文滚动 + 按钮常驻底部。 */
 #modal {
@@ -892,6 +926,7 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/music.js?v=33"></script>
 <script src="js/mobs23.js?v=37"></script>
 <script src="js/puzzles23.js?v=38"></script>
+<script src="js/jobs-hard23.js?v=1"></script>
 <script src="js/art31.js?v=36"></script>
 <script src="js/game23.js?v=43"></script>
 <script src="js/guide23.js?v=34"></script>
