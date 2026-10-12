@@ -833,11 +833,20 @@
   }
 
   /* ============ 18. 连环锁（幕五 · 五道环 · 一百秒 · 超时从第一道重来） ============
-     规矩：一百秒内把五枚环一枚一枚解完；解不完，五枚一起弹回去，从第一枚重来。
-     每枚环是一道**自己**的机关；而且每轮重新生成 —— 答案不跟上一轮一样，背答案没用。 */
+     v35：用户判了旧那五道（记数/对位/配重/对牌/灯序）"一点难度都没有" —— 那是「手」的题。
+     现在五枚环各是一道**要动脑的推理题**，而且是一副**连环**：环四的题面现场引用前三枚的答案，
+     环五引用前四枚。前几枚咬出来的样子整份登在面板的凭据栏里 —— 证据全在面板内，不许靠记忆、不许跑腿。
+     规矩（用户 2026-10-13 亲口）：
+       · 一百秒内一枚一枚解完；表走完 → 五枚一起弹回去、从第一枚重来、这一轮的题全部重掷；
+       · 同一枚环**错两次** → 整锁弹回 + 重新计时 + 计数归零；
+       · 弹回越多，铁牌背面给的**方法**提示越多（上限三层，只给方法不给答案）。
+     出题一律**生成式**：随手取一个解 → 随机生成约束 → **穷举全部候选验"恰好唯一解"**（不唯一就加线索/重掷）。
+     `space`/`holds`/`answer` 三个出口就是给判据机械复核唯一解用的 —— holds 是老实实现，不写只认 answer 的假货。 */
   var CHAIN_LIMIT = 100;
   var CHAIN_NAMES = ['一', '二', '三', '四', '五'];
   var CHAIN_MARKS = ['雾', '灯', '海', '名', '岸', '钟', '贝', '船'];
+  var CHAIN_CN = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  /* 旧的「对牌」词条：不在环上了，别的口径还在引，留着 */
   var CHAIN_PAIRS = [
     ['替记', '拿自己的一段记，替别人背一笔债'],
     ['雾客', '雾里站着不动的人'],
@@ -848,17 +857,555 @@
     ['潮到三刻', '旧钟上的三点四十五分']
   ];
   var CHAIN = (function () {
-    function mkTap(R) { return { kind: 'tap', name: '记数', n: 4 + R(5) }; }
-    function mkNotch(R) { var s = R(8), k = 1 + R(7); return { kind: 'notch', name: '对位', start: s, step: k, target: (s + k) % 8 }; }
-    function mkWeigh(R) { return { kind: 'weigh', name: '配重', target: 1 + R(15) }; }
-    function mkPair(R) { return { kind: 'pair', name: '对牌', pairs: shuffle(CHAIN_PAIRS.slice(), R).slice(0, 3) }; }
-    function mkSeq(R) { var s = [], i; for (i = 0; i < 4; i++) s.push(R(4)); return { kind: 'seq', name: '灯序', seq: s }; }
-    /* 一轮 = 五枚环（次序也洗牌）。rand 可注入（测试用固定种子验"两轮答案不一样"） */
+    /* ================= 出题底座：候选 / 判据 / 唯一解 ================= */
+
+    /* 全排列（五个 = 120 种，判据要把它们一种不落地穷举一遍） */
+    function perms(arr) {
+      var out = [], cur = [], used = [], i;
+      for (i = 0; i < arr.length; i++) used.push(false);
+      (function rec() {
+        if (cur.length === arr.length) { out.push(cur.slice()); return; }
+        for (var k = 0; k < arr.length; k++) {
+          if (used[k]) continue;
+          used[k] = true; cur.push(arr[k]); rec(); cur.pop(); used[k] = false;
+        }
+      })();
+      return out;
+    }
+    function same(a, b) {
+      if (!a || !b || a.length !== b.length) return false;
+      for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+      return true;
+    }
+    function posOf(arr, v) { for (var i = 0; i < arr.length; i++) if (arr[i] === v) return i; return -1; }
+    function matches(cand, trial) { var n = 0; for (var i = 0; i < cand.length; i++) if (cand[i] === trial[i]) n++; return n; }
+    function pickN(R, pool, n) { return shuffle(pool.slice(), R).slice(0, n); }
+    function bits(a) { var n = 0; for (var i = 0; i < a.length; i++) if (a[i]) n++; return n; }
+    function swapOne(R, arr) {
+      var b = arr.slice(), i = R(b.length), j = (i + 1 + R(b.length - 1)) % b.length, t = b[i];
+      b[i] = b[j]; b[j] = t; return b;
+    }
+
+    /* 线索是**数据**不是闭包 —— node 能 JSON 序列化，判据拿 node 比对"题面变没变"时才是真在比题面。
+       at/notat/before/adj/between 对排列类候选通用（值可以是字，也可以是环的号）；
+       trial 是环一的"试排 —— 对了几位"。 */
+    function arrOK(cand, cls) {
+      for (var k = 0; k < cls.length; k++) {
+        var c = cls[k], pa, pb, pv;
+        if (c.t === 'at') { if (cand[c.k] !== c.v) return false; }
+        else if (c.t === 'notat') { if (cand[c.k] === c.v) return false; }
+        else if (c.t === 'before') {
+          pa = posOf(cand, c.a); pb = posOf(cand, c.b);
+          if (!(pa >= 0 && pb >= 0 && pa < pb)) return false;
+        } else if (c.t === 'adj') {
+          pa = posOf(cand, c.a); pb = posOf(cand, c.b);
+          if (Math.abs(pa - pb) !== 1) return false;
+        } else if (c.t === 'between') {
+          pa = posOf(cand, c.a); pb = posOf(cand, c.b); pv = posOf(cand, c.v);
+          if (!((pa < pv && pv < pb) || (pb < pv && pv < pa))) return false;
+        } else if (c.t === 'trial') {
+          if (matches(cand, c.arr) !== c.hit) return false;
+        }
+      }
+      return true;
+    }
+
+    /* 造唯一解：线索池**前面是弱线索、尾巴上压着"必胜"线索**（能一格一格钉死目标解的那种）。
+       一条条挑：能把候选缩小的就收下，直到候选里只剩目标解；加完还要穷举核一遍，核不过就重掷。 */
+    function narrow(space, target, pool, keep, ok) {
+      var chosen = pool.slice(0, keep), sol = [], i, p;
+      for (i = 0; i < space.length; i++) if (ok(space[i], chosen)) sol.push(space[i]);
+      for (i = keep; i < pool.length && sol.length > 1; i++) {
+        var s2 = [];
+        for (p = 0; p < sol.length; p++) if (ok(sol[p], [pool[i]])) s2.push(sol[p]);
+        if (s2.length < sol.length) { chosen.push(pool[i]); sol = s2; }
+      }
+      if (sol.length !== 1 || !same(sol[0], target)) return null;
+      return { clauses: chosen, sol: sol[0] };
+    }
+
+    /* 必胜线索：把目标解一格一格写出来（弱线索实在不够用时，narrow 才会把它们收进来） */
+    function pinClauses(R, target, n) {
+      var idx = [], out = [], i;
+      for (i = 0; i < target.length; i++) idx.push(i);
+      shuffle(idx, R);
+      for (i = 0; i < Math.min(n, idx.length); i++) out.push({ t: 'at', k: idx[i], v: target[idx[i]] });
+      return out;
+    }
+
+    /* 随机构一条排列类线索（能不能用在目标解上，由调用方拿 arrOK 筛） */
+    function someClause(R, vals) {
+      var n = vals.length, k = R(7), i, j, p;
+      if (k === 0) return { t: 'at', k: R(n), v: vals[R(n)] };
+      if (k === 1) return { t: 'notat', k: R(n), v: vals[R(n)] };
+      if (k === 2 || k === 3) { i = R(n); j = (i + 1 + R(n - 1)) % n; return { t: 'before', a: vals[i], b: vals[j] }; }
+      if (k === 4) { i = R(n); j = (i + 1 + R(n - 1)) % n; return { t: 'adj', a: vals[i], b: vals[j] }; }
+      p = shuffle(vals.slice(), R);
+      return { t: 'between', a: p[0], b: p[1], v: p[2] };
+    }
+    /* 攒 want 条"在目标解上为真"的弱线索 */
+    function trueClauses(R, target, want) {
+      var out = [], tries = 0;
+      while (out.length < want && tries < 300) {
+        tries++;
+        var c = someClause(R, target);
+        if (arrOK(target, [c])) out.push(c);
+      }
+      return out;
+    }
+    /* 目标解：**直接在候选空间里挑一个满足全部派生线索的**。
+       为什么不用"随手拼一个再试"：拼出来的解有可能不满足自己的线索（比如"环三咬在环一前面"
+       撞上"环一钉在第一格"），那样节点就成了 0 解 —— 判据 ① 会当场抓住（1000 种子里抓到过一次）。
+       在空间里挑就不会有这种事：挑出来的解**按定义**满足它自己那一套线索。 */
+    function pickTarget(R, values, cls) {
+      var sp = perms(values), out = [], i;
+      for (i = 0; i < sp.length; i++) if (arrOK(sp[i], cls)) out.push(sp[i]);
+      if (!out.length) return null;
+      return out[R(out.length)].slice();
+    }
+
+    /* ================= 环一 · 咬合（排除法）=================
+       五个字咬进五个齿位（候选 5! = 120）。铁牌上列着几条**试排**，每条只报"对了几位"。
+       推法：两条只差一个对调的试排摆一起比，差出来的数只跟那两格有关；再一位一位地划。
+       光靠试排钉不死全部 120 种，所以线索池尾巴上压着四条"哪格是哪字"的必胜线索（不够用时才收）。 */
+    var RING_BITE = {
+      kind: 'bite', name: '咬合',
+      make: function (R) {
+        var last = null, att, i, t, k, marks, target, pool, seen, nk, kinds, got;
+        for (att = 0; att < 40 && !last; att++) {
+          marks = pickN(R, CHAIN_MARKS, 5);
+          target = shuffle(marks.slice(), R);
+          pool = []; seen = {};
+          for (i = 0; i < 30 && pool.length < 7; i++) {
+            t = shuffle(marks.slice(), R);
+            k = matches(t, target);
+            if (k === 5) continue;                       /* 跟答案一模一样的那条等于把答案送出去 */
+            if (seen[t.join('')]) continue;
+            seen[t.join('')] = 1;
+            pool.push({ t: 'trial', arr: t, hit: k });
+          }
+          if (pool.length < 6) continue;
+          kinds = {}; nk = 0;
+          for (i = 0; i < pool.length; i++) if (!kinds[pool[i].hit]) { kinds[pool[i].hit] = 1; nk++; }
+          if (nk < 2) continue;                          /* 全报同一个数就没什么好比的了 */
+          got = narrow(perms(marks), target, pool.concat(pinClauses(R, target, 4)), 4, arrOK);
+          if (got && got.clauses.length <= 7) {
+            last = { kind: 'bite', name: '咬合', marks: marks.slice(), trials: got.clauses, sol: got.sol.slice() };
+          }
+        }
+        if (!last) {
+          /* 兜底：几乎跑不到 —— 四条试排（各差一个对调）+ 四条必胜线索，必唯一 */
+          var mk = pickN(R, CHAIN_MARKS, 5), tg = shuffle(mk.slice(), R), fb = [], f;
+          for (f = 0; f < 4; f++) fb.push({ t: 'trial', arr: swapOne(R, tg), hit: 3 });
+          var g2 = narrow(perms(mk), tg, fb.concat(pinClauses(R, tg, 4)), 4, arrOK);
+          last = {
+            kind: 'bite', name: '咬合', marks: mk.slice(),
+            trials: (g2 ? g2.clauses : pinClauses(R, tg, 4)), sol: (g2 ? g2.sol : tg).slice()
+          };
+        }
+        return last;
+      },
+      space: function (n) { return perms(n.marks); },
+      holds: function (n, c) { return arrOK(c, n.trials); },
+      answer: function (n) { return n.sol.slice(); }
+    };
+
+    /* ================= 环二 · 证词（自指真假）=================
+       七句话互相指涉（"第几句是假话""恰好有几句真话"），候选 = 128 种"哪几句为真"。
+       一句话的真假必须跟它断言的内容一致 —— 整个系统的**不动点**才是答案：这就是"必须联立"。
+       生成：随手取一个真假组合当解 → 每句挑一条在它上面成立、又不恒真恒假的句式 →
+             穷举 128 种验"恰好一个不动点、而且就是那个解"。 */
+    var SAY_N = 7;
+    function sayPool(R, i, N) {
+      var others = [], k;
+      for (k = 0; k < N; k++) if (k !== i) others.push(k);
+      var j = others[R(others.length)];
+      return [
+        { t: 'count', k: 1 + R(N - 2) },
+        { t: 'parity', p: R(2) },
+        { t: 'isfalse', i: i },                          /* 「这一句是假话」：经典自指，不动点从不存在，选不上 */
+        { t: 'istrue', i: j },
+        { t: 'isfalse', i: j },
+        { t: 'diff', i: i, j: j },
+        { t: 'same', i: i, j: j },
+        { t: 'impl', i: i, j: j },
+        { t: 'somefalse', i: i, j: j }
+      ];
+    }
+    function sayTruth(s, a) {
+      var c = bits(a);
+      if (s.t === 'count') return c === s.k;
+      if (s.t === 'parity') return (c % 2) === s.p;
+      if (s.t === 'istrue') return a[s.i] === 1;
+      if (s.t === 'isfalse') return a[s.i] === 0;
+      if (s.t === 'diff') return a[s.i] !== a[s.j];
+      if (s.t === 'same') return a[s.i] === a[s.j];
+      if (s.t === 'impl') return !(a[s.i] === 1 && a[s.j] === 0);
+      if (s.t === 'somefalse') return !(a[s.i] === 1 && a[s.j] === 1);
+      return false;
+    }
+    function saysOK(says, a) {
+      for (var i = 0; i < says.length; i++) if (sayTruth(says[i], a) !== (a[i] === 1)) return false;
+      return true;
+    }
+    function sayRef(s, own) {                            /* 这句指着哪一句（指自己/不指人 = -1） */
+      if (s.t === 'count' || s.t === 'parity') return -1;
+      var tgt = (s.t === 'diff' || s.t === 'same' || s.t === 'impl' || s.t === 'somefalse') ? s.j : s.i;
+      return tgt === own ? -1 : tgt;
+    }
+    function varies(st, N) {                             /* 恒真/恒假的话是废句，不收 */
+      var seen = {}, m, i, a;
+      for (m = 0; m < (1 << N); m++) {
+        a = [];
+        for (i = 0; i < N; i++) a.push((m >> i) & 1);
+        seen[sayTruth(st, a) ? 1 : 0] = 1;
+        if (seen[0] && seen[1]) return true;
+      }
+      return false;
+    }
+    function hasCycle(says, N) {                         /* 指来指去要成环，这才叫互相指涉 */
+      for (var s = 0; s < N; s++) {
+        var cur = s, steps = 0;
+        while (steps++ < N) {
+          var nx = sayRef(says[cur], cur);
+          if (nx < 0) break;
+          cur = nx;
+          if (cur === s) return true;
+        }
+      }
+      return false;
+    }
+    function sayText(s) {
+      if (s.t === 'count') return '这七句话里，说真话的恰好有 ' + CHAIN_CN[s.k] + ' 句。';
+      if (s.t === 'parity') return '这七句话里，说真话的句数是' + (s.p ? '奇数' : '偶数') + '。';
+      if (s.t === 'istrue') return '第 ' + CHAIN_CN[s.i + 1] + ' 句是真话。';
+      if (s.t === 'isfalse') return '第 ' + CHAIN_CN[s.i + 1] + ' 句是假话。';
+      if (s.t === 'diff') return '第 ' + CHAIN_CN[s.i + 1] + ' 句和第 ' + CHAIN_CN[s.j + 1] + ' 句，一真一假。';
+      if (s.t === 'same') return '第 ' + CHAIN_CN[s.i + 1] + ' 句和第 ' + CHAIN_CN[s.j + 1] + ' 句，要么都真、要么都假。';
+      if (s.t === 'impl') return '要是第 ' + CHAIN_CN[s.i + 1] + ' 句为真，第 ' + CHAIN_CN[s.j + 1] + ' 句也就为真。';
+      if (s.t === 'somefalse') return '第 ' + CHAIN_CN[s.i + 1] + ' 句、第 ' + CHAIN_CN[s.j + 1] + ' 句里，至少有一句是假话。';
+      return '';
+    }
+    var RING_TESTIMONY = {
+      kind: 'testimony', name: '证词',
+      make: function (R) {
+        var N = SAY_N, att, i, m, p, refs, sols, a;
+        for (att = 0; att < 300; att++) {
+          var tgt = [], cnt = 2 + R(4);
+          var idxs = shuffle([0, 1, 2, 3, 4, 5, 6], R).slice(0, cnt);
+          for (i = 0; i < N; i++) tgt.push(0);
+          for (i = 0; i < idxs.length; i++) tgt[idxs[i]] = 1;
+          var says = [], okAll = true;
+          for (i = 0; i < N; i++) {
+            var pool = sayPool(R, i, N), cands = [];
+            for (p = 0; p < pool.length; p++) {
+              if (sayTruth(pool[p], tgt) !== (tgt[i] === 1)) continue;
+              if (!varies(pool[p], N)) continue;
+              cands.push(pool[p]);
+            }
+            if (!cands.length) { okAll = false; break; }
+            says.push(cands[R(cands.length)]);
+          }
+          if (!okAll) continue;
+          refs = 0;
+          for (i = 0; i < N; i++) if (sayRef(says[i], i) >= 0) refs++;
+          if (refs < 3) continue;
+          if (!hasCycle(says, N)) continue;
+          sols = [];
+          for (m = 0; m < (1 << N); m++) {
+            a = [];
+            for (i = 0; i < N; i++) a.push((m >> i) & 1);
+            if (saysOK(says, a)) sols.push(a);
+          }
+          if (sols.length !== 1 || !same(sols[0], tgt)) continue;
+          return { kind: 'testimony', name: '证词', says: says, texts: says.map(sayText), sol: tgt.slice() };
+        }
+        /* 兜底：几乎跑不到 —— 首句报"恰好六句真"、其余六句都指首句，唯一不动点（全假） */
+        var fs = [{ t: 'count', k: N - 1 }], t2 = [0];
+        for (i = 1; i < N; i++) { fs.push({ t: 'istrue', i: 0 }); t2.push(0); }
+        return { kind: 'testimony', name: '证词', says: fs, texts: fs.map(sayText), sol: t2 };
+      },
+      space: function (n) {
+        var out = [], m, i;
+        for (m = 0; m < (1 << n.says.length); m++) {
+          var a = [];
+          for (i = 0; i < n.says.length; i++) a.push((m >> i) & 1);
+          out.push(a);
+        }
+        return out;
+      },
+      holds: function (n, c) { return c.length === n.says.length && saysOK(n.says, c); },
+      answer: function (n) { return n.sol.slice(); }
+    };
+
+    /* ================= 环三 · 对质（真假与位次联立）=================
+       五个人各咬一格、各留一句话；账上记着"一共几句真话" + 真话那几位咬的位次（和/奇偶/最靠前）。
+       候选 = 5! = 120 种次序。生成：随手取一个次序当解 → 每人的话挑一条"在这解上恰好真/恰好假"的说法
+       → 账从解上抠出来（绝不拍脑袋）→ 穷举 120 种验唯一，账不够就再加一笔。 */
+    function liarSayTruth(s, cand) {
+      if (s.t === 'selfat') return cand[s.k] === s.v;
+      if (s.t === 'at') return cand[s.k] === s.v;
+      if (s.t === 'notat') return cand[s.k] !== s.v;
+      if (s.t === 'before') return posOf(cand, s.a) < posOf(cand, s.b);
+      if (s.t === 'adj') return Math.abs(posOf(cand, s.a) - posOf(cand, s.b)) === 1;
+      return false;
+    }
+    function liarSay(R, people, target, i, b) {
+      var me = people[i], k, k2, p, a, att, shape;
+      for (att = 0; att < 24; att++) {
+        shape = R(5);
+        if (shape === 0) {                               /* 我咬在第 k 格 */
+          k = posOf(target, me);
+          if (!b) k = (k + 1 + R(4)) % 5;
+          return { t: 'selfat', v: me, k: k };
+        }
+        if (shape === 1 || shape === 2) {                /* 谁咬在第 k 格 / 谁不在第 k 格 */
+          p = R(5); k = posOf(target, people[p]);
+          if (shape === 1) {
+            if (!b) k = (k + 1 + R(4)) % 5;
+            return { t: 'at', v: people[p], k: k };
+          }
+          if (b) { k2 = (k + 1 + R(4)) % 5; return { t: 'notat', v: people[p], k: k2 }; }
+          return { t: 'notat', v: people[p], k: k };
+        }
+        if (shape === 3) {                               /* 谁咬在我前面 */
+          p = R(5); if (p === i) continue;
+          a = people[p];
+          if (b === (posOf(target, a) < posOf(target, me))) return { t: 'before', a: a, b: me };
+          continue;
+        }
+        p = R(5); if (p === i) continue;                 /* 谁跟我挨着 */
+        a = people[p];
+        if (b === (Math.abs(posOf(target, a) - posOf(target, me)) === 1)) return { t: 'adj', a: a, b: me };
+      }
+      k = posOf(target, me);
+      if (!b) k = (k + 1) % 5;
+      return { t: 'selfat', v: me, k: k };
+    }
+    function liarSayText(s, speaker) {
+      if (s.t === 'selfat') return speaker + '说：我咬在第 ' + CHAIN_CN[s.k + 1] + ' 格。';
+      if (s.t === 'at') return speaker + '说：' + s.v + '咬在第 ' + CHAIN_CN[s.k + 1] + ' 格。';
+      if (s.t === 'notat') return speaker + '说：' + s.v + '不在第 ' + CHAIN_CN[s.k + 1] + ' 格。';
+      if (s.t === 'before') return speaker + '说：' + s.a + '咬在我前面。';
+      if (s.t === 'adj') return speaker + '说：' + s.a + '和我挨着。';
+      return '';
+    }
+    function liarStats(people, cand, t) {
+      var st = { ts: 0, sum: 0, odd: 0, mn: 9, mx: -1 }, i, p;
+      for (i = 0; i < t.length; i++) {
+        if (!t[i]) continue;
+        p = posOf(cand, people[i]);
+        st.ts++; st.sum += p;
+        if (p % 2 === 0) st.odd++;
+        if (p < st.mn) st.mn = p;
+        if (p > st.mx) st.mx = p;
+      }
+      return st;
+    }
+    function liarTruths(node, cand) {
+      var t = [];
+      for (var i = 0; i < node.says.length; i++) t.push(liarSayTruth(node.says[i], cand) ? 1 : 0);
+      return t;
+    }
+    function liarFactOK(st, f) {
+      if (f.t === 'fcnt') return st.ts === f.n;
+      if (f.t === 'fsum') return st.ts > 0 && st.sum === f.n;
+      if (f.t === 'fodd') return st.ts > 0 && st.odd === f.n;
+      if (f.t === 'fmin') return st.ts > 0 && st.mn === f.n;
+      if (f.t === 'fmax') return st.ts > 0 && st.mx === f.n;
+      return true;
+    }
+    function liarFactText(f) {
+      if (f.t === 'fcnt') return '五句话里，说真话的恰好有 ' + CHAIN_CN[f.n] + ' 句。';
+      if (f.t === 'fsum') return '说真话的那几位，咬的位次加起来恰好是 ' + CHAIN_CN[f.n] + '。';
+      if (f.t === 'fodd') return '说真话的那几位里，咬在奇数格（一、三、五）的恰好有 ' + CHAIN_CN[f.n] + ' 个。';
+      if (f.t === 'fmin') return '说真话的那几位里，咬得最靠前的在第 ' + CHAIN_CN[f.n + 1] + ' 格。';
+      if (f.t === 'fmax') return '说真话的那几位里，咬得最靠后的在第 ' + CHAIN_CN[f.n + 1] + ' 格。';
+      return '';
+    }
+    function liarClauseOK(node, cand, cls) {
+      var t = liarTruths(node, cand), st = null, i, c;
+      for (i = 0; i < cls.length; i++) {
+        c = cls[i];
+        if (c.t.charAt(0) === 'f') {
+          if (!st) st = liarStats(node.people, cand, t);
+          if (!liarFactOK(st, c)) return false;
+        } else if (!arrOK(cand, [c])) return false;
+      }
+      return true;
+    }
+    var RING_LIARS = {
+      kind: 'liars', name: '对质',
+      make: function (R, prev) {
+        var people = (prev && prev[0] && prev[0].length === 5) ? prev[0].slice() : pickN(R, CHAIN_MARKS, 5);
+        var space = perms(people), att, i;
+        for (att = 0; att < 60; att++) {
+          var target = shuffle(people.slice(), R), says = [];
+          for (i = 0; i < 5; i++) says.push(liarSay(R, people, target, i, R(2) === 1));
+          var t = [];
+          for (i = 0; i < 5; i++) t.push(liarSayTruth(says[i], target) ? 1 : 0);
+          var nT = 0;
+          for (i = 0; i < 5; i++) nT += t[i];
+          if (nT < 1 || nT > 4) continue;                /* 全真/全假没什么可联立的 */
+          var st = liarStats(people, target, t);
+          var node = { kind: 'liars', name: '对质', people: people.slice(), says: says };
+          var pool = [
+            { t: 'fcnt', n: st.ts }, { t: 'fodd', n: st.odd }, { t: 'fsum', n: st.sum },
+            { t: 'fmin', n: st.mn }, { t: 'fmax', n: st.mx }
+          ];
+          var ok = function (cand, cls) { return liarClauseOK(node, cand, cls); };
+          var got = narrow(space, target, pool.concat(pinClauses(R, target, 4)), 1, ok);
+          if (!got || got.clauses.length > 5) continue;  /* 账记得太啰嗦就重掷一把清爽的 */
+          node.clauses = got.clauses;
+          node.sol = got.sol.slice();
+          return node;
+        }
+        /* 兜底：几乎跑不到 —— 五笔"谁在哪格"的账 + 一句真话数 */
+        var pp = people.slice(), tg = shuffle(pp.slice(), R), ss = [], ii;
+        for (ii = 0; ii < 5; ii++) ss.push({ t: 'selfat', v: pp[ii], k: posOf(tg, pp[ii]) });
+        var tt = [], nt = 0;
+        for (ii = 0; ii < 5; ii++) { tt.push(1); nt++; }
+        var node2 = { kind: 'liars', name: '对质', people: pp, says: ss };
+        var g3 = narrow(space, tg, [{ t: 'fcnt', n: nt }].concat(pinClauses(R, tg, 4)), 1,
+          function (cand, cls) { return liarClauseOK(node2, cand, cls); });
+        node2.clauses = (g3 ? g3.clauses : pinClauses(R, tg, 4));
+        node2.sol = (g3 ? g3.sol : tg).slice();
+        return node2;
+      },
+      space: function (n) { return perms(n.people); },
+      holds: function (n, c) { return liarClauseOK(n, c, n.clauses); },
+      answer: function (n) { return n.sol.slice(); }
+    };
+
+    /* ================= 环四 · 归还（真·连环：题面现场引用前三枚的答案）=================
+       环一咬出来的五个字、环二说真话的句数、环三咬出来的次序 —— 整份登在凭据栏（证据在面板里），
+       再折成三条线索。改掉前面任何一枚的解，这一枚的凭据和线索都会跟着变：这才叫连环，不是装饰。 */
+    function arrClauseText(c, lab) {
+      lab = lab || function (v) { return '『' + v + '』'; };
+      if (c.t === 'at') return lab(c.v) + '咬在第 ' + CHAIN_CN[c.k + 1] + ' 格。';
+      if (c.t === 'notat') return lab(c.v) + '不咬在第 ' + CHAIN_CN[c.k + 1] + ' 格。';
+      if (c.t === 'before') return lab(c.a) + '咬在' + lab(c.b) + '前面。';
+      if (c.t === 'adj') return lab(c.a) + '和' + lab(c.b) + '咬着挨着的两格。';
+      if (c.t === 'between') return lab(c.v) + '咬在' + lab(c.a) + '和' + lab(c.b) + '中间。';
+      if (c.t === 'trial') return '试排：' + c.arr.join(' ') + '　—— 对了 ' + CHAIN_CN[c.hit] + ' 位。';
+      return '';
+    }
+    var RING_RETURN = {
+      kind: 'return', name: '归还',
+      make: function (R, prev) {
+        var r1 = (prev && prev[0] && prev[0].length === 5) ? prev[0].slice() : pickN(R, CHAIN_MARKS, 5);
+        var r2 = (prev && prev[1] && prev[1].length === 7) ? prev[1].slice() : [1, 0, 1, 0, 1, 0, 1];
+        var r3 = (prev && prev[2] && prev[2].length === 5) ? prev[2].slice() : r1.slice().reverse();
+        var marks = r1.slice(), T2 = bits(r2);
+        var a1 = r1[0];
+        var k1 = posOf(r3, a1); if (k1 < 0) k1 = 0;
+        var a2 = (r3[4] === a1) ? r3[3] : r3[4];         /* 别跟 a1 撞成同一个字 */
+        var k2 = posOf(r1, a2); if (k2 < 0) k2 = (k1 + 1) % 5;
+        var d1 = { t: 'at', k: k1, v: a1 };              /* 环一第一格那个字 → 它在环三里排第几格 */
+        var d2 = (k2 !== k1) ? { t: 'at', k: k2, v: a2 } /* 环三最后那个字 → 它在环一里排第几格 */
+          : { t: 'before', a: a2, b: a1 };
+        var rest = [], q;
+        for (q = 0; q < 5; q++) if (marks[q] !== a1 && marks[q] !== a2) rest.push(marks[q]);
+        var a3 = rest[T2 % rest.length], b3 = rest[(T2 + 1) % rest.length];
+        var d3 = { t: 'before', a: a3, b: b3 };          /* 环二说真话的句数 → 环一里第几格那个字在前 */
+        var derived = [d1, d2, d3];
+        var target = pickTarget(R, marks, derived);
+        for (var dAtt = 0; !target && dAtt < 3; dAtt++) { /* 关系线索撞死了：翻方向、再不行就退掉一条 */
+          if (dAtt === 0) { d3 = { t: 'before', a: d3.b, b: d3.a }; derived = [d1, d2, d3]; }
+          else if (dAtt === 1) { derived = [d1, d2]; }
+          else { derived = [d1]; }
+          target = pickTarget(R, marks, derived);
+        }
+        if (!target) target = shuffle(marks.slice(), R);
+        var node = { kind: 'return', name: '归还', marks: marks.slice() };
+        var ok = function (cand, cls) { return arrOK(cand, cls); };
+        var got = narrow(perms(marks), target, derived.concat(trueClauses(R, target, 4)).concat(pinClauses(R, target, 4)), derived.length, ok);
+        if (!got) {
+          var g4 = narrow(perms(marks), target, derived.concat(pinClauses(R, target, 4)), derived.length, ok);
+          got = g4 || { clauses: derived.concat(pinClauses(R, target, 4)), sol: target };
+        }
+        node.clauses = got.clauses;
+        node.derived = derived.length;
+        node.ledger = [
+          '环一咬出来的次序：' + r1.join(' '),
+          '环二那七句里，说真话的有 ' + CHAIN_CN[T2] + ' 句',
+          '环三咬出来的次序：' + r3.join(' ')
+        ];
+        node.sol = got.sol.slice();
+        return node;
+      },
+      space: function (n) { return perms(n.marks); },
+      holds: function (n, c) { return arrOK(c, n.clauses); },
+      answer: function (n) { return n.sol.slice(); }
+    };
+
+    /* ================= 环五 · 合闸（终局综合：把前四枚的答案交叉折算）=================
+       候选 = 五枚环咬上去的次序（5! = 120）。线索全部**拿前四枚的答案互相折算**出来的：
+       环一最先咬上的字在环四里排第几格、环三最先咬上的字在环一里排第几格、环二的真话数是奇是偶……
+       生成：先按派生线索造一个目标次序，再拿弱线索一条条收窄，穷举 120 种验唯一。 */
+    var RING_SEAL = {
+      kind: 'seal', name: '合闸',
+      make: function (R, prev) {
+        var r1 = (prev && prev[0] && prev[0].length === 5) ? prev[0].slice() : pickN(R, CHAIN_MARKS, 5);
+        var r2 = (prev && prev[1] && prev[1].length === 7) ? prev[1].slice() : [1, 0, 1, 0, 1, 0, 1];
+        var r3 = (prev && prev[2] && prev[2].length === 5) ? prev[2].slice() : r1.slice().reverse();
+        var r4 = (prev && prev[3] && prev[3].length === 5) ? prev[3].slice() : r1.slice().reverse();
+        var T2 = bits(r2), rings = [0, 1, 2, 3, 4];
+        var m1 = posOf(r4, r1[0]); if (m1 < 0) m1 = 0;   /* 环一最先咬上的字，在环四里排第几格 */
+        var m3 = posOf(r1, r3[0]); if (m3 < 0) m3 = (m1 + 1) % 5;  /* 环三最先咬上的字，在环一里排第几格 */
+        var v1 = { t: 'at', k: m1, v: 0 };
+        /* 环三那条：位次撞了才改成"前后"关系，方向按环一钉死的那格挑 ——
+           环一正好在第一格时，"环三咬在环一前面"是无解的（判据 1000 种子里抓到过一次） */
+        var v3 = (m3 !== m1) ? { t: 'at', k: m3, v: 2 }
+          : (m1 === 0 ? { t: 'before', a: 0, b: 2 } : { t: 'before', a: 2, b: 0 });
+        var v5 = (T2 % 2 === 1) ? { t: 'before', a: 1, b: 4 } : { t: 'before', a: 4, b: 1 };
+        var derived = [v1, v3, v5], got = null, att;
+        var target = pickTarget(R, rings, derived);
+        for (var vAtt = 0; !target && vAtt < 3; vAtt++) { /* 撞死了：翻 v5 的方向、再不行就退掉一条 */
+          if (vAtt === 0) { v5 = { t: 'before', a: v5.b, b: v5.a }; derived = [v1, v3, v5]; }
+          else if (vAtt === 1) { derived = [v1, v3]; }
+          else { derived = [v1]; }
+          target = pickTarget(R, rings, derived);
+        }
+        if (!target) target = shuffle(rings.slice(), R);
+        for (att = 0; att < 3 && !got; att++) {
+          var pool = derived.concat(trueClauses(R, target, 5)).concat(pinClauses(R, target, 4));
+          var g = narrow(perms(rings), target, pool, derived.length, arrOK);
+          if (g && g.clauses.length <= 8) got = g;
+        }
+        if (!got) {
+          got = narrow(perms(rings), target, derived.concat(pinClauses(R, target, 4)), derived.length, arrOK)
+            || { clauses: derived.concat(pinClauses(R, target, 4)), sol: target };
+        }
+        return {
+          kind: 'seal', name: '合闸', rings: rings.slice(), clauses: got.clauses, derived: derived.length,
+          ledger: [
+            '环一咬出来的次序：' + r1.join(' '),
+            '环二那七句里，说真话的有 ' + CHAIN_CN[T2] + ' 句',
+            '环三咬出来的次序：' + r3.join(' '),
+            '环四咬出来的次序：' + r4.join(' ')
+          ],
+          sol: got.sol.slice()
+        };
+      },
+      space: function (n) { return perms(n.rings); },
+      holds: function (n, c) { return arrOK(c, n.clauses); },
+      answer: function (n) { return n.sol.slice(); }
+    };
+
+    /* 环的次序**固定**：环四/环五的 make 拿得到前面各环的答案，靠的就是这个次序 */
+    var RINGS = [RING_BITE, RING_TESTIMONY, RING_LIARS, RING_RETURN, RING_SEAL];
+
+    /* ================= 一轮 · 判定 · 提示 ================= */
     function makeRun(rand) {
-      var R = rand || rnd;
-      var nodes = shuffle([mkTap(R), mkNotch(R), mkWeigh(R), mkPair(R), mkSeq(R)], R);
-      nodes.forEach(function (n, i) { n.no = i; n.done = false; });
-      return { nodes: nodes, idx: 0, tLeft: CHAIN_LIMIT, fails: 0, done: false, started: false };
+      var R = rand || rnd, nodes = [], ans = [], i, n;
+      for (i = 0; i < RINGS.length; i++) {
+        n = RINGS[i].make(R, ans.slice());
+        n.no = i;
+        nodes.push(n);
+        ans.push(RINGS[i].answer(n));
+      }
+      return { nodes: nodes, idx: 0, tLeft: CHAIN_LIMIT, fails: 0, ringWrong: 0, done: false, started: false };
     }
     var run = makeRun(), live = false, note = '', token = 0;
     function secs() { return Math.max(0, Math.ceil(run.tLeft)); }
@@ -872,18 +1419,255 @@
         '<span class="ch-bar"><i id="pz-chain-bar" style="width:' + pct() + '%"></i></span>' +
         '<span class="ch-try">第 ' + (run.fails + 1) + ' 次</span></div>';
     }
+    /* 防卡死：按"整锁弹回过几次"分层，上限三层；只给**方法**，一条都不许泄答案 */
+    function hint() {
+      if (run.fails <= 0) return '';
+      var s1 = '铁牌背面刻着一行小字：别急着排。先挑两条只差一个对调的试排摆在一起比 —— 它们各自"对了几位"，差出来的数只跟这两格有关。';
+      var s2 = '下面还有一行：一位一位地钉。先假设某一格是某个字，看它会让哪几条试排"对了几位"对不上；对不上，就把这个字从这一格划掉。';
+      var s3 = '最下面那行更浅：五个字各用一次 —— 划掉一格，别处也跟着窄。实在卡住就拿纸把已经钉死的格记下来，再拿剩下没用的字去卡。';
+      if (run.fails === 1) return s1;
+      if (run.fails === 2) return s1 + '\n' + s2;
+      return s1 + '\n' + s2 + '\n' + s3;
+    }
+    function openNode() {
+      var n = run.nodes[run.idx];
+      if (!n || run.done) return;
+      run.started = true;                                /* 推开第一枚环，表就开始走 */
+      RINGS[run.idx].view(n);
+      H.refresh();
+    }
+    /* 判定：对 → 推进；错 → 本环记一笔；同一枚错到第二回 → 整锁弹回 + 表重置 + 五枚全部重掷 */
+    function submit(cand) {
+      var n = run.nodes[run.idx];
+      if (!n || run.done) return 'wrong';
+      if (RINGS[run.idx].holds(n, cand)) {
+        n.done = true; run.ringWrong = 0;
+        H.sfx('open');
+        run.idx++;
+        if (run.idx >= run.nodes.length) {
+          run.done = true; live = false; token++;
+          note = '闸开了 —— 五枚环咬成一副。';
+          H.solve('chainlink');
+          return 'right';
+        }
+        note = '第 ' + CHAIN_CN[run.idx] + ' 枚锁进去了。';
+        if (live) panel();
+        return 'right';
+      }
+      run.ringWrong++;
+      if (run.ringWrong >= 2) {
+        var f = run.fails + 1;
+        run = makeRun();
+        run.fails = f;
+        note = '这一枚错了两回 —— 五枚一起弹回去，从第一枚重来。机关重新打过，表重新走。';
+        H.sfx('wrong');
+        H.toast('连环锁弹回去了 · 从第一道重来');
+        if (live) panel();
+        return 'wrong';
+      }
+      H.sfx('wrong');
+      return 'wrong';
+    }
+    /* 表走完：五枚一起弹回去，机关重新打过 */
+    function expire() {
+      var f = run.fails + 1;
+      run = makeRun(); run.fails = f;
+      note = '表走完了 —— 五枚环一起弹回去。机关重新打过：这一轮的题跟上一轮全不一样，表也重新走。';
+      H.sfx('wrong');
+      H.toast('连环锁弹回去了 · 从第一道重来');
+      live = live && !!q('#pz-chain-left');
+      if (live) panel();
+    }
+    function tick(dt) {
+      if (!run.started || run.done) return;
+      run.tLeft -= dt;
+      if (run.tLeft <= 0) { expire(); return; }
+      if (live) paint();
+    }
+    function reset() { run = makeRun(); note = ''; }
+    function enter() { note = run.done ? '闸已经开了 —— 名字在闸后面。' : note; panel(); }
+    function leave() { live = false; token++; }
+
+    /* ================= 面板 ================= */
+    function trySubmit(cand) {
+      var i;
+      for (i = 0; i < cand.length; i++) {
+        if (cand[i] === null || cand[i] === undefined) {
+          var m0 = q('#pz-ch-msg');
+          if (m0) m0.textContent = '还有格子空着。';
+          return;
+        }
+      }
+      var t0 = token, r = submit(cand);
+      if (r === 'right' || token !== t0) return;         /* 面板已经重画过（弹回/推进），旧话就别写了 */
+      var el = q('#pz-ch-msg');
+      if (el) el.textContent = '不对。这一枚还能再试一次；错第二回，整副锁就弹回去了。';
+    }
+    /* 五格输入口：左边是还没咬上去的，点一个再点一格就咬进去；点已咬的那格退回来。
+       钩子：.ch-pick[data-v] / .ch-slot[data-i] / #pz-ch-submit（单测走的就是这套） */
+    function mountSlots(items) {
+      var placed = [null, null, null, null, null], sel = null, i;
+      function rawOf(d) { for (var k = 0; k < items.length; k++) if (String(items[k].v) === d) return items[k].v; return null; }
+      function labelOf(v) { for (var k = 0; k < items.length; k++) if (String(items[k].v) === String(v)) return items[k].t; return String(v); }
+      function draw() {
+        var pool = q('#pz-ch-pool'), slots = q('#pz-ch-slots'), html = '', k, taken;
+        if (pool) {
+          for (k = 0; k < items.length; k++) {
+            taken = false;
+            for (i = 0; i < 5; i++) if (placed[i] !== null && String(placed[i]) === String(items[k].v)) taken = true;
+            if (taken) continue;
+            html += '<button class="ch-pick pz-opt' + (sel !== null && String(sel) === String(items[k].v) ? ' sel' : '') +
+              '" data-v="' + items[k].v + '">' + items[k].t + '</button>';
+          }
+          pool.innerHTML = html || '<span class="ch-empty">都咬上去了</span>';
+        }
+        if (slots) {
+          slots.innerHTML = placed.map(function (v, k2) {
+            return '<button class="ch-slot pz-slot' + (v !== null ? ' filled' : '') + '" data-i="' + k2 + '">' +
+              (v === null ? '·' : labelOf(v)) + '</button>';
+          }).join('');
+        }
+        qa('#pz-ch-pool .ch-pick').forEach(function (b) {
+          b.onclick = function () { sel = rawOf(b.getAttribute('data-v')); H.sfx('click'); draw(); };
+        });
+        qa('#pz-ch-slots .ch-slot').forEach(function (b) {
+          b.onclick = function () {
+            var k2 = +b.getAttribute('data-i');
+            if (placed[k2] !== null) { placed[k2] = null; H.sfx('click'); draw(); return; }
+            if (sel === null) { var m1 = q('#pz-ch-msg'); if (m1) m1.textContent = '先在左边点一个字。'; return; }
+            placed[k2] = sel; sel = null; H.sfx('click'); draw();
+          };
+        });
+      }
+      draw();
+      return { get: function () { return placed.slice(); }, draw: draw };
+    }
+    /* 一个排列类环的面板：题面（凭据/账/铁牌） + 五格输入口 */
+    function viewArr(cfg) {
+      var html = '<p class="pz-tip">' + cfg.tip + '</p>' + head();
+      if (cfg.ledger && cfg.ledger.length) {
+        html += '<div class="pz-clue"><b>闸上刻着前几枚咬出来的样子</b><br>' + cfg.ledger.join('<br>') + '</div>';
+      }
+      if (cfg.body && cfg.body.length) html += '<div class="pz-clue">' + cfg.body.join('<br>') + '</div>';
+      html += '<div class="pz-slots" id="pz-ch-slots"></div>' +
+        '<div class="pz-row" id="pz-ch-pool"></div>' +
+        '<div class="pz-progress" id="pz-ch-msg">' + cfg.msg + '</div>';
+      H.setBody(html);
+      var box = null;
+      H.setBtns([
+        { label: '咬上这一枚', fn: function () { trySubmit(box.get()); } },
+        { label: '回到机关', fn: function () { panel(); } }
+      ]);
+      box = mountSlots(cfg.items);
+      H.refresh();
+    }
+    function viewBite(n) {
+      var body = [], i;
+      for (i = 0; i < n.trials.length; i++) {
+        var t = n.trials[i];
+        if (t.t === 'trial') {
+          body.push('<b>试排' + CHAIN_CN[i + 1] + '</b>　' + t.arr.join('　') + '　—— 对了 <b>' + CHAIN_CN[t.hit] + '</b> 位');
+        } else {
+          body.push('<b>铁牌背面</b>　' + arrClauseText(t));
+        }
+      }
+      viewArr({
+        tip: '第一枚环 · 咬合：五个字咬进五个齿位，一字一格。铁牌上那几条试排，每一条只报"对了几位"，不报是哪几位。',
+        body: body,
+        items: n.marks.map(function (c) { return { v: c, t: c }; }),
+        msg: '把五个字按你推出来的次序咬进格子里。'
+      });
+    }
+    function viewLiars(n) {
+      var says = [], facts = [], i;
+      for (i = 0; i < n.says.length; i++) says.push('　' + liarSayText(n.says[i], n.people[i]));
+      for (i = 0; i < n.clauses.length; i++) {
+        var c = n.clauses[i];
+        facts.push(c.t.charAt(0) === 'f' ? '　' + liarFactText(c) : '　铁牌上还刻着：' + arrClauseText(c));
+      }
+      viewArr({
+        tip: '第三枚环 · 对质：五个人各咬一格，各留了一句话。账上只记真假和位次的数目，不记是谁。',
+        body: says.concat(['<b>账上记着：</b>']).concat(facts),
+        items: n.people.map(function (c) { return { v: c, t: c }; }),
+        msg: '把五个人的次序咬出来。'
+      });
+    }
+    function viewReturn(n) {
+      var clues = n.clauses.map(function (c) { return '　' + arrClauseText(c); });
+      viewArr({
+        tip: '第四枚环 · 归还：环一那五个字在这一枚里重排。铁牌上的线索，得拿前三枚咬出来的样子去折算。',
+        ledger: n.ledger,
+        body: ['<b>铁牌上刻着：</b>'].concat(clues),
+        items: n.marks.map(function (c) { return { v: c, t: c }; }),
+        msg: '把这一枚的五个字咬出来。'
+      });
+    }
+    function viewSeal(n) {
+      var lab = function (v) { return '环' + CHAIN_NAMES[v]; };
+      var clues = n.clauses.map(function (c) { return '　' + arrClauseText(c, lab); });
+      viewArr({
+        tip: '第五枚环 · 合闸：这一枚问的是五枚环咬上去的次序。线索得拿前四枚咬出来的样子互相折算。',
+        ledger: n.ledger,
+        body: ['<b>铁闸上刻着：</b>'].concat(clues),
+        items: n.rings.map(function (v) { return { v: v, t: lab(v) }; }),
+        msg: '把五枚环的次序排出来。'
+      });
+    }
+    function viewTestimony(n) {
+      var pick = [], i;
+      for (i = 0; i < n.texts.length; i++) pick.push(null);
+      function draw() {
+        var box = q('#pz-says');
+        if (!box) return;
+        box.innerHTML = n.texts.map(function (t, k) {
+          return '<div class="pz-row" style="justify-content:flex-start;gap:6px;margin:4px 0">' +
+            '<span style="min-width:22px;color:#9a9a9a">第' + CHAIN_CN[k + 1] + '句</span>' +
+            '<span style="flex:1 1 auto">' + t + '</span>' +
+            '<button class="ch-t pz-opt' + (pick[k] === 1 ? ' on' : '') + '" data-i="' + k + '" data-v="1">真</button>' +
+            '<button class="ch-t pz-opt' + (pick[k] === 0 ? ' on' : '') + '" data-i="' + k + '" data-v="0">假</button>' +
+            '</div>';
+        }).join('');
+        qa('#pz-says .ch-t').forEach(function (b) {
+          b.onclick = function () {
+            pick[+b.getAttribute('data-i')] = +b.getAttribute('data-v');
+            H.sfx('click');
+            draw();
+          };
+        });
+      }
+      H.setBody('<p class="pz-tip">第二枚环 · 证词：七句话互相指涉。哪几句是真的，得让每一句话都跟自己说的内容对得上。</p>' +
+        head() +
+        '<div class="pz-clue" id="pz-says"></div>' +
+        '<div class="pz-progress" id="pz-ch-msg">七句都判个真假，再报上来。</div>');
+      H.setBtns([
+        { label: '报上这一枚', fn: function () { trySubmit(pick.slice()); } },
+        { label: '回到机关', fn: function () { panel(); } }
+      ]);
+      draw();
+      H.refresh();
+    }
+    RING_BITE.view = viewBite;
+    RING_TESTIMONY.view = viewTestimony;
+    RING_LIARS.view = viewLiars;
+    RING_RETURN.view = viewReturn;
+    RING_SEAL.view = viewSeal;
+
     function panel() {
       token++; live = true;
       H.setTitle('✦ 连环锁');
-      H.setBody('<p class="pz-tip">铁闸上五枚铜环，一枚扣一枚。每枚环上是一道自己的机关。</p>' +
-        '<div class="pz-clue">一百秒。从第一枚开始，一枚一枚解；五枚都解进闸里，闸自己开。<br>' +
-        '表走完还没解完 —— 五枚一起弹回去，从第一枚重来；<b>下一轮的机关重新打过，答案跟这一轮不一样</b>。</div>' +
+      var h = hint();
+      H.setBody('<p class="pz-tip">铁闸上五枚铜环，一枚扣一枚。每一枚是一道要动脑的机关 —— <b>后一枚的题，得拿前几枚咬出来的答案去解</b>。</p>' +
+        '<div class="pz-clue">一百秒。从第一枚开始，一枚一枚解；五枚都咬进闸里，闸自己开。<br>' +
+        '表走完 —— 五枚一起弹回去，从第一枚重来；<b>下一轮的机关重新打过，答案跟这一轮不一样</b>。<br>' +
+        '同一枚环错两回，整副锁也弹回去，表重新走。</div>' +
         head() +
         '<div class="ch-rings">' + run.nodes.map(function (n, i) {
           var cls = n.done ? 'done' : (i === run.idx ? 'now' : 'off');
           return '<button class="ch-ring ' + cls + '" data-i="' + i + '"><b>' + CHAIN_NAMES[i] + '</b><small>' + n.name + '</small></button>';
         }).join('') + '</div>' +
-        '<div class="pz-progress" id="pz-chain-msg">' + (note || (run.started ? ('接着解第 ' + (run.idx + 1) + ' 枚。') : '推开第一枚环，表就开始走。')) + '</div>');
+        '<div class="pz-progress" id="pz-chain-msg">' +
+        (note || (run.started ? ('接着解第 ' + CHAIN_CN[run.idx + 1] + ' 枚。') : '推开第一枚环，表就开始走。')) + '</div>' +
+        (h ? '<div class="pz-clue" style="margin-top:8px"><b>铁牌背面</b><br>' + h.split('\n').join('<br>') + '</div>' : ''));
       qa('.ch-ring').forEach(function (b, i) {
         if (i === run.idx && !run.done) b.onclick = function () { openNode(); };
         else b.disabled = true;
@@ -892,220 +1676,14 @@
       paint();
       H.refresh();
     }
-    /* 一道环解开了：锁进闸里，接着下一枚 */
-    function after(n) {
-      n.done = true; H.sfx('open');
-      run.idx++;
-      if (run.idx >= run.nodes.length) { run.done = true; live = false; token++; H.solve('chainlink'); return; }
-      note = '第 ' + run.idx + ' 枚锁进去了。';
-      panel();
-    }
-    /* 表走完：五枚一起弹回去，机关重新打过 */
-    function expire() {
-      var f = run.fails + 1;
-      run = makeRun(); run.fails = f;
-      note = '表走完了 —— 五枚环一起弹回去。机关重新打过：这一轮的五个机关，答案跟上一轮全不一样。';
-      H.sfx('wrong');
-      H.toast('连环锁弹回去了 · 从第一道重来');
-      live = live && !!q('#pz-chain-left');
-      if (live) panel();
-    }
-    function openNode() {
-      var n = run.nodes[run.idx];
-      if (!n || run.done) return;
-      run.started = true;
-      ({ tap: microTap, notch: microNotch, weigh: microWeigh, pair: microPair, seq: microSeq })[n.kind](n);
-      H.refresh();
-    }
 
-    /* —— 一、记数：环闪几下，就按几下 —— */
-    function microTap(n) {
-      var my = ++token, taps = 0, playing = true;
-      H.setBody('<p class="pz-tip">这枚环上刻着数。它闪几下，你就按几下 —— 数错就重来。</p>' + head() +
-        '<div class="ch-big" id="pz-tap">按</div>' +
-        '<div class="pz-progress" id="pz-prog">看着……</div>');
-      function flash() {
-        var b = q('#pz-tap'); if (!b) return;
-        b.classList.add('lit'); H.sfx('bell');
-        setTimeout(function () { var x = q('#pz-tap'); if (x) x.classList.remove('lit'); }, 170);
-      }
-      for (var i = 0; i < n.n; i++) (function (k) {
-        setTimeout(function () { if (my === token) flash(); }, 320 + 330 * k);
-      })(i);
-      setTimeout(function () {
-        if (my !== token) return;
-        playing = false;
-        var pr = q('#pz-prog'); if (pr) pr.textContent = '你来按。按完了报数。';
-      }, 320 + 330 * n.n + 220);
-      q('#pz-tap').onclick = function () {
-        if (playing) return;
-        taps++; H.sfx('click');
-        var pr = q('#pz-prog'); if (pr) pr.textContent = '你按了 ' + taps + ' 下';
-      };
-      H.setBtns([
-        { label: '再闪一遍', fn: function () { microTap(n); } },
-        { label: '报数', fn: function () {
-          var pr = q('#pz-prog');
-          if (playing) { if (pr) pr.textContent = '先让它闪完。'; return; }
-          if (taps === n.n) { after(n); return; }
-          H.sfx('wrong'); taps = 0;
-          if (pr) pr.textContent = '不对。再闪一遍，重数。';
-        } },
-        { label: '回到机关', fn: function () { panel(); } }
-      ]);
-    }
-
-    /* —— 二、对位：八格刻度，往右走 k 格停住 —— */
-    function microNotch(n) {
-      var cur = n.start;
-      function draw() {
-        var c = q('#pz-marks'); if (!c) return;
-        c.innerHTML = CHAIN_MARKS.map(function (m, i) {
-          return '<span class="ch-mark' + (i === cur ? ' now' : '') + '">' + m + '</span>';
-        }).join('');
-        var pr = q('#pz-prog');
-        if (pr) pr.textContent = '现在指在「' + CHAIN_MARKS[cur] + '」（第 ' + cur + ' 格）。铁牌上写着：往右走 ' + n.step + ' 格。';
-      }
-      H.setBody('<p class="pz-tip">八格刻度，一格一格地挪。走一格 = 挪到下一格。</p>' + head() +
-        '<div class="ch-marks" id="pz-marks"></div>' +
-        '<div class="pz-progress" id="pz-prog"></div>');
-      H.setBtns([
-        { label: '‹ 退一格', fn: function () { cur = (cur + 7) % 8; H.sfx('click'); draw(); } },
-        { label: '进一格 ›', fn: function () { cur = (cur + 1) % 8; H.sfx('click'); draw(); } },
-        { label: '报数', fn: function () {
-          if (cur === n.target) { after(n); return; }
-          H.sfx('wrong');
-          q('#pz-prog').textContent = '不是这一格。往右是往下面那头走。';
-        } },
-        { label: '回到机关', fn: function () { panel(); } }
-      ]);
-      draw();
-    }
-
-    /* —— 三、配重：四枚砝码各一次，压到刻的数 —— */
-    function microWeigh(n) {
-      var W = [1, 2, 4, 8], sel = [0, 0, 0, 0];
-      function sum() { return W.reduce(function (a, w, i) { return a + (sel[i] ? w : 0); }, 0); }
-      function draw() {
-        qa('#pz-ws .pz-opt').forEach(function (b, i) { b.classList.toggle('on', !!sel[i]); });
-        var s = q('#pz-sum'); if (s) s.textContent = sum();
-      }
-      H.setBody('<p class="pz-tip">盘上的配重要压到刻的数。四枚砝码，每枚最多上一次。</p>' + head() +
-        '<div class="pz-progress">要压：<b>' + n.target + '</b> 两　现在盘上：<b id="pz-sum">0</b> 两</div>' +
-        '<div class="pz-row" id="pz-ws">' + W.map(function (w, i) {
-          return '<button class="pz-opt" data-i="' + i + '">' + w + ' 两</button>';
-        }).join('') + '</div>');
-      qa('#pz-ws .pz-opt').forEach(function (b, i) {
-        b.onclick = function () { sel[i] = sel[i] ? 0 : 1; H.sfx('click'); draw(); };
-      });
-      H.setBtns([
-        { label: '报数', fn: function () {
-          if (sum() === n.target) { after(n); return; }
-          H.sfx('wrong');
-          q('#pz-prog').textContent = '不对——盘上是 ' + sum() + ' 两。';
-        } },
-        { label: '回到机关', fn: function () { panel(); } }
-      ]);
-      draw();
-    }
-
-    /* —— 四、对牌：三张牌配三句话 —— */
-    function microPair(n) {
-      var lefts = shuffle(n.pairs.map(function (pr, i) { return { i: i, t: pr[0] }; }));
-      var rights = shuffle(n.pairs.map(function (pr, i) { return { i: i, t: pr[1] }; }));
-      var sel = null, hit = {}, miss = 0;
-      function draw() {
-        var done = Object.keys(hit).length;
-        q('#pz-pair-l').innerHTML = lefts.map(function (x) {
-          return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + (sel === x.i ? ' sel' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
-        }).join('');
-        q('#pz-pair-r').innerHTML = rights.map(function (x) {
-          return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
-        }).join('');
-        qa('#pz-pair-l .pz-opt').forEach(function (b) {
-          b.onclick = function () { var i = +b.getAttribute('data-i'); if (hit[i]) return; sel = i; H.sfx('click'); draw(); };
-        });
-        qa('#pz-pair-r .pz-opt').forEach(function (b) {
-          b.onclick = function () {
-            var j = +b.getAttribute('data-i');
-            if (hit[j]) return;
-            if (sel === null) { q('#pz-prog').textContent = '先在左边点一张。'; return; }
-            if (j === sel) { hit[j] = 1; sel = null; H.sfx('open'); draw(); return; }
-            miss++; sel = null; H.sfx('wrong');
-            q('#pz-prog').textContent = '配不上（错了 ' + miss + ' 回）。';
-          };
-        });
-        var pr = q('#pz-prog');
-        if (pr) pr.textContent = '配上了 ' + done + '/' + n.pairs.length + ' 对' + (miss ? '（错了 ' + miss + ' 回）' : '');
-        if (done === n.pairs.length) after(n);
-      }
-      H.setBody('<p class="pz-tip">三张牌，三句话。左边点一张，再点右边配得上的那句。</p>' + head() +
-        '<div class="hp-wrap"><div class="hp-col" id="pz-pair-l"></div><div class="hp-col" id="pz-pair-r"></div></div>' +
-        '<div class="pz-progress" id="pz-prog"></div>');
-      H.setBtns([{ label: '回到机关', fn: function () { panel(); } }]);
-      draw();
-    }
-
-    /* —— 五、灯序：四盏灯按顺序亮一遍，照着点回去 —— */
-    function microSeq(n) {
-      var my = ++token, seqTok = 0, input = [], armed = false;
-      H.setBody('<p class="pz-tip">四盏灯按顺序亮一遍。照着顺序点回去。</p>' + head() +
-        '<div class="ch-lamps" id="pz-lamps">' + [1, 2, 3, 4].map(function (k, i) {
-          return '<button class="ch-lamp" data-i="' + i + '">' + k + '</button>';
-        }).join('') + '</div>' +
-        '<div class="ch-seq" id="pz-seqline"></div>' +
-        '<div class="pz-progress" id="pz-prog">看着……</div>');
-      function lamp(i) {
-        var b = qa('#pz-lamps .ch-lamp')[i]; if (!b) return;
-        b.classList.add('lit'); H.sfx('bell');
-        setTimeout(function () { if (b) b.classList.remove('lit'); }, 190);
-      }
-      function play() {
-        if (my !== token) return;
-        armed = false; input = []; var mine = ++seqTok;
-        var line = q('#pz-seqline'); if (line) line.textContent = '';
-        var pr = q('#pz-prog'); if (pr) pr.textContent = '看着……';
-        n.seq.forEach(function (k, idx) {
-          setTimeout(function () { if (my === token && mine === seqTok) lamp(k); }, 300 + 360 * idx);
-        });
-        setTimeout(function () {
-          if (my !== token || mine !== seqTok) return;
-          armed = true;
-          var p2 = q('#pz-prog'); if (p2) p2.textContent = '你来点（' + n.seq.length + ' 下）';
-        }, 300 + 360 * n.seq.length + 200);
-      }
-      qa('#pz-lamps .ch-lamp').forEach(function (b, i) {
-        b.onclick = function () {
-          if (!armed) return;
-          lamp(i); input.push(i);
-          var line = q('#pz-seqline'); if (line) line.textContent = input.join(' · ');
-          var k = input.length - 1;
-          if (input[k] !== n.seq[k]) {
-            armed = false; H.sfx('wrong');
-            q('#pz-prog').textContent = '第 ' + (k + 1) + ' 下就错了。再亮一遍。';
-            setTimeout(play, 700);
-            return;
-          }
-          if (input.length === n.seq.length) after(n);
-        };
-      });
-      H.setBtns([
-        { label: '再亮一遍', fn: play },
-        { label: '回到机关', fn: function () { panel(); } }
-      ]);
-      play();
-    }
-
-    function tick(dt) {
-      if (!run.started || run.done) return;
-      run.tLeft -= dt;
-      if (run.tLeft <= 0) { expire(); return; }
-      if (live) paint();
-    }
-    function enter() { note = run.done ? '闸已经开了 —— 名字在闸后面。' : note; panel(); }
-    function leave() { live = false; token++; }
-    return { makeRun: makeRun, enter: enter, leave: leave, tick: tick, peek: function () { return run; },
-      reset: function () { run = makeRun(); note = ''; }, LIMIT: CHAIN_LIMIT, MARKS: CHAIN_MARKS, PAIRS: CHAIN_PAIRS };
+    return {
+      LIMIT: CHAIN_LIMIT, RINGS: RINGS,
+      makeRun: makeRun, peek: function () { return run; }, reset: reset,
+      tick: tick, enter: enter, leave: leave,
+      submit: submit, hint: hint,
+      MARKS: CHAIN_MARKS, NAMES: CHAIN_NAMES, PAIRS: CHAIN_PAIRS
+    };
   })();
   function chainlink() { CHAIN.enter(); }
 
