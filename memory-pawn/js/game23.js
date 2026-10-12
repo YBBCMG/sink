@@ -1037,8 +1037,30 @@
   }
   function jobsPanel() {
     setTitle('告示牌 · 零工');
-    setBody('<p class="pz-tip">搬盐、补网、替人读信。做一趟 6 枚当金。</p>');
-    setBtns([
+    /* 告示牌硬委托（三道推理活）· 题在 js/jobs-hard23.js，这里只接线 */
+    var HARD_JOBS = [
+      { kind: 'salt', label: '盐垛清点（+12）', flag: 'job_salt', gold: 12 },
+      { kind: 'tide', label: '夜里的潮声（+15）', flag: 'job_tide', gold: 15 },
+      { kind: 'receipts', label: '谁在账上做手脚（+20）', flag: 'job_receipts', gold: 20 }
+    ];
+    var hardBtns = HARD_JOBS.map(function (h) {
+      var done = !!S.flags[h.flag];
+      return { label: h.label + (done ? ' ✓ 已结' : ''), fn: function () {
+        if (S.flags[h.flag]) { toast('这桩已经结了。'); return; }
+        if (!window.JOBSHARD23) { toast('这一桩还没接上。'); return; }
+        window.JOBSHARD23.enter(h.kind, puzzleHost(), {
+          pay: function (name) {
+            S.gold += h.gold; markFlag(h.flag); dirty.hud = 1; dirty.tasks = 1; save();
+            toast('结了 · ' + name + '（当金 +' + h.gold + '，现在 ' + S.gold + '）');
+            sfx('coin'); addLog('在告示牌结了一桩硬活：' + name + '，得 ' + h.gold + ' 枚当金。');
+            closeModal();
+          }
+        });
+      } };
+    });
+    setBody('<p class="pz-tip">搬盐、补网、替人读信。做一趟 6 枚当金。</p>' +
+      '<div class="pz-clue">牌下角还钉着三张更厚的委托 —— 这三位是专门来考脑子的，<b>一人只能结一回</b>。</div>');
+    setBtns(hardBtns.concat([
       { label: '搬一趟盐（+6）', fn: function () {
         S.gold += 6; dirty.hud = 1; save();
         toast('当金 +6（现在 ' + S.gold + '）'); sfx('coin');
@@ -1046,7 +1068,7 @@
         closeModal();
       } },
       { label: '算了', fn: function () { closeModal(); } }
-    ]);
+    ]));
     openModal();
   }
 
