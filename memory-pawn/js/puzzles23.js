@@ -242,6 +242,7 @@
     elbow: [[1, 2], [2, 3], [3, 0], [0, 1]], /* rot0: 右下 ; 1: 下左 ; 2: 左上 ; 3: 上右 */
     tee: [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]] /* rot k = 除了 k 方向之外的三通 */
   };
+  var ARM = ['up', 'rt', 'dn', 'lf'];   /* v38 画法用：方向编号 → CSS 臂名（跟 SHAPES 的 0/1/2/3 同序） */
   var SLUICE = {
     src: { x: 0, y: 1 },
     pools: [{ x: 3, y: 0 }, { x: 3, y: 2 }, { x: 3, y: 3 }],
@@ -297,32 +298,53 @@
     });
     H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
       '<div class="pz-clue">闸门在最左边（金色），三个盐池在最右边（青色）。管道点一下转九十度。</div>' +
-      '<div class="sl-grid" id="pz-grid" style="grid-template-columns:repeat(4, 42px)"></div>' +
+      '<div class="sl-grid" id="pz-grid"></div>' +
       '<div class="pz-progress" id="pz-prog">通到 0/3 个盐池</div>');
-    var GLYPH = { straight: ['┈', '┊', '┈', '┊'], elbow: ['┌', '┐', '┘', '└'], tee: ['├', '┬', '┤', '┴'] };
-    function glyphOf(pp) { return (GLYPH[pp.shape] || [])[((pp.rot % 4) + 4) % 4] || '·'; }
-    function draw() {
-      var flow = flood();
-      var grid = q('#pz-grid'); grid.innerHTML = '';
-      for (var y = 0; y < 4; y++) for (var x = 0; x < 4; x++) {
-        var c = el('div', 'sl-cell'), pp = pipeAt(x, y), key = x + ',' + y;
-        if (x === SLUICE.src.x && y === SLUICE.src.y) { c.className = 'sl-cell src'; c.innerHTML = '<span>≋</span>'; }
-        else if (SLUICE.pools.some(function (o) { return o.x === x && o.y === y; })) {
-          c.className = 'sl-cell pool' + (flow[key] ? ' done' : ''); c.innerHTML = '<span>' + (flow[key] ? '◉' : '○') + '</span>';
-        } else if (pp) {
-          c.className = 'sl-cell pipe' + (flow[key] ? ' flow' : '');
-          c.innerHTML = '<span>' + glyphOf(pp) + '</span>';
-          c.onclick = (function (ppp) { return function () { ppp.rot = (ppp.rot + 1) % 4; H.sfx('click'); draw(); }; })(pp);
-        }
-        grid.appendChild(c);
+    /* v38 画法口径（用户报「管道难看」+「逻辑好像有问题，应该无解」）：
+       旧版把连接印成 box-drawing 字形，而 tee 的 '├┬┤┴' 跟 SHAPES 的连接表**差了 90°** ——
+       玩家照着屏幕上的 T 去接，永远接不通，看起来就是"无解"（其实数据里有解）。
+       现在每根管子**只画 rot0 那一版的臂**（跟 SHAPES[shape][0] 一一对应，常量），
+       姿态一律交给 CSS rotate(rot*90deg) —— 显示和逻辑由同一个 rot 驱动，不可能再对不上。 */
+    var grid = q('#pz-grid'), cellOf = {};
+    function isPool(x, y) { return SLUICE.pools.some(function (o) { return o.x === x && o.y === y; }); }
+    for (var y = 0; y < 4; y++) for (var x = 0; x < 4; x++) {
+      var key = x + ',' + y, pp = pipeAt(x, y), c = el('div', 'sl-cell');
+      if (x === SLUICE.src.x && y === SLUICE.src.y) {
+        c.className = 'sl-cell src';
+        c.innerHTML = '<div class="sl-gate"><i></i><i></i><i></i></div>';
+      } else if (isPool(x, y)) {
+        c.className = 'sl-cell pool';
+        c.innerHTML = '<div class="sl-pool"><i class="lvl"></i></div>';
+      } else if (pp) {
+        c.className = 'sl-cell pipe';
+        c.innerHTML = '<div class="sl-rot" data-rot="' + pp.rot + '"><i class="hub"></i>' +
+          SHAPES[pp.shape][0].map(function (d) { return '<i class="a ' + ARM[d] + '"></i>'; }).join('') + '</div>';
+        c.onclick = (function (ppp) { return function () { ppp.rot = (ppp.rot + 1) % 4; H.sfx('click'); paint(); }; })(pp);
       }
-      var done = SLUICE.pools.filter(function (o) { return flow[o.x + ',' + o.y]; }).length;
+      cellOf[key] = c; grid.appendChild(c);
+    }
+    /* 只更新状态、不重建 DOM —— 这样点击时管子是**转过去**的（CSS 过渡），不是闪一下换字形 */
+    function paint() {
+      var flow = flood();
+      SLUICE.pipes.forEach(function (pp) {
+        var key = pp.x + ',' + pp.y, c = cellOf[key], box = c.firstChild, on = !!flow[key];
+        c.className = 'sl-cell pipe' + (on ? ' flow' : '');
+        box.setAttribute('data-rot', pp.rot);
+        box.style.transform = 'rotate(' + (pp.rot * 90) + 'deg)';
+      });
+      var done = 0;
+      SLUICE.pools.forEach(function (o) {
+        var on = !!flow[o.x + ',' + o.y];
+        if (on) done++;
+        cellOf[o.x + ',' + o.y].className = 'sl-cell pool' + (on ? ' done' : '');
+      });
+      cellOf[SLUICE.src.x + ',' + SLUICE.src.y].className = 'sl-cell src' + (flow[SLUICE.src.x + ',' + SLUICE.src.y] ? ' gush' : '');
       q('#pz-prog').textContent = '通到 ' + done + '/3 个盐池';
       if (done === 3) H.solve('sluice');
     }
-    H.setBtns([{ label: '全部复位', fn: function () { SLUICE.pipes.forEach(function (pp) { pp.rot = 0; }); draw(); } },
+    H.setBtns([{ label: '全部复位', fn: function () { SLUICE.pipes.forEach(function (pp) { pp.rot = 0; }); paint(); } },
       { label: '先不开闸', fn: function () { H.close(); } }]);
-    draw();
+    paint();
   }
 
   /* ============ 7. 日记残页（时间线排序） ============ */
@@ -343,20 +365,34 @@
       '<div class="pz-clue">潮水送回来的纸只剩五行字，日期全泡糊了。点两张纸交换位置。</div>' +
       '<div class="od-list" id="pz-list"></div>' +
       '<div class="pz-progress" id="pz-prog">锚点：第一张是"妈没了"，最后一张是"我记不住字了"</div>');
-    function draw() {
-      var list = q('#pz-list'); list.innerHTML = '';
-      cur.forEach(function (id, i) {
-        var it = DIARY.filter(function (x) { return x.id === id; })[0];
-        var b = el('button', 'od-item' + (sel === i ? ' sel' : ''), '<span class="od-n">' + (i + 1) + '</span>' + it.t);
-        b.onclick = function () {
-          if (sel === null) { sel = i; H.sfx('select'); }
-          else if (sel === i) { sel = null; }
-          else { var t = cur[sel]; cur[sel] = cur[i]; cur[i] = t; sel = null; H.sfx('click'); }
-          draw();
+    /* v38（用户报「点一下会闪一条线、内容突然往上跳」）：改**原地更新**。
+       旧版每次点击都 list.innerHTML='' 重建五行按钮 —— 正在按的那个 <button> 被从 DOM 里抽走，
+       焦点丢、浏览器按"把焦点元素带进视野"的规矩顺手滚一下容器，玩家看到的就是那一下闪跳。
+       现在按钮只建一次，点击只改文字与类名（DOM 不动 → 不会跳、焦点也不丢）。 */
+    var byId = {};
+    DIARY.forEach(function (x) { byId[x.id] = x; });
+    var nodes = cur.map(function (id, i) {
+      var b = el('button', 'od-item', '<span class="od-n">' + (i + 1) + '</span>' + byId[id].t);
+      b.onclick = (function (at) {
+        return function () {
+          if (sel === null) { sel = at; H.sfx('select'); }
+          else if (sel === at) { sel = null; }
+          else { var t = cur[sel]; cur[sel] = cur[at]; cur[at] = t; sel = null; H.sfx('click'); }
+          paint();
         };
-        list.appendChild(b);
+      })(i);
+      return b;
+    });
+    function paint() {
+      cur.forEach(function (id, i) {
+        var b = nodes[i];
+        b.className = 'od-item' + (sel === i ? ' sel' : '');
+        b.innerHTML = '<span class="od-n">' + (i + 1) + '</span>' + byId[id].t;
       });
     }
+    var list = q('#pz-list');
+    nodes.forEach(function (b) { list.appendChild(b); });
+    paint();
     H.setBtns([
       { label: '排好了', fn: function () {
         if (cur.join() === DIARY_ORDER.join()) { H.solve('diary'); }
@@ -364,7 +400,7 @@
       } },
       { label: '先放下', fn: function () { H.close(); } }
     ]);
-    draw();
+    /* 起手就把五行按钮建好（paint 由上面那次调用收尾） */
   }
 
   /* ============ 8. 卷宗检索（三层条件唯一解） ============ */
@@ -615,23 +651,28 @@
       '<div class="pz-clue">铁牌上刻着规矩：按一盏，它和自己上下左右一起翻。九盏全亮，海上的船才看得见岸。</div>' +
       '<div class="lz-grid" id="pz-lz"></div>' +
       '<div class="pz-progress" id="pz-prog"></div>');
-    function draw() {
-      var g = q('#pz-lz'); if (!g) return;
-      g.innerHTML = '';
-      st.forEach(function (v, i) {
-        var b = el('button', 'lz-cell' + (v ? ' on' : ''), '');
-        b.setAttribute('data-i', i);
-        b.onclick = function () { LIGHTS.flip(st, W, i); H.sfx('click'); draw(); };
-        g.appendChild(b);
-      });
+    /* v38：棋盘只建一次，点击只翻类名（旧版每次点击 innerHTML='' 重建九格 —— 按钮被抽走、焦点掉 body，
+       跟日记残页/断句是同一类"点一下闪一下"的毛病，一起收掉） */
+    var g = q('#pz-lz');
+    var cells = st.map(function (v, i) {
+      var b = el('button', 'lz-cell' + (v ? ' on' : ''), '');
+      b.setAttribute('data-i', i);
+      b.onclick = function () { LIGHTS.flip(st, W, i); H.sfx('click'); paint(); };
+      g.appendChild(b);
+      return b;
+    });
+    function paint() {
       var off = 0;
-      st.forEach(function (v) { if (!v) off++; });
+      st.forEach(function (v, i) {
+        cells[i].className = 'lz-cell' + (v ? ' on' : '');
+        if (!v) off++;
+      });
       var pr = q('#pz-prog');
       if (pr) pr.textContent = off ? ('还暗着 ' + off + ' 盏') : '九盏都亮了';
       if (!off) H.solve('lights');
     }
     H.setBtns([{ label: '先不按', fn: function () { H.close(); } }]);
-    draw();
+    paint();
   }
 
   /* ============ 14. 柜台的算盘（当金 = 重量 × 每两当金；三张当票每次重掷） ============ */
@@ -677,6 +718,13 @@
   function gateRuleSet(R) {
     var want = [R(2), R(2), R(2), R(2)];
     function cnt(as) { return as[0] + as[1] + as[2] + as[3]; }
+    /* v38：谜底是全开/全关时，规矩表里那条总数告示（正好 0 块 / 正好 4 块）一句话就把答案念出来了
+       —— 用户抽到的正是这种。这类谜底不掷，重掷到不是全一样为止（掷不出来就用最后一次的）。 */
+    for (var reroll = 0; reroll < 24; reroll++) {
+      var openSum = cnt(want);
+      if (openSum > 0 && openSum < 4) break;
+      want = [R(2), R(2), R(2), R(2)];
+    }
     var wantOpen = cnt(want);
     var MADE = [
       function (a, b) { return { t: GATES[a] + '和' + GATES[b] + '只能一个样——要么都开，要么都关。', f: function (as) { return as[a] === as[b]; } }; },
@@ -687,22 +735,81 @@
       function (a) { return { t: GATES[a] + '得关着，水才压得住。', f: function (as) { return as[a] === 0; } }; }
     ];
     var rules = [];
-    for (var guard = 0; guard < 60 && rules.length < 6; guard++) {
-      var a = R(4), b = R(4);
-      if (b === a) b = (b + 1) % 4;
-      var r = MADE[R(MADE.length)](a, b);
-      if (!r.f(want)) continue;                                    /* 只留谜底满足的规矩 */
-      if (rules.some(function (x) { return x.t === r.t; })) continue;
-      rules.push(r);
-      if (rules.length < 3) continue;
-      var ok = 0;
+    /* v38（用户实测「太简单了」）：把每条规矩当成 16 位掩码（16 种局面一个 bit 一位），
+       直接**穷举**「三条合起来只剩一个解、且任意两条都还定不死」的紧凑局 ——
+       之前是掷骰子凑 + 只查唯一解，实测 400 局里 13% 是「一句话就念出答案」的送礼局（用户就抽到这种）。
+       穷举不会漏：找不到三条就找四条，仍然找不到才退回老口径（绝不把玩家卡在没有解的局里）。 */
+    var wantIdx = want[0] | (want[1] << 1) | (want[2] << 2) | (want[3] << 3);
+    var wantBit = 1 << wantIdx;
+    function maskOf(f) {
+      var mk = 0;
       for (var m = 0; m < 16; m++) {
-        var as = [m & 1, (m >> 1) & 1, (m >> 2) & 1, (m >> 3) & 1];
-        if (rules.every(function (x) { return x.f(as); })) ok++;
+        if (f([m & 1, (m >> 1) & 1, (m >> 2) & 1, (m >> 3) & 1])) mk |= (1 << m);
       }
-      if (ok === 1) return { want: want, rules: rules, unique: true };
+      return mk;
     }
-    return { want: want, rules: rules, unique: false };
+    function bits(x) { var n = 0; while (x) { n += x & 1; x >>>= 1; } return n; }
+    var CAND = [], seenT = {};
+    MADE.forEach(function (mk, mi) {
+      /* 总数这一类规矩在「正好 0 / 正好 4 块」时，一句话就把答案念出来了 —— 用户踩到的就是这条，直接不用它 */
+      if (mi === 4 && (wantOpen === 0 || wantOpen === 4)) return;
+      for (var a = 0; a < 4; a++) for (var b = 0; b < 4; b++) {
+        if (b === a) continue;
+        var r = mk(a, b);
+        if (seenT[r.t]) continue;
+        seenT[r.t] = 1;
+        var mk2 = maskOf(r.f);
+        /* 注意别用 return：这是 forEach 的回调，return 会把这一整类规矩的其他配对全跳过（实测候选从 25 条掉到 10 条） */
+        if (mk2 & wantBit) CAND.push({ t: r.t, f: r.f, mask: mk2 });   /* 只留谜底满足的规矩 */
+      }
+    });
+    function pick(combo) {
+      var rs = combo.map(function (i) { return { t: CAND[i].t, f: CAND[i].f }; });
+      return { want: want, rules: rs, unique: true, tight: true, cand: CAND.length, hits: hits.length };
+    }
+    var hits = [];
+    for (var i2 = 0; i2 < CAND.length && hits.length < 12; i2++) {
+      for (var j2 = i2 + 1; j2 < CAND.length && hits.length < 12; j2++) {
+        var ij = CAND[i2].mask & CAND[j2].mask;
+        if (ij === wantBit) continue;                       /* 光这两条就定死了 → 第三条就是摆设 */
+        for (var k2 = j2 + 1; k2 < CAND.length && hits.length < 12; k2++) {
+          if ((ij & CAND[k2].mask) === wantBit) hits.push([i2, j2, k2]);
+        }
+      }
+    }
+    if (hits.length) return pick(hits[R(hits.length)]);
+    for (var i3 = 0; i3 < CAND.length && hits.length < 12; i3++) {
+      for (var j3 = i3 + 1; j3 < CAND.length && hits.length < 12; j3++) {
+        for (var k3 = j3 + 1; k3 < CAND.length && hits.length < 12; k3++) {
+          var ijk = CAND[i3].mask & CAND[j3].mask & CAND[k3].mask;
+          if (ijk !== wantBit) continue;
+          for (var l4 = 0; l4 < CAND.length; l4++) {
+            if (l4 === i3 || l4 === j3 || l4 === k3) continue;
+            var all4 = ijk & CAND[l4].mask;
+            if (all4 !== wantBit) continue;
+            if (((CAND[i3].mask & CAND[j3].mask & CAND[l4].mask) === wantBit) ||
+                ((CAND[i3].mask & CAND[k3].mask & CAND[l4].mask) === wantBit) ||
+                ((CAND[j3].mask & CAND[k3].mask & CAND[l4].mask) === wantBit)) break;   /* 有摆设 → 不紧凑 */
+            hits.push([i3, j3, k3, l4]);
+          }
+        }
+      }
+    }
+    if (hits.length) return pick(hits[R(hits.length)]);
+    /* 兜底：真找不到紧凑局时退回老口径（唯一解即可） */
+    for (var guard = 0; guard < 200 && rules.length < 6; guard++) {
+      var ga = R(4), gb = R(4);
+      if (gb === ga) gb = (gb + 1) % 4;
+      var rg = MADE[R(MADE.length)](ga, gb);
+      if (!rg.f(want)) continue;
+      if (wantOpen === 0 || wantOpen === 4) { if (rg.t.indexOf('正好') === 0) continue; }   /* 总数一句话念答案的，兜底也不用 */
+      if (rules.some(function (x) { return x.t === rg.t; })) continue;
+      rules.push(rg);
+      if (rules.length >= 3 && maskOf(function (as) { return rules.every(function (x) { return x.f(as); }); }) === wantBit) {
+        return { want: want, rules: rules, unique: true, tight: false, cand: CAND.length, hits: hits.length };
+      }
+    }
+    return { want: want, rules: rules, unique: false, tight: false };
   }
   function makeGates(rand) {
     var R = rand || rnd, g = null;
@@ -712,7 +819,7 @@
   function switches(p) {
     var pz = makeGates(), as = [0, 0, 0, 0];
     H.setBody('<p class="pz-tip">' + p.brief + '</p>' +
-      '<div class="pz-clue">堤上钉着三块告示，写的就是扳闸板的规矩：' +
+      '<div class="pz-clue">堤上钉着 ' + pz.rules.length + ' 块告示，写的就是扳闸板的规矩：' +
       pz.rules.map(function (r, i) { return '<br>' + (i + 1) + '. ' + r.t; }).join('') + '</div>' +
       '<div class="pz-row" id="pz-gates">' + GATES.map(function (g, i) {
         return '<button class="pz-opt gate" data-i="' + i + '">' + g + '<br><small>关</small></button>';
@@ -803,33 +910,51 @@
       '<div class="pz-clue">雾里的纸被撕成了两半：左半句在左边，右半句在右边。先点左边一句，再点右边接得上的那半句。</div>' +
       '<div class="hp-wrap"><div class="hp-col" id="pz-half-l"></div><div class="hp-col" id="pz-half-r"></div></div>' +
       '<div class="pz-progress" id="pz-prog"></div>');
-    function draw() {
+    /* v38（用户报「这个也是点击的时候会有一个线突然出现」）：改**原地更新**。
+       旧版每次点击都把两列 innerHTML 整片重刷 —— 被点中的按钮当场被抽走：焦点掉到 body，
+       浏览器按"把焦点元素带进视野"的规矩还可能顺手滚一下容器，看到的就是那一下闪跳。
+       现在两列按钮只建一次，点击只改类名与进度文字，DOM 不动 → 不闪、不跳、焦点还在。 */
+    var lBtns = [], rBtns = [];
+    lefts.forEach(function (x) {
+      var b = el('button', 'pz-opt hp', x.t);
+      b.setAttribute('data-i', x.i);
+      b.onclick = function () {
+        if (hit[x.i]) return;
+        sel = x.i; H.sfx('click'); paint();
+      };
+      lBtns.push(b);
+      q('#pz-half-l').appendChild(b);
+    });
+    rights.forEach(function (x) {
+      var b = el('button', 'pz-opt hp', x.t);
+      b.setAttribute('data-i', x.i);
+      b.onclick = function () {
+        var j = x.i;
+        if (hit[j]) return;
+        if (sel === null) { q('#pz-prog').textContent = '先在左边点一句。'; return; }
+        if (j === sel) { hit[j] = 1; sel = null; H.sfx('open'); }
+        else { miss++; sel = null; H.sfx('wrong'); }
+        paint();
+      };
+      rBtns.push(b);
+      q('#pz-half-r').appendChild(b);
+    });
+    function paint() {
+      lBtns.forEach(function (b) {
+        var i = +b.getAttribute('data-i');
+        b.className = 'pz-opt hp' + (hit[i] ? ' on' : '') + (sel === i ? ' sel' : '');
+      });
+      rBtns.forEach(function (b) {
+        var i = +b.getAttribute('data-i');
+        b.className = 'pz-opt hp' + (hit[i] ? ' on' : '');
+      });
       var done = Object.keys(hit).length;
-      q('#pz-half-l').innerHTML = lefts.map(function (x) {
-        return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + (sel === x.i ? ' sel' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
-      }).join('');
-      q('#pz-half-r').innerHTML = rights.map(function (x) {
-        return '<button class="pz-opt hp' + (hit[x.i] ? ' on' : '') + '" data-i="' + x.i + '">' + x.t + '</button>';
-      }).join('');
-      qa('#pz-half-l .pz-opt').forEach(function (b) {
-        b.onclick = function () { if (hit[+b.getAttribute('data-i')]) return; sel = +b.getAttribute('data-i'); H.sfx('click'); draw(); };
-      });
-      qa('#pz-half-r .pz-opt').forEach(function (b) {
-        b.onclick = function () {
-          var j = +b.getAttribute('data-i');
-          if (hit[j]) return;
-          if (sel === null) { q('#pz-prog').textContent = '先在左边点一句。'; return; }
-          if (j === sel) { hit[j] = 1; sel = null; H.sfx('open'); draw(); return; }
-          miss++; sel = null; H.sfx('wrong');
-          q('#pz-prog').textContent = '接不上（错了 ' + miss + ' 回）。';
-        };
-      });
       var pr = q('#pz-prog');
       if (pr) pr.textContent = '接上了 ' + done + '/' + pairs.length + ' 句' + (miss ? '（错了 ' + miss + ' 回）' : '');
       if (done === pairs.length) H.solve('halves');
     }
     H.setBtns([{ label: '先不接', fn: function () { H.close(); } }]);
-    draw();
+    paint();
   }
 
   /* ============ 18. 连环锁（幕五 · 五道环 · 六百秒 · 超时从第一道重来） ============
