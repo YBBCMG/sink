@@ -277,8 +277,8 @@
   var OIL_R = 5.4, OIL_T = 15, OIL_PRICE = 2;
   function pourOil() {
     if (!global.MOBS23) return 0;
-    if ((S.oil || 0) <= 0) { toast('灯油见底了 —— 记当铺柜台有卖（' + OIL_PRICE + ' 枚一罐）。'); return 0; }
-    S.oil--;
+    if (!DEVM.inf && (S.oil || 0) <= 0) { toast('灯油见底了 —— 记当铺柜台有卖（' + OIL_PRICE + ' 枚一罐）。'); return 0; }
+    if (!DEVM.inf) S.oil--;                            /* v34 B4：无限灯油开关 */
     var n = global.MOBS23.oil(S.mx, S.my, OIL_R, OIL_T);
     sfx('open');
     addLog('泼了一罐灯油 —— 雾里的东西定住了 ' + OIL_T + ' 秒。');
@@ -919,9 +919,12 @@
     var id = MEM_LINK[p.id];
     if (!id) return lines;
     var st = S.mem[id] || {}, m = D.mem23ById(id) || {}, tag = m.tag || '这段记';
-    if (st.state === 'held' && (st.hurt || 0) < 2) {
+    /* v34c：老档 / 删过条目的形状是"表里压根没有这条记"—— 照 memKnown 的同一口径当"在身上"。
+       不等价就会串台：记好好的，说的却是失忆台词（真机验收抓到的：LOST_SAY 被误用）。 */
+    var mstate = st.state || 'held', mhurt = st.hurt || 0;
+    if (mstate === 'held' && mhurt < 2) {
       /* 只缺一个字：话还说得出口，但说得不全 */
-      return (st.hurt || 0) === 1
+      return mhurt === 1
         ? lines.concat(['（说到' + tag + '，你只记得半句 —— 剩下的字是空的。）'])
         : lines;
     }
@@ -929,6 +932,54 @@
     if (p.npc) return ['（你想跟他说点什么。关于' + tag + '，你什么都想不起来。）',
       '（他看了你一会儿，见你没开口，自己把话头收了回去。）'];
     return ['（' + (p.name || '这东西') + '还在原处。你看了一会儿 —— 关于' + tag + '，你想不起来了。）'];
+  }
+  /* ============ v34 A1：记忆即钥匙（点位上锁，不是改名字）============
+     v33 只把名字降级了 —— 解法没变，还是点同一个地方，那是贴皮。
+     v34 让"那段记"当钥匙：KEY_GATE 里点过名的点，记不在身上时
+       · 脚下那盏灯**不亮**（不是改名字，是这个点根本不发光）
+       · 点了也不给原来的东西 —— 有 alt 的走糙办法（照样能过），没 alt 的只剩一句"想不起来"
+     两条 v30 硬规矩照旧，这里更要紧：
+       ① 不吃信息：糙办法里该知道的照样告诉你（谁的笔迹、纸上写的什么一个不少），
+          代价是"留下痕迹"，不是"信息消失"；
+       ② 不吃玩法：alt 路径照样置 p.flag（东西照拿、关照样过），只多一个痕迹旗标。
+     门控表写在本文件（不动 story23.js）：KEY_GATE[id] = null 表示"有锁、没糙办法"。 */
+  var KEY_GATE = {
+    chest: {
+      say: [
+        '你把铁盒从石缝里抠出来，翻来覆去看了看 —— 一只上了年头的铁盒，你看不出是谁的。',
+        '锁早锈了。你没有钥匙，也想不起该拿它怎么办 —— 手边有块礁石。',
+        '你拿石头砸了两下。盒盖崩开一条缝，纸角跟着撕掉一小块。',
+        '里面三样东西还在：一截新灯芯、一本手抄本、一张对折的纸。纸是母亲的笔迹，省字：',
+        '「别去找她。灯我来守过了，你守好灯就行。」撕掉的那一小块，拼不出来了。',
+        '你把纸折回去。手上沾着锈。'
+      ],
+      flag: 'chest_broke',                 /* 代价：铁盒是砸开的，留下痕迹 */
+      log: '你把铁盒砸开了 —— 纸撕掉一角，盒盖再合不严了。'
+    }
+  };
+  function memKeyOf(p) {
+    return (p && p.id && Object.prototype.hasOwnProperty.call(KEY_GATE, p.id) && MEM_LINK[p.id]) ? MEM_LINK[p.id] : null;
+  }
+  function memKeyOpen(p) { var id = memKeyOf(p); return !id || memKnown(id); }
+  function memAlt(p) { return (p && !memKeyOpen(p)) ? (KEY_GATE[p.id] || null) : null; }
+  /* 记不在身上、点又上着锁：糙办法（有 alt）/ 一句"想不起来"（没 alt）。
+     两条路都**不碰原来的分发面板**（买、当、念卷宗那些要求"知道自己在干什么"）。 */
+  function memKeyBlocked(p) {
+    var alt = memAlt(p), name = memNameOf(p);
+    S.seen[p.id] = 1;
+    if (!alt) {
+      say(['（' + name + '就在你跟前。你看了一会儿 —— 想不起它跟你有什么关系。）',
+           '（手伸出去又收回来：不是打不开，是你不知道该拿它怎么办。）'], null, { title: name });
+      return;
+    }
+    say(alt.say, function () {
+      if (p.flag) markFlag(p.flag);          /* ② 不吃玩法：该拿的照样拿到 */
+      if (alt.flag) markFlag(alt.flag);      /* 代价留痕 */
+      if (alt.log) addLog(alt.log);
+      dirty.mem = dirty.log = dirty.hud = 1;
+      if (p.to) enterScene(p.to, p.tx, p.ty);
+      else if (p.kind === 'jobs') jobsPanel();
+    }, { title: name });
   }
   function nearestPlace() {
     var sc = scene(), best = null, bd = 99;
@@ -944,6 +995,7 @@
     var p = nearestPlace();
     if (!p) { toast('这里没什么可看的。'); return; }
     if (p.need && !S.flags[p.need]) { lockToast(p.need, p.kind === 'portal'); return; }
+    if (!memKeyOpen(p)) { memKeyBlocked(p); return; }   /* v34 A1：记不在身上，这个点根本不开 */
     sfx('select');
     var first = !S.seen[p.id];
     S.seen[p.id] = 1;
@@ -1053,7 +1105,7 @@
       b.querySelectorAll('[data-pawn]').forEach(function (el) {
         el.onclick = function () {
           var id = el.getAttribute('data-pawn'), m = D.mem23ById(id);
-          S.mem[id].state = 'pawned'; S.mem[id].pawns++;
+          S.mem[id].state = 'pawned'; S.mem[id].pawns++; bgDirty = true;   /* v34：门控点外观跟着变 */
           S.gold += m.w; sfx('coin');
           addLog('当掉了：' + m.tag + '（+' + m.w + ' 枚）');
           purgeMemLog();
@@ -1087,7 +1139,7 @@
         el.onclick = function () {
           var id = el.getAttribute('data-redeem'), m = D.mem23ById(id), cost = m.w;
           if (S.gold < cost) { toast('当金不够——赎回这段要 ' + cost + ' 枚。'); return; }
-          S.gold -= cost; S.mem[id].state = 'held'; S.redeemed++;
+          S.gold -= cost; S.mem[id].state = 'held'; S.redeemed++; bgDirty = true;   /* v34：名字回来，外观也回来 */
           sfx('redeem'); dirty.hud = 1; dirty.mem = 1; save();
           addLog('赎回了：' + m.text);
           var tear = !!m.pawnedFromStart;
@@ -3064,6 +3116,7 @@
     var lit = (sc.ambient === 'night' || sc.ambient === 'lamp' || sc.ambient === 'dusk');
     var art = PLACE_ART[p.id];
     c.save();
+    if (!memKeyOpen(p)) c.globalAlpha = 0.45;          /* v34 A1：认不出的东西，画得发暗 */
     if (p.npc) {
       /* 有身份的 NPC 一律画人（祁掌柜 / 柳先生 / 阿罔以前只是地上的一团灰印）。
          v31.3：六个人各有立绘（身形 / 衣色四阶 / 随身物），跟像素建筑一个档 */
@@ -3202,6 +3255,7 @@
     /* 每处可交互点 / 干活点脚下都有一盏灯（以前只有谜题和货架有） */
     sc.places.forEach(function (pl) {
       if (pl.kind === 'look' || pl.kind === 'portal' || pl.npc) return;
+      if (!memKeyOpen(pl)) return;                     /* v34 A1：记不在身上，脚下这盏灯不亮 */
       var fx = pl.x * CELL + CELL / 2, fy = pl.y * CELL + CELL / 2;
       var fg = ctx.createRadialGradient(fx, fy, 3, fx, fy, 64);
       fg.addColorStop(0, 'rgba(' + amb.warm + ',.16)'); fg.addColorStop(1, 'rgba(' + amb.warm + ',0)');
@@ -3482,7 +3536,21 @@
       '<div class="arc-h">终局</div>' +
       '<div class="pz-row"><button class="pz-btn" data-dev="ending">直接通关（真结局）</button>' +
       '<button class="pz-btn" data-dev="wipe">删档重来</button></div>' +
-      '<div class="arc-h">状态</div><div class="arc-item">' + JSON.stringify({ scene: S.scene, act: S.act, gold: S.gold, tasks: doneCount(), photos: D.photoCount(S), flags: Object.keys(S.flags).length }) + '</div>';
+      '<div class="arc-h">状态</div><div class="arc-item">' + JSON.stringify({ scene: S.scene, act: S.act, gold: S.gold, oil: S.oil == null ? 2 : S.oil, tasks: doneCount(), photos: D.photoCount(S), flags: Object.keys(S.flags).length }) + '</div>' +
+      '<div class="dv-sec">谜题直达（自动补齐前置）</div>' +
+      '<div class="dv-list">' + devPuzzleRows() + '</div>' +
+      '<div class="dv-sec">记忆 · 点一条翻状态</div>' +
+      '<div class="pz-row"><button class="pz-btn" data-dev="mem0">全部归零</button>' +
+      '<button class="pz-btn" data-dev="memall">全部恢复</button></div>' +
+      '<div class="dv-list">' + devMemRows() + '</div>' +
+      '<div class="dv-sec">旗标 · 点一条翻转</div>' +
+      '<div class="pz-row"><button class="pz-btn" data-dev="snap">记快照</button>' +
+      '<button class="pz-btn" data-dev="rollback">回滚旗标</button></div>' +
+      '<div class="dv-list">' + devFlagRows() + '</div>' +
+      '<div class="dv-sec">便利</div>' +
+      '<div class="pz-row"><button class="pz-btn" data-dev="oil">灯油 +5</button>' +
+      '<button class="pz-btn" data-dev="gold">+10 当金</button>' +
+      '<button class="pz-btn" data-dev="inf">无限灯油：' + (DEVM.inf ? '开' : '关') + '</button></div>';
     body.querySelectorAll('[data-jump]').forEach(function (b) {
       b.onclick = function () { devJump(+b.getAttribute('data-jump')); };
     });
@@ -3491,6 +3559,15 @@
     });
     body.querySelectorAll('[data-dev]').forEach(function (b) {
       b.onclick = function () { devAction(b.getAttribute('data-dev')); };
+    });
+    body.querySelectorAll('[data-pz]').forEach(function (b) {
+      b.onclick = function () { var v = b.getAttribute('data-pz').split('|'); devGoto(v[0], v[1]); };
+    });
+    body.querySelectorAll('[data-mem]').forEach(function (b) {
+      b.onclick = function () { devMemCycle(b.getAttribute('data-mem')); };
+    });
+    body.querySelectorAll('[data-flag]').forEach(function (b) {
+      b.onclick = function () { devFlagToggle(b.getAttribute('data-flag')); };
     });
   }
   function devJump(act) {
@@ -3511,11 +3588,127 @@
       });
       awardPhotos();
     }
+    if (a === 'oil') { S.oil = (S.oil == null ? 2 : S.oil) + 5; toast('灯油 +5'); }
+    if (a === 'inf') { DEVM.inf = !DEVM.inf; toast('无限灯油：' + (DEVM.inf ? '开' : '关')); }
+    if (a === 'mem0') { (D.MEM23 || []).forEach(function (m) { devMemSet(m.id, 'pawned', 0); }); toast('全部记忆归零'); }
+    if (a === 'memall') { (D.MEM23 || []).forEach(function (m) { devMemSet(m.id, 'held', 0); }); dirty.mem = dirty.arch = 1; bgDirty = true; toast('全部记忆恢复'); }
+    if (a === 'snap') { devSnap(); toast('旗标快照已记（' + DEVM.snapN + ' 条）'); }
+    if (a === 'rollback') { devRollback(); return; }
     if (a === 'ending') { S.act = 5; D.PHOTOS.forEach(function (p) { S.photos[p.id] = 1; }); ending('true_name'); }
     if (a === 'wipe') { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } clearGuide(); S = freshState(); enterScene('lighthouse'); }
     dirty.hud = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
     renderDev();
     save();
+  }
+  /* ============ v34 B：开发者面板（用户痛点：解谜玩得慢，来不及体验）============
+     B5：DEVM **不进存档** —— 它是闭包里的，pack() 里没有它，刷新 / 开新档就回默认；
+     面板默认不显示（顶栏 DEV / 反引号 / F2 唤出），不挡正常玩法。 */
+  var DEVM = { inf: false, snap: null, snapN: 0 };
+  function devAllPlaces() {
+    var out = [];
+    Object.keys(D.SCENES).forEach(function (sid) {
+      (D.SCENES[sid].places || []).forEach(function (p) { out.push({ sid: sid, p: p }); });
+    });
+    return out;
+  }
+  /* B1：列出全部谜题节点（按幕分组），点了直达 —— 前置旗标沿 need 链自动补齐 */
+  function devPuzzleRows() {
+    var html = '', last = -1;
+    devAllPlaces().filter(function (e) { return e.p.kind === 'puzzle'; })
+      .sort(function (a, b) { return (D.SCENES[a.sid].act || 0) - (D.SCENES[b.sid].act || 0); })
+      .forEach(function (e) {
+        var act = D.SCENES[e.sid].act || 0;
+        if (act !== last) { html += '<div class="dv-sub">第 ' + act + ' 幕 · ' + D.SCENES[e.sid].name + '</div>'; last = act; }
+        html += '<button class="dv-row" data-pz="' + e.sid + '|' + e.p.id + '">' + (e.p.name || e.p.id) +
+          '<i>' + (S.flags[e.p.flag] ? '已过' : '未过') + '</i></button>';
+      });
+    return html || '<div class="dv-sub">（没有谜题点）</div>';
+  }
+  function devPuzFlag(p) {          /* 引擎 solvePuzzle 那套命名（game23 1136 行）：谜题解完置的旗标 */
+    if (p.flag) return p.flag;
+    var z = p.puz;
+    if (z === 'read_book') return 'book_read';
+    if (z === 'three_asks') return 'asks_ok';
+    return z + '_ok';
+  }
+  /* 旗标是谁给的：① 点位自己的 flag ② 这个点上的谜题解开会给的 flag。
+    （第一版只认 ①，实测"直达连环锁"时链断在第一层 —— asks_ok 是谜题给的，不是点位给的。）*/
+  function devFlagSrc(F) {
+    var all = devAllPlaces(), i;
+    for (i = 0; i < all.length; i++) if (all[i].p.flag === F) return all[i];
+    for (i = 0; i < all.length; i++) if (all[i].p.puz && devPuzFlag(all[i].p) === F) return all[i];
+    return null;
+  }
+  function devNeedChain(flag, seen) {           /* 沿 need 链把前置一个个补上（谜题给的旗标也得认）*/
+    if (!flag || S.flags[flag] || seen[flag]) return;
+    seen[flag] = 1;
+    var src = devFlagSrc(flag);
+    if (src) { devNeedChain(src.p.need, seen); S.seen[src.p.id] = 1; }
+    S.flags[flag] = 1;
+  }
+  function devGoto(sid, pid) {
+    var sc = D.SCENES[sid]; if (!sc) { toast('没有这个场景。'); return; }
+    var p = (sc.places || []).filter(function (q) { return q.id === pid; })[0];
+    if (!p) { toast('没有这个点。'); return; }
+    var act = sc.act || 1;
+    D.TASKS.forEach(function (t) { if (t.act < act) { S.tasks[t.id] = 1; S.flags[t.flag] = 1; } });
+    devNeedChain(p.need, {});
+    awardPhotos();
+    S.maxAct = Math.max(S.maxAct || 1, act); S.act = act;
+    enterScene(sid, p.x, p.y);
+    dirty.hud = dirty.tasks = dirty.arch = dirty.mem = 1;
+    toggleDev();
+    toast('已直达：' + (p.name || pid));
+  }
+  /* B2：记忆 —— 归零 / 恢复 / 单条四态循环（有 → 当出 → 半碎 → 咬碎） */
+  function devMemSet(id, st, hurt) {
+    if (!S.mem) S.mem = {};
+    /* v34c：别删条目 —— 游戏自己的口径是"每条记都有条目"（story23 建 S.mem 时逐条写）。
+       删了会掉进"表里没有这条记"的缝，memLinkedSay 会误判成失忆态。 */
+    S.mem[id] = { state: st, hurt: hurt || 0, pawns: (S.mem[id] && S.mem[id].pawns) || 0 };
+    dirty.mem = dirty.arch = 1;
+    bgDirty = true;   /* v34：底图是预烘焙的，记忆一变就得重烘，"画暗"才不是陈旧画面 */
+  }
+  function devMemRows() {
+    return (D.MEM23 || []).map(function (m) {
+      var st = (S.mem && S.mem[m.id]) || {}, s = st.state || 'held', h = st.hurt || 0;
+      var lbl = s !== 'held' ? '当出' : (h >= 2 ? '咬碎' : (h === 1 ? '半碎' : '有'));
+      return '<button class="dv-row" data-mem="' + m.id + '">' + (m.tag || m.id) + '<i>' + lbl + '</i></button>';
+    }).join('');
+  }
+  function devMemCycle(id) {
+    var st = (S.mem && S.mem[id]) || {}, s = st.state || 'held', h = st.hurt || 0;
+    if (s === 'held' && h === 0) devMemSet(id, 'pawned', 0);
+    else if (s === 'pawned') devMemSet(id, 'held', 1);
+    else if (h === 1) devMemSet(id, 'held', 2);
+    else devMemSet(id, 'held', 0);
+    renderDev();
+  }
+  /* B3：旗标 —— 能看、能翻、能回滚 */
+  function devFlagRows() {
+    var ks = Object.keys(S.flags || {}).sort();
+    var tail = '';
+    if (ks.length > 26) { tail = '<div class="dv-sub">…（' + (ks.length - 26) + ' 条更早的略）</div>'; ks = ks.slice(-26); }
+    return tail + ks.map(function (k) {
+      return '<button class="dv-row' + (S.flags[k] ? ' on' : '') + '" data-flag="' + k + '">' + k +
+        '<i>' + (S.flags[k] ? '1' : '0') + '</i></button>';
+    }).join('');
+  }
+  function devSnap() { DEVM.snap = JSON.stringify(S.flags || {}); DEVM.snapN = Object.keys(S.flags || {}).length; }
+  function devFlagToggle(k) {
+    if (!DEVM.snap) devSnap();
+    S.flags[k] = S.flags[k] ? 0 : 1;
+    dirty.hud = dirty.tasks = dirty.arch = dirty.mem = 1;
+    renderDev(); save();
+  }
+  function devRollback() {
+    if (!DEVM.snap) { toast('还没记过快照。'); return; }
+    var old = JSON.parse(DEVM.snap);
+    Object.keys(S.flags).forEach(function (k) { if (!(k in old)) delete S.flags[k]; });
+    Object.keys(old).forEach(function (k) { S.flags[k] = old[k]; });
+    dirty.hud = dirty.tasks = dirty.arch = dirty.mem = 1;
+    renderDev(); save();
+    toast('旗标已回滚');
   }
   /* 一键把弹窗/对话/结局窗全关掉（测试与 DEV 用；正常玩法不会走到） */
   function forceClose() {
@@ -3619,7 +3812,12 @@
       S: S, D: D,
       /* v33 判据面：分类 / 名字门控 / 派生总量（探针与回归只读） */
       mem: { link: MEM_LINK, lostName: LOST_NAME, lostSay: LOST_SAY, nameOf: memNameOf, known: memKnown,
-             total: memTotalW, cats: CAT_ORDER, catCn: CAT_CN },
+             total: memTotalW, cats: CAT_ORDER, catCn: CAT_CN,
+             keyGate: KEY_GATE, keyOf: memKeyOf, keyOpen: memKeyOpen, alt: memAlt },
+      dev: { state: DEVM, goto: devGoto, memSet: devMemSet, memCycle: devMemCycle,
+             flagToggle: devFlagToggle, snap: devSnap, rollback: devRollback, action: devAction,
+             pour: pourOil,
+             rows: function () { return $('dev-body').innerHTML; } },
       api: {
         enter: enterScene, flag: markFlag, solve: solvePuzzle, ending: ending, say: say,
         get state() { return S; }, interact: interact, modalOpen: function () { return modalOpen; },
