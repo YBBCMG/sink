@@ -6,8 +6,9 @@
  *   ③ 一个场景只留一只 —— 多了不是难，是恶心；
  *   ④ **只在最后一个场景（雾里）出现** —— 别的场景有怪不合理（用户 2026-10-12 定）：
  *      镇上、当铺、盐田、灯塔、岛史馆都不刷，走到岛里面（雾里）才遇见它。
- *   ⑤ **解最后那道连环锁的时候，它不咬也不吐**（用户 2026-10-12 定）—— 一百秒里转五枚环，
- *      还要躲它，那不叫难，叫欺负人。只认连环锁这一个面板（引擎用 grace 钩子告它）。
+ *   ⑤ **解最后那道连环锁的时候，它当场消失**（用户 2026-10-12 改口径：「解锁连环锁的时候不是不攻击，
+ *      直接把它删了，它消失就行。」）—— 一百秒里转五枚环，旁边还蹲着一只，那不叫难，叫欺负人。
+ *      机关一合上它就按原样回来。只认连环锁这一个面板（引擎用 grace 钩子告它）。
  * 名字：**雾呓** —— 雾里那声含糊的梦话；只此一种，别的不刷。
  * 反制：**灯油**（oil）—— 泼一罐，圈里的东西被定住十几秒，圈外的不敢进；再加上"怕灯"，
  *       所以灯下与油圈是两处安全区。名字与长相都换成海雾/记当铺这一路的东西。
@@ -40,6 +41,8 @@
   var OIL_HOLD = 15;        /* 一罐灯油定住多少秒（用户要"十几秒无法攻击"） */
 
   var list = [], shots = [], lights = [], zones = [], hook = null, sid = null, seq = 0;
+  /* 被连环锁"请出场"的那一只：机关一合上，按原样站在原地刷回来（见 update 的 grace 分支） */
+  var held = null;
 
   function attach(h) { var old = hook; hook = h; return old; }   /* 返回上一个：测试用完还回去 */
   function setLights(ts) { lights = ts || []; }
@@ -65,7 +68,7 @@
 
   /* 按场景铺怪（一个场景一只）；重进场景会重置 —— 残血不累积，免得越玩越没法玩 */
   function spawnFor(sceneId, act) {
-    sid = sceneId; list = []; shots = [];
+    sid = sceneId; list = []; shots = []; held = null;
     var cfg = SPAWN[sceneId];
     if (!cfg || (act || 1) < cfg.act) return 0;
     cfg.spots.forEach(function (s, i) {
@@ -113,6 +116,21 @@
        一百秒里手忙脚乱地转五枚环，还要躲它，那不叫难，叫欺负人。 */
     var grace = false;
     try { grace = !!(hook.grace && hook.grace()); } catch (e) { grace = false; }
+    /* 连环锁开着：这只东西不该在场 —— 直接撤走，连路上飞着的那几枚也一并作废。
+       （用户 2026-10-12 改口径：「解锁连环锁的时候不是不攻击，直接把它删了，它消失就行。」）
+       机关一合上 / 换了别的面板：它按原样刷回原地，照旧咬人。 */
+    if (grace) {
+      if (list.length) { held = list.map(function (m) { return { kind: m.kind, x: m.x, y: m.y }; }); list = []; }
+      shots = [];
+      return;
+    }
+    if (held) {
+      held.forEach(function (r) {
+        list.push({ uid: ++seq, kind: r.kind, x: r.x, y: r.y, state: 'idle', cool: 1.2, fled: 0, hold: 0, t: 0, face: 1 });
+      });
+      held = null;
+      if (hook.respawn) hook.respawn();
+    }
     for (i = list.length - 1; i >= 0; i--) {
       var m = list[i], K = KINDS[m.kind];
       m.t += dt;
