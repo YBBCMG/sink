@@ -76,6 +76,19 @@
     border-radius: 8px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit;
   }
   #btn-archive:hover { color: var(--gold2); border-color: var(--gold); }
+  /* v37 全屏键：跟旁边那族同款外观；.on = 当前在全屏里 */
+  #btn-fs {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 8px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  #btn-fs:hover { color: var(--gold2); border-color: var(--gold); }
+  #btn-fs.on { color: #fff; background: var(--violet); border-color: var(--violet); }
+  /* 进全屏时把 #app 的 1360px 上限撤掉 —— 不撤的话大屏上游戏只占中间一条。
+     只放开宽度上限，**比例与尺寸一个数都不动**：画布仍是 10:7，背板仍由
+     game23.js 的 setupCanvas 按「显示宽度 × DPR」现算（全屏后视口变了会重算）。
+     顺带把 UA 给 :fullscreen 的黑底换成页面自己的底色 —— 免得两侧看着像黑边框。 */
+  #app:fullscreen { max-width: none; background: var(--bg); }
+  #app:-webkit-full-screen { max-width: none; background: var(--bg); }
   /* 开发者模式浮层（z 最高：modal 6 / 结局 7 / 确认 8 之上，可与游戏面板同时操作） */
   #dev-panel {
     position: absolute; top: 10px; right: 10px; width: 312px; max-height: calc(100% - 20px);
@@ -345,7 +358,7 @@
     #hud b { font-size: 12.5px; }
     .bar { width: 60px; height: 8px; }
     #relics { font-size: 11px; }
-    #btn-restart, #btn-bgm, #btn-dev, #btn-archive { padding: 3px 8px; font-size: 11px; }
+    #btn-restart, #btn-bgm, #btn-dev, #btn-archive, #btn-fs { padding: 3px 8px; font-size: 11px; }
     main { flex-direction: column; }
     #world-wrap {
       max-width: min(100%, calc((100vh - 220px) * 10 / 7));
@@ -748,6 +761,7 @@ button:active { transform: translate(1px, 1px); }
       <button id="btn-restart" title="回到本幕开头自动记下的存档点（每幕开头记一次）">↺ 存档点</button>
       <button id="btn-bgm" title="背景音乐开关">♪ 开</button>
       <button id="btn-archive" title="通关后解锁：世界档案">档案</button>
+      <button id="btn-fs" title="全屏 / 退出全屏（U 键；ESC 也能退出）">⛶ 全屏</button>
       <button id="btn-dev" title="开发者模式（按 ` 或 F2 切换）">DEV</button>
     </div>
   </header>
@@ -823,15 +837,78 @@ button:active { transform: translate(1px, 1px); }
       </section>
     </aside>
   </main>
-  <div id="footer-tips">WASD / 方向键 走动 · E 互动 · <b>F 泼灯油</b>（雾里的东西定住 15 秒）· 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式</div>
+  <div id="footer-tips">WASD / 方向键 走动 · E 互动 · <b>F 泼灯油</b>（雾里的东西定住 15 秒）· 触屏用左下方向盘 + 右下 E · 走到门/阶梯上自动换场景 · 按 <b>`</b> 或点 DEV 开开发者模式 · 按 <b>U</b> 或点顶栏 <b>⛶ 全屏</b> 进全屏（ESC 退出）</div>
 </div>
-<script src="js/story23.js?v=36"></script>
+<script src="js/story23.js?v=37"></script>
 <script src="js/audio.js?v=33"></script>
 <script src="js/music.js?v=33"></script>
 <script src="js/mobs23.js?v=37"></script>
 <script src="js/puzzles23.js?v=36"></script>
 <script src="js/art31.js?v=36"></script>
-<script src="js/game23.js?v=42"></script>
+<script src="js/game23.js?v=43"></script>
 <script src="js/guide23.js?v=34"></script>
+<script>
+/* v37 全屏键（功能增加线 · D）。U 键 / 顶栏「⛶ 全屏」按钮 切换全屏，ESC 退出。
+   三条口径：
+     ① **只认用户手势**：requestFullscreen 只在按键/点击里调，页面加载绝不自动进
+        （否则浏览器以 NotAllowedError 拒掉，白留一条 console 报错）。
+     ② **全屏后视口变了，画布背板必须重算**：走游戏自己暴露的 GAME23.QUALITY.setup()
+        （就是 game23.js 的 setupCanvas —— 它本来也挂在 window.resize 上；这里在
+        fullscreenchange 后补调，防的是 resize 早于排版落定的时机差，幂等、多调不亏）。
+     ③ 按钮文字/高亮跟 document.fullscreenElement 同步 —— 用 ESC 退、用键退、用按钮退，
+        三种退法都跟得上。
+   不引任何外部依赖；file:// 双击、--app 独立窗口、线上三种打开方式同样有效。 */
+(function () {
+  var KEY = 'u';
+  function appEl() { return document.getElementById('app') || document.documentElement; }
+  function fsEl() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function supported() { var e = document.documentElement; return !!(e.requestFullscreen || e.webkitRequestFullscreen); }
+  function enter() {
+    var el = appEl(), fn = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!fn) return null;
+    var p = fn.call(el);
+    if (p && p.catch) p.catch(function () { /* 被浏览器拒了（无手势/iframe 无 allow）：安静失败，别炸 console */ });
+    return p;
+  }
+  function leave() {
+    var fn = document.exitFullscreen || document.webkitExitFullscreen;
+    if (!fn) return null;
+    var p = fn.call(document);
+    if (p && p.catch) p.catch(function () {});
+    return p;
+  }
+  function toggle() { if (fsEl()) leave(); else enter(); }
+  function sync() {
+    var b = document.getElementById('btn-fs'); if (!b) return;
+    var on = !!fsEl();
+    b.textContent = on ? '⛶ 退出全屏' : '⛶ 全屏';
+    b.classList.toggle('on', on);
+    b.title = on ? '退出全屏（U 键 / ESC）' : '全屏（U 键，ESC 退出）';
+  }
+  function reflow() {
+    var g = window.GAME23, setup = g && g.QUALITY && g.QUALITY.setup;
+    if (typeof setup !== 'function') return;
+    try { setup(); } catch (e) { /* 重算失败不该打断全屏本身 */ }
+    window.setTimeout(function () { try { setup(); } catch (e) {} }, 80);   /* 兜排版时机差 */
+  }
+  document.addEventListener('fullscreenchange', function () { sync(); reflow(); });
+  document.addEventListener('webkitfullscreenchange', function () { sync(); reflow(); });
+  window.addEventListener('keydown', function (e) {
+    var t = e.target || {}, tag = (t.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || t.isContentEditable) return;   /* 打字时不抢键 */
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key !== KEY && e.key !== KEY.toUpperCase()) return;
+    e.preventDefault();
+    toggle();
+  });
+  var btn = document.getElementById('btn-fs');
+  if (btn) {
+    if (supported()) btn.addEventListener('click', function () { toggle(); });
+    else btn.style.display = 'none';    /* 不支持（如 iOS Safari）就别摆个按不动的按钮 */
+  }
+  window.addEventListener('load', sync);
+  sync();
+})();
+</script>
 </body>
 </html>
