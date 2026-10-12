@@ -483,7 +483,8 @@
 @media (max-width: 420px) {
   #m-card { width: calc(100vw - 16px); padding: 12px 12px; border-radius: 12px; }
   #m-title { font-size: 15px; }
-  .sl-grid { --cell: 36px; --arm: 8px; gap: 3px !important; }
+  /* v38 自纠：这两行原本写在基础规则之前，同权级被后面的 .sl-grid 覆盖 ⇒ 死代码。加 !important 让手机口径真的生效 */
+  .sl-grid { --cell: 36px !important; --arm: 8px !important; gap: 3px !important; }
 }
 /* 手机：弹窗（对话/谜题）打开时收起触屏控件——实测 375 宽下面板会被方向盘压住半格网格 */
 /* 「记」面板：这是游戏的名字所在 —— 当出去的记，正文在你这里就是空的 */
