@@ -387,6 +387,28 @@
 #scene-banner.on { opacity: 1; }
 #scene-banner small { display: block; font-size: 11px; letter-spacing: 1px; color: var(--dim, #8b8b8b); margin-top: 2px; }
 
+/* 初见（一只怪只见一次）：屏幕上沿居中的一条 —— 说清"它是什么、怎么反制"，几秒后自己淡掉。
+   不吃点击、不挡路；放 top:46px 是为了不跟场景横幅（top:10px）和 toast 抢同一行。 */
+#first-sight {
+  position: absolute; left: 50%; top: 46px; transform: translateX(-50%);
+  width: max-content; max-width: min(460px, calc(100% - 264px));
+  background: rgba(24, 18, 44, .94); border: 2px solid var(--gold, #c8a24a); color: var(--txt, #e8e3f5);
+  padding: 9px 14px 10px; font-size: 12.5px; line-height: 1.68; text-align: left;
+  opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 58;
+}
+#first-sight.on { opacity: 1; }
+#first-sight b:first-child { display: block; font-size: 13px; letter-spacing: 2px; color: var(--gold2, #e0b25c); margin-bottom: 3px; }
+#first-sight b { color: var(--gold2, #e0b25c); }
+#first-sight .fs-w { display: block; color: var(--dim, #b9b3c9); }
+#first-sight .fs-y { display: block; color: #ffd98a; }
+#first-sight .fs-y b { display: inline; letter-spacing: 0; font-size: inherit; margin: 0; }
+@media (max-width: 860px) {
+  #first-sight { top: 8px; max-width: 94%; font-size: 12px; }
+  /* 手机屏窄：卡片占着上沿的这几秒，toast 与引导纸排到它下面去（卡片高度由 game23.js 现场量进 --fs-h）。
+     不这么写就会像实测那样：toast 的蓝框直接压在卡片中段上（量出来 -104px）。 */
+  body.fs-on #toast, body.fs-on #guide-note { top: calc(16px + var(--fs-h, 110px)); }
+}
+
 /* 幕间卡：换一幕的时候得让玩家知道"进新的一幕了"（以前只有场景横幅，看不出换了幕） */
 #act-card {
   position: absolute; left: 0; right: 0; top: 33%; text-align: center; pointer-events: none;
@@ -723,6 +745,8 @@ button:active { transform: translate(1px, 1px); }
       <div id="scene-banner"></div>
       <div id="act-card"></div>
       <div id="toast"></div>
+      <!-- 初见提示：第一次撞见雾呓的时候，屏幕上沿弹一条（js/game23.js 驱动；只弹一次，记录在存档 flags.met_wuyi） -->
+      <div id="first-sight"></div>
       <!-- 新手引导：母亲夹在抄本第一页的「第一夜清单」（js/guide23.js 驱动，一步只写一件事） -->
       <div id="guide-note">
         <div id="guide-bar"><b id="guide-tag">第一夜清单</b><span id="guide-count"></span><button id="guide-min" title="收起 / 展开">收起</button></div>
@@ -791,10 +815,10 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/story23.js?v=34"></script>
 <script src="js/audio.js?v=33"></script>
 <script src="js/music.js?v=33"></script>
-<script src="js/mobs23.js?v=35"></script>
+<script src="js/mobs23.js?v=36"></script>
 <script src="js/puzzles23.js?v=34"></script>
 <script src="js/art31.js?v=36"></script>
-<script src="js/game23.js?v=38"></script>
+<script src="js/game23.js?v=39"></script>
 <script src="js/guide23.js?v=34"></script>
 </body>
 </html>
