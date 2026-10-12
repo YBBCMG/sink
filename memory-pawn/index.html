@@ -95,6 +95,19 @@
   #dev-body { overflow-y: auto; padding: 8px 10px 10px; font-size: 12px; }
   #dev-body .dv-sec { margin: 9px 0 4px; color: var(--gold2); font-size: 11.5px; letter-spacing: 1px; }
   #dev-body .dv-sec:first-child { margin-top: 0; }
+  /* v34：开发者面板的名单（38 条记忆 / 60+ 条旗标 / 18 个谜题节点）。
+     .pz-btn 一只有 40px 高，上百条滚不完 —— 名单改用紧凑行。 */
+  #dev-body .dv-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 2px; }
+  #dev-body .dv-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    font-family: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+    color: var(--txt); background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 7px; min-height: 0;
+  }
+  #dev-body .dv-row:hover { border-color: var(--gold2); }
+  #dev-body .dv-row i { font-style: normal; color: var(--dim); flex: none; }
+  #dev-body .dv-row.on { border-color: var(--gold); color: var(--gold2); }
+  #dev-body .dv-sub { color: var(--dim); font-size: 10.5px; margin: 5px 0 2px; }
   #dev-body .dv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
   #dev-body .dv-grid.tp { grid-template-columns: repeat(3, 1fr); }
   #dev-body button {
@@ -816,9 +829,9 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/audio.js?v=33"></script>
 <script src="js/music.js?v=33"></script>
 <script src="js/mobs23.js?v=36"></script>
-<script src="js/puzzles23.js?v=34"></script>
+<script src="js/puzzles23.js?v=35"></script>
 <script src="js/art31.js?v=36"></script>
-<script src="js/game23.js?v=40"></script>
+<script src="js/game23.js?v=41"></script>
 <script src="js/guide23.js?v=34"></script>
 </body>
 </html>
