@@ -299,7 +299,7 @@
           '盘底有一小块补过的铜，颜色比周围亮。补的人手艺不好，接缝是歪的。',
           '你掂了掂这只盘子。很沉。'
         ] },
-        { id: 'back', name: '里间的门', x: 17, y: 10, kind: 'look', flag: 'saw_backdoor', say: [
+        { id: 'back', name: '里间的门', x: 17, y: 10, kind: 'look', flag: 'saw_backdoor', toolPuz: 'back', say: [
           '里间的门上挂着一把新锁，锁扣上留着一截没摘干净的红线。',
           '红线是替记契上用的那种。契分了，双方各系一根。',
           '新锁，旧门。门板上有一道撞过的痕迹，位置比锁低。'
@@ -561,7 +561,7 @@
         ], again: [
           '雾从门缝里挤进来，贴在地上，像在等你先迈步。'
         ] },
-        { id: 'northwin', name: '朝北的那扇窗', x: 10, y: 9, kind: 'look', say: [
+        { id: 'northwin', name: '朝北的那扇窗', x: 10, y: 9, kind: 'look', toolPuz: 'northwin', say: [
           '岛史馆朝北有一扇窗，比其他窗都低，窗台磨得发亮——有人长年趴在这里写字。',
           '窗外是海，再远一点是雾。天气好的时候，能看见望归灯的一个尖。',
           '「我年轻的时候天天在这窗下抄卷宗，抄到手指发麻。」柳先生说，「那时候灯的尖比现在清楚。」',
@@ -1135,7 +1135,13 @@
     { id: 'a_night', tag: '那一夜', name: '摊平比对出来的真话',
       text: '三份口供摊平比对出来的只有一条：那一夜有大雾。雾大到什么也看不清 —— 所以「谁上了船」这件事，三个人的记都当不得真，只有雾是三个人都咬定的。' },
     { id: 'a_ack',   tag: '那一夜', name: '阿海认了账',
-      text: '阿海把誊本接过去，凑到灯下看：「……三个人都咬定的一样，才算数。」他把纸折好塞进袖口，「成。那夜是我记岔了。雾那么大，灯又灭着，我凭什么说我看见的是一个人。」' }
+      text: '阿海把誊本接过去，凑到灯下看：「……三个人都咬定的一样，才算数。」他把纸折好塞进袖口，「成。那夜是我记岔了。雾那么大，灯又灭着，我凭什么说我看见的是一个人。」' },
+
+    /* v40：两道道具谜题各自的结果口供 */
+    { id: 'a_win',   tag: '那一夜', name: '窗纸上念出来的三个字',
+      text: '窗纸背面透过来三个字：「灯熄了三刻」。跟档上那一句对上了 —— 那一夜，礁上的灯真的灭过。' },
+    { id: 'a_back',  tag: '里间',   name: '里间账本后一半',
+      text: '账本后一半记的不是钱，是谁把什么留在了这儿。戊戌年冬十月那页写着：「一人过海。押：其母之灯。赎期：无。」' }
   ];
   function accById(id) {
     for (var i = 0; i < ACCOUNTS.length; i++) if (ACCOUNTS[i].id === id) return ACCOUNTS[i];
@@ -1180,6 +1186,50 @@
     gain: 'a_night',
     flag: 'cross_ok'
   };
+
+  /* ============ 八点七、道具当钥匙的两道谜题（v40） ============
+     用户原话：「这几个道具虽然确实可能会有效果，但和我们的解谜没有任何关系，我们做几个关于这几个道具的有用的解谜。」
+     规矩照旧：每道都答得出「没有它，玩家卡在哪一步」。挂的都是**既有交互点**，
+     不新增地图点 —— `smoke23 ㊶` 拿「每个交互点各有各的模型」当判据，新点会踩它。 */
+  var TOOL_PUZZLES = {
+    /* ① 显影水当钥匙 · 窗纸上的三个字（岛史馆 · 朝北的那扇窗）
+       没有它卡在哪：窗纸背面那个字被水洇成一团方块，三个候选里选不出「熄」。 */
+    northwin: {
+      tool: 'sight', needAcc: 'a_liu', flag: 'win_ok', gainAcc: 'a_win',
+      title: '窗纸上的三个字',
+      lead: ['窗纸换过好几回。最底下一层糊着的纸上，有墨迹从背面透过来。',
+             '三个字，中间那个被水洇成一团。上头的日期还看得清：戊戌年冬十月。'],
+      ask: '窗纸背面那三个字，念出来是哪三个？',
+      opts: [{ id: 'ext', t: '熄了灯' }, { id: 'lit', t: '亮着灯' }, { id: 'two', t: '两个人' }],
+      answer: 'ext',
+      noTool: '你手上没有显影水 —— 被涂掉的地方现在只是几个方块，认不出那是「熄」还是「亮」，这三个候选你选不出来。',
+      haveTool: '你手上有显影水 —— 回「记」面板，把柳先生那份档滴一滴：那个方块底下是什么字，显出来就知道了。',
+      noKnow: '档上那句话你还没听柳先生念过 —— 窗纸上这几个字，跟他对不上。',
+      wrong: '再对一遍：窗纸上那三个字，是档上记的那一句里的字。',
+      why: '档上写的是「灯熄了三刻」—— 中间那个方块底下，就是这个「熄」字。',
+      end: ['你把三个字念出来。风从门缝进来，窗纸上那层墨迹晃了晃。',
+            '「戊戌年冬十月，灯熄了三刻。」—— 那一夜，礁上的灯真的灭过。',
+            '这句话你没跟任何人说过，现在却贴在你脑子里，揭不下来。']
+    },
+    /* ② 空壳册当钥匙 · 里间那道门（记当铺）
+       没有它卡在哪：当铺的规矩是进里间得押一段记，没册子就押不了，门永远不开。 */
+    back: {
+      tool: 'shell', needMem: 'm_back', flag: 'back_ok', gainAcc: 'a_back',
+      title: '里间那道门',
+      lead: ['门上挂着一把新锁，锁扣上留着一截没摘干净的红线。',
+             '当铺的规矩：进里间，得押一样东西在柜上 —— 押的是记。',
+             '柜台上空着一块地方，是让你放押品的位置。'],
+      ask: '把哪一段记押进去？',
+      noTool: '你手上没有空壳册 —— 押记得有东西封着，别人的记不能就这么摊在柜台上。',
+      wrong: '这一段不对：门上那把锁，是拿「里间那道门」这段记换来的 —— 说得出口的是那一段。',
+      why: '你把「里间那道门」这段记收进空壳册，压在柜台上 —— 锁扣上那截红线松了。',
+      end: ['锁「嗒」地开了。里间比外头暗，账本摞得齐，最上面那本摊着。',
+            '后一半记的不是钱，是谁把什么留在了这儿。你翻到戊戌年那一页：',
+            '「冬十月，一人过海。押：其母之灯。赎期：无。」',
+            '「赎期：无」三个字写得很轻。你把手从账本上收回来 —— 这段记，你记住了。']
+    }
+  };
+  function toolPuzOf(id) { return TOOL_PUZZLES[id] || null; }
 
   /* ============ 九、纯函数：查询 / 自检 ============ */
 
@@ -1334,6 +1384,22 @@
     var liuSay = accById('a_liu');
     if (liuSay && !liuSay.sight) errs.push('被涂掉的那份口供缺 sight（显影水就没有着力点）');
     if (!accById(CROSS.gain)) errs.push('摊平比对的结果记不存在：' + CROSS.gain);
+    /* v40：两道道具谜题 —— 钥匙件/口供/记都得真存在，不然是死锁 */
+    Object.keys(TOOL_PUZZLES).forEach(function (k) {
+      var P = TOOL_PUZZLES[k], tool = null;
+      MEM_TOOLS.forEach(function (t) { if (t.id === P.tool) tool = t; });
+      if (!tool) errs.push('道具谜题引用了不存在的道具：' + k);
+      if (P.needAcc && !accById(P.needAcc)) errs.push('道具谜题引用了不存在的口供：' + k);
+      if (P.needMem && !mem23ById(P.needMem)) errs.push('道具谜题引用了不存在的记：' + k);
+      if (!P.gainAcc || !accById(P.gainAcc)) errs.push('道具谜题的结果口供不存在：' + k);
+      if (!P.flag || !P.ask || !P.title) errs.push('道具谜题缺字段：' + k);
+      if (P.tool === 'sight' && !P.opts.some(function (o) { return o.id === P.answer; })) errs.push('道具谜题的答案不在候选里：' + k);
+    });
+    Object.keys(SCENES).forEach(function (sid) {
+      (SCENES[sid].places || []).forEach(function (p) {
+        if (p.toolPuz && !TOOL_PUZZLES[p.toolPuz]) errs.push('toolPuz 引用了不存在的题：' + sid + '.' + p.id);
+      });
+    });
     /* 挂点自检：引用了不存在的 id = 那个点永远不亮 / 白给一段空记 —— 死锁 */
     Object.keys(SCENES).forEach(function (sid) {
       (SCENES[sid].places || []).forEach(function (p) {
@@ -1376,6 +1442,7 @@
   var api = {
     SCENES: SCENES, TASKS: TASKS, PUZZLES: PUZZLES, PHOTOS: PHOTOS, MEM23: MEM23,
     MEM_TOOLS: MEM_TOOLS, CROSS: CROSS, ACCOUNTS: ACCOUNTS, accById: accById,
+    TOOL_PUZZLES: TOOL_PUZZLES, toolPuzOf: toolPuzOf,
     CHRONICLE: CHRONICLE, ENDINGS: ENDINGS, NPCS: NPCS, TEXT: TEXT, ACT_TITLES: ACT_TITLES,
     sceneById: sceneById, placeById: placeById, placeAt: placeAt, portalAt: portalAt,
     isSolidIn: isSolidIn, tasksOfAct: tasksOfAct, puzzlesOfAct: puzzlesOfAct,
