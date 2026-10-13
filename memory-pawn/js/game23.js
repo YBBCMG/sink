@@ -27,6 +27,7 @@
       scene: 'lighthouse', x: 3, y: 12, tx: 3, ty: 12, mt: 0, face: 1, mx: 3, my: 12,
       act: 1, maxAct: 1, gold: 0, flags: {}, photos: {}, tasks: {}, mem: D.mem23Fresh(), scrolls: 0,
       legs: {}, oil: 2,          /* legs：跑腿走到第几段；oil：灯油罐数（反制用） */
+      it: { sight: 0, knife: 0, copy: 0, shell: 0 }, copies: {}, acc: {},   /* v39：四件道具 + 誊本 + 柜上收着的口供 */
       caught: {}, log: [], seen: {}, ended: null, cleared: false,
       pawned: 0, redeemed: 0, helped: [], introDone: false, t: 0, name: ''
     };
@@ -39,6 +40,7 @@
     return { v: 23, scene: S.scene, x: S.x, y: S.y, act: S.act, maxAct: S.maxAct, gold: S.gold,
       flags: S.flags, photos: S.photos, tasks: S.tasks, mem: S.mem, scrolls: S.scrolls, caught: S.caught,
       legs: S.legs || {}, oil: S.oil == null ? 2 : S.oil, log: S.log.slice(-200),
+      it: S.it || { sight: 0, knife: 0, copy: 0, shell: 0 }, copies: S.copies || {}, acc: S.acc || {},
       seen: S.seen, ended: S.ended, cleared: S.cleared, pawned: S.pawned, redeemed: S.redeemed,
       helped: S.helped, introDone: S.introDone, t: Math.round(S.t) };
   }
@@ -334,7 +336,7 @@
     for (var k = 0; k < n; k++) {
       var cand = D.MEM23.filter(function (m) {
         var st = S.mem[m.id];
-        return st && st.state === 'held' && ((st.hurt || 0) < 2);
+        return st && st.state === 'held' && ((st.hurt || 0) < 2) && !st.stored;   /* v39：寄存进空壳册的记，雾咬不到 */
       });
       if (!cand.length) { toast('它张了张嘴，可你身上已经没几段完整的记了。'); break; }
       /* 挑法有准谱：先挑伤得最轻的，再挑痛感最低的；
@@ -981,6 +983,189 @@
       else if (p.kind === 'jobs') jobsPanel();
     }, { title: name });
   }
+  /* ============ v39：柜上新到的四件 —— 道具是玩法开关，不是小药 ============
+     用户原话：「我想要的道具是可以增加一些新的玩法的那种。现在这些道具是纯辅助性作用。
+     然后目前的解谜和我们的记忆是没有什么关联的，做一些和我们这个记忆玩法有关系的东西。」
+     每件货在 D.MEM_TOOLS 里都写着「没有它卡在哪一步」——那句话就是它的验收判据：
+       · 显影水 → 涂掉的字显不出来，三份口供凑不齐，摊平比对开不了
+       · 拆线刀 → 摊平比对本身开不了（三条候选永远比不出来）
+       · 誊写纸 → 比出来的那句真话递不出去：阿海那边不会出现「交给他」这一步
+       · 空壳册 → 辅助：寄存进册子的记，雾咬不到
+     两条新机制（用户点名的"跟记忆玩法有关系"）：
+       ① 记忆当钥匙 —— needRead 挂的点，得先在「记」面板把那段记**翻看**过才亮；
+          看记忆本身就是解谜动作，不是播片。
+       ② 记忆会串味 —— 同一夜三份口供，灯和人各说各的，只有三个人都咬定的那条才是真的。 */
+  var TOOLS = (D.MEM_TOOLS || []);
+  function toolById(id) { for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].id === id) return TOOLS[i]; return null; }
+  function toolCount(id) { return (S.it || {})[id] || 0; }
+  function toolOwn(id) { return toolCount(id) > 0; }
+  function toolGive(id, n) { if (!S.it) S.it = {}; S.it[id] = (S.it[id] || 0) + (n || 1); }
+  function toolSpend(id) { if (!S.it || !S.it[id]) return false; S.it[id]--; return true; }
+  /* 被涂过的记：没显影就只看得见方块（`sight` 那份才是真字） */
+  function memBody(m) {
+    if (!m) return '';
+    var st = itemState(m.id);
+    return (m.sight && !st.sighted) ? m.text : (m.sight || m.text);
+  }
+  /* 记 / 口供两套 id：翻看、显影、誊一份对两种都成立 —— 按 id 找对象、找状态 */
+  function accById(id) { return D.accById ? D.accById(id) : null; }
+  function itemOf(id) { return D.mem23ById(id) || accById(id); }
+  function itemState(id) { return S.mem[id] || (S.acc || {})[id] || {}; }
+  function memHas(id) { var st = S.mem[id] || {}; return st.state === 'held' || st.state === 'spoiled'; }
+  function accHeld(id) { return !!(S.acc || {})[id]; }
+  function itemHeld(id) { return D.mem23ById(id) ? memHas(id) : accHeld(id); }
+  function memRead(id) { return !!itemState(id).read; }
+  /* 记忆当钥匙：needRead 那段没翻看过，这个点根本不亮（不是改名字，是不给你认） */
+  function readGateOpen(p) { return !(p && p.needRead) || memRead(p.needRead); }
+  function readGateBlocked(p) {
+    var m = D.mem23ById(p.needRead), name = memNameOf(p), tag = (m && m.tag) || '那段记';
+    S.seen[p.id] = 1;
+    say(['（' + name + '就在跟前。你盯着看了一会儿 —— 认得形状，认不出那是谁留下的。）',
+         '（得先把身上那段记翻出来细看一遍：' + tag + '。翻看过的记，才认得出眼前这样东西。）'],
+        null, { title: name });
+  }
+  /* 跟当事人说过话，柜上就多一份他的口供（只给一次）。
+     口供不进 MEM23 —— 那是"别人的记"，由当铺收着，跟你身上的记分开记。 */
+  function grantAcc(id) {
+    var a = accById(id); if (!a) return;
+    if (!S.acc) S.acc = {};
+    if (S.acc[id]) return;
+    S.acc[id] = { read: 0, sighted: 0 };
+    addLog('（' + a.tag + '）' + a.text);
+    toast('柜上多了一份口供：' + a.name);
+    dirty.mem = dirty.hud = 1; save();
+  }
+  /* 「记」面板上的四个动作：翻看 / 滴显影水 / 誊一份 / 寄存 */
+  function readMem(id) {
+    var m = itemOf(id); if (!m) return;
+    var st = itemState(id);
+    if (!D.mem23ById(id)) { if (!S.acc[id]) return; }        /* 口供：还没到手就不给翻 */
+    var first = !st.read;
+    st.read = 1;
+    if (first) addLog('翻看了一遍：' + m.tag + '。');
+    dirty.mem = 1; save();
+    setTitle('翻看 · ' + m.tag);
+    setBody('<p class="pz-tip">' + memBody(m) + '</p>' +
+      ((m.sight && !st.sighted) ? '<p class="pz-tip">（有一段字被涂掉了，只剩几个方块。得用显影水。）</p>' : '') +
+      (first ? '<p class="pz-tip">（这一段你细看过了 —— 再看眼前的东西，认得出了。）</p>' : ''));
+    setBtns([{ label: '收起来', fn: closeModal }]);
+    openModal();
+    refreshPanels();
+  }
+  function sightMem(id) {
+    var m = itemOf(id), t = toolById('sight') || { price: 6 };
+    var st = itemState(id);
+    if (!m || !m.sight) { toast('这段记上没有被涂掉的字 —— 显影水滴上去也没用。'); return; }
+    if (st.sighted) { toast('这一份已经显过影了。'); return; }
+    if (!toolOwn('sight')) { toast('你手上没有显影水 —— 记当铺柜台有卖（' + t.price + ' 枚一瓶）。'); return; }
+    toolSpend('sight');
+    st.sighted = 1;
+    sfx('open');
+    addLog('显影水淌过去：' + m.tag + '上被涂掉的那几个字浮了出来。');
+    toast('显影水淌过去 —— 涂掉的那几个字浮出来了。');
+    dirty.mem = 1; save();
+    setTitle('显影 · ' + m.tag);
+    setBody('<p class="pz-tip">' + m.sight + '</p><p class="pz-tip">（字是后来涂上去的，涂得很厚 —— 底下那层还在。）</p>');
+    setBtns([{ label: '看清楚', fn: closeModal }]);
+    openModal();
+    refreshPanels();
+  }
+  function copyMem(id) {
+    var m = itemOf(id), t = toolById('copy') || { price: 4 };
+    if (!m) return;
+    if (!itemHeld(id)) { toast('这一份还没到你手上 —— 先跟当事人说上话。'); return; }
+    if (!toolOwn('copy')) { toast('你手上没有誊写纸 —— 记当铺柜台有卖（' + t.price + ' 枚一沓）。'); return; }
+    if (!S.copies) S.copies = {};
+    if (S.copies[id]) { toast('这一份你已经誊过了 —— 誊本就在你身上。'); return; }
+    S.copies[id] = 1;
+    sfx('open');
+    addLog('誊了一份：' + m.tag + '。');
+    toast('誊好了 —— 这张纸能递出去。');
+    dirty.mem = dirty.log = 1; save();
+    refreshPanels();
+  }
+  function storeMem(id) {
+    var t = toolById('shell') || { price: 8 };
+    var st = S.mem[id] || {};
+    if (!toolOwn('shell')) { toast('你手上没有空壳册 —— 记当铺柜台有卖（' + t.price + ' 枚一本）。'); return; }
+    st.stored = st.stored ? 0 : 1;
+    addLog(st.stored ? '把一段记收进了空壳册。' : '把那段记从空壳册里取了回来。');
+    toast(st.stored ? '收进空壳册了 —— 雾咬不到它。' : '从册子里取回来了。');
+    dirty.mem = 1; save();
+    refreshPanels();
+  }
+  /* 摊平比对：三份口供串味。两道门都得先过 —— 拆线刀（摊得开）+ 显影水（看得清） */
+  function crossPanel() {
+    var K = D.CROSS; if (!K) return;
+    if (!toolOwn('knife')) { toast('摊平不了 —— 三份记在脑子里各说各的。你得先有一把拆线刀。'); return; }
+    var miss = K.accounts.filter(function (id) { return !accHeld(id); });
+    if (miss.length) { toast('还差 ' + miss.length + ' 份口供 —— 摊平了也对不齐。'); return; }
+    var unclear = K.accounts.filter(function (id) {
+      var m = accById(id) || {}, st = (S.acc || {})[id] || {};
+      return !!(m.sight && !st.sighted);
+    });
+    if (unclear.length) { toast('有一份上面有字被涂掉了 —— 得先用显影水显出来，不然摊平了也对不齐。'); return; }
+    renderCross();
+  }
+  function renderCross() {
+    var K = D.CROSS;
+    var html = '<p class="pz-tip">' + K.ask + '</p>';
+    html += K.accounts.map(function (id) {
+      var m = accById(id) || {};
+      return '<div class="arc-item"><b>' + (m.tag || '') + '</b>' + memBody(m) + '</div>';
+    }).join('');
+    html += '<div class="arc-h">三条候选 —— 点三份都咬定的那一条</div>';
+    html += '<div class="pz-row">' + K.opts.map(function (o) {
+      return '<button class="pz-btn" data-crossopt="' + o.id + '">' + o.t + '</button>';
+    }).join('') + '</div>';
+    setTitle('摊平比对 · 那一夜');
+    setBody(html);
+    setBtns([{ label: '收起来', fn: closeModal }]);
+    openModal();
+    $('m-body').querySelectorAll('[data-crossopt]').forEach(function (el) {
+      el.onclick = function () {
+        if (el.getAttribute('data-crossopt') !== K.answer) { sfx('blip'); toast(K.wrong); addLog('（摊平比对：这一条对不上。）'); return; }
+        sfx('coin');
+        markFlag(K.flag);
+        if (K.gain) grantAcc(K.gain);
+        addLog('三份口供摊平：' + K.why);
+        setBody('<p class="pz-tip">' + K.why + '</p><p class="pz-tip">（三个人都咬定的，才算数 —— 这一句你记住了。）</p>');
+        setBtns([{ label: '收起来', fn: closeModal }]);
+        dirty.mem = dirty.log = dirty.tasks = 1; save();
+      };
+    });
+  }
+  /* 把誊本递出去：记忆第一次成了能给人的东西 */
+  function giveCopyPanel(p) {
+    var g = p.giveCopy, m = accById(g.mem);
+    setTitle('把誊本交给他');
+    setBody('<p class="pz-tip">你身上带着一张誊本：「' + ((m && m.tag) || '那段记') + '」。</p>' +
+      '<p class="pz-tip">' + ((m && memBody(m)) || '') + '</p>' +
+      '<p class="pz-tip">' + memNameOf(p) + '手上的记是不可靠的证词。把誊本给他，等于拿一段写下来的记，去跟他的记对。</p>');
+    setBtns([
+      { label: '把誊本交给他', fn: function () {
+        delete S.copies[g.mem];
+        markFlag(g.flag);
+        if (g.gain) grantAcc(g.gain);
+        sfx('open');
+        addLog('把誊本交了出去：' + ((m && m.tag) || '那段记'));
+        closeModal();
+        dirty.mem = dirty.log = dirty.tasks = 1; save();
+        say((g.say || []).slice(), null, { title: memNameOf(p), end: '把手收回来' });
+      } },
+      { label: '先留着', fn: closeModal }
+    ]);
+    openModal();
+  }
+  /* 「记」面板上的按钮接线（每回重画面板都要重接一次） */
+  function bindMemPane() {
+    var p = $('pane-mem'); if (!p) return;
+    p.querySelectorAll('[data-memread]').forEach(function (el) { el.onclick = function () { readMem(el.getAttribute('data-memread')); }; });
+    p.querySelectorAll('[data-memsight]').forEach(function (el) { el.onclick = function () { sightMem(el.getAttribute('data-memsight')); }; });
+    p.querySelectorAll('[data-memcopy]').forEach(function (el) { el.onclick = function () { copyMem(el.getAttribute('data-memcopy')); }; });
+    p.querySelectorAll('[data-memstore]').forEach(function (el) { el.onclick = function () { storeMem(el.getAttribute('data-memstore')); }; });
+    p.querySelectorAll('[data-memcross]').forEach(function (el) { el.onclick = function () { crossPanel(); }; });
+  }
   function nearestPlace() {
     var sc = scene(), best = null, bd = 99;
     for (var i = 0; i < sc.places.length; i++) {
@@ -996,12 +1181,17 @@
     if (!p) { toast('这里没什么可看的。'); return; }
     if (p.need && !S.flags[p.need]) { lockToast(p.need, p.kind === 'portal'); return; }
     if (!memKeyOpen(p)) { memKeyBlocked(p); return; }   /* v34 A1：记不在身上，这个点根本不开 */
+    if (!readGateOpen(p)) { readGateBlocked(p); return; }   /* v39 记忆当钥匙：没翻看过那段记，点不亮 */
     sfx('select');
     var first = !S.seen[p.id];
     S.seen[p.id] = 1;
     var lines = (first || !p.again) ? (p.say || []) : p.again;
     lines = memLinkedSay(p, lines);      /* 那段记不在身上了：换一套话（分发照旧，一步不少） */
     say(lines, function () {
+      /* v39：跟当事人说过话，他这份口供就留在柜上了（只给一次） */
+      if (p.gainAcc) grantAcc(p.gainAcc);
+      /* v39：身上有誊本 + 这条线还没结 → 先问他收不收，别急着走原来的分发 */
+      if (p.giveCopy && !S.flags[p.giveCopy.flag] && (S.copies || {})[p.giveCopy.mem]) { giveCopyPanel(p); return; }
       /* 分发顺序有讲究：买/干活/当记/念卷宗这些"面板类"交互不能先被通用 markFlag 吃掉
          —— 寄售架带 flag=got_album，先置旗标就会变成"不花钱白拿相簿"（实测踩过） */
       if (p.kind === 'portal' && p.to) { enterScene(p.to, p.tx, p.ty); return; }
@@ -1105,6 +1295,18 @@
       html += '<div class="arc-h">灯油（' + (S.oil == null ? 2 : S.oil) + ' 罐）—— 泼一罐，雾里的东西定住 15 秒</div>';
       html += '<div class="arc-item">柜上有灯油卖：' + OIL_PRICE + ' 枚一罐。<br>' +
         '<button class="pz-btn" data-buyoil="1">买一罐（−' + OIL_PRICE + '）</button></div>';
+      /* v39：柜上新到的四件 —— 每件都写着「没有它卡在哪一步」，那行字就是它上架的理由 */
+      html += '<div class="arc-h">柜上新到的（当金不只能买灯油，也能买路子）</div>';
+      html += TOOLS.map(function (t) {
+        var own = toolCount(t.id);
+        var label = t.once
+          ? (own ? '已经在你身上了' : ('买下（−' + t.price + '）'))
+          : ('买一瓶（−' + t.price + '）· 现有 ' + own + ' 瓶');
+        return '<div class="arc-item"><b>' + t.name + '</b> ' + t.desc +
+          '<span class="mem-w">' + t.price + ' 枚</span><br>' +
+          '<span class="pz-tip">' + t.stuck + '</span><br>' +
+          '<button class="pz-btn" data-buytool="' + t.id + '"' + (t.once && own ? ' disabled' : '') + '>' + label + '</button></div>';
+      }).join('') || '<div class="arc-lock">柜上今天没别的货。</div>';
       var hurtList = damagedMem();
       html += '<div class="arc-h">缺字 / 碎了的（' + hurtList.length + '）—— 补记要付当金</div>';
       html += hurtList.map(function (m) {
@@ -1141,6 +1343,18 @@
           S.gold -= OIL_PRICE; S.oil = (S.oil || 0) + 1; sfx('coin');
           addLog('买了一罐灯油。'); toast('灯油 +1（共 ' + S.oil + ' 罐）');
           dirty.hud = 1; save(); render();
+        };
+      });
+      b.querySelectorAll('[data-buytool]').forEach(function (el) {
+        el.onclick = function () {
+          var id = el.getAttribute('data-buytool'), t = toolById(id);
+          if (!t) return;
+          if (t.once && toolOwn(id)) { toast(t.name + '你身上已经有一件了 —— 这个不兴买第二件。'); return; }
+          if (S.gold < t.price) { toast('当金不够 —— ' + t.name + '要 ' + t.price + ' 枚，你有 ' + S.gold + ' 枚。'); return; }
+          S.gold -= t.price; toolGive(id, 1); sfx('coin');
+          addLog('在柜上买下了：' + t.name + '（−' + t.price + '）。');
+          toast('买下了 · ' + t.name + '（' + t.stuck.replace(/^(没有它|辅助)：/, '') + '）');
+          dirty.hud = dirty.mem = 1; save(); render();
         };
       });
       b.querySelectorAll('[data-fix]').forEach(function (el) {
@@ -1338,10 +1552,24 @@
         }
         var note = spoiled ? ('碎了 · 补要 ' + fixCost(2) + ' 枚')
           : (hurt ? ('缺字 ' + hurt + '/2 · 补要 ' + fixCost(hurt) + ' 枚') : ('痛感 ' + x.m.w));
+        /* v39：翻看 / 显影 / 誊一份 / 寄存 —— 四个动作都挂在这一条记上 */
+        var marks =
+          (x.st.stored ? '<span class="mem-w">寄存在空壳册里 · 雾咬不到</span>' : '') +
+          (((S.copies || {})[x.m.id]) ? '<span class="mem-w">誊本在你身上</span>' : '') +
+          ((x.m.sight && !x.st.sighted) ? '<span class="mem-w">有一段字被涂掉了 · 得用显影水</span>' : '');
+        var acts = '<span class="mem-row">' +
+          '<button class="pz-btn" data-memread="' + x.m.id + '">' + (x.st.read ? '再翻看' : '翻看') + '</button>' +
+          (x.m.sight ? '<button class="pz-btn" data-memsight="' + x.m.id + '"' + (x.st.sighted ? ' disabled' : '') + '>' +
+            (x.st.sighted ? '已显影' : '滴显影水') + '</button>' : '') +
+          /* 四个动作一律画出来：没买道具就点了被拒 —— 玩家得看见"这一步缺什么"，
+             藏起来等于让人不知道有这回事 */
+          (!((S.copies || {})[x.m.id]) ? '<button class="pz-btn" data-memcopy="' + x.m.id + '">誊一份</button>' : '') +
+          '<button class="pz-btn" data-memstore="' + x.m.id + '">' + (x.st.stored ? '取回来' : '寄存') + '</button>' +
+          '</span>';
         return '<div class="arc-item' + (hurt ? ' mem-hurt' : '') + '" data-cat="' + cat + '">' +
           '<b class="mem-tag">' + x.m.tag + '</b>' +
-          (hurt ? fuzzyText(x.m.text, hurt) : x.m.text) +
-          '<span class="mem-w">' + note + '</span></div>';
+          (hurt ? fuzzyText(memBody(x.m), hurt) : memBody(x.m)) +
+          '<span class="mem-w">' + note + '</span>' + marks + acts + '</div>';
       }).join('');
     });
     return out;
@@ -1351,9 +1579,36 @@
     var all = D.MEM23, held = [], pawned = [];
     all.forEach(function (m) {
       var st = S.mem[m.id] || { state: 'held', pawns: 0 };
+      if (st.state === 'unknown') return;      /* v39：还没到手的那几份口供 / 真相，不列在这儿 */
       (st.state === 'pawned' ? pawned : held).push({ m: m, st: st });
     });
-    var html = '<div class="arc-h">在身上的（' + held.length + '/' + all.length + '）</div>';
+    var html = '<div class="arc-h">手上的家伙（当金买来的）</div>';
+    html += '<div class="arc-item">显影水 ×' + toolCount('sight') + ' · 拆线刀' + (toolOwn('knife') ? '有一把' : '没有') +
+      ' · 誊写纸' + (toolOwn('copy') ? '有一沓' : '没有') + ' · 空壳册' + (toolOwn('shell') ? '有一本' : '没有') +
+      '<br><span class="pz-tip">这四件都在记当铺柜台买（当金）。</span></div>';
+    html += '<div class="arc-item"><button class="pz-btn" data-memcross="1">摊平比对 · 那一夜</button>' +
+      '<br><span class="pz-tip">三份口供摊平了并排看：要拆线刀；有字被涂掉的，得先用显影水显出来。</span></div>';
+    /* v39：口供单独一栏 —— 它们不是"你身上的记"，是当铺替你收着的别人的话。
+       注意别用 mem-tag 这个类名：smoke23 ㊶ 拿它数"记的条目数 = MEM23 段数"。 */
+    var accs = (D.ACCOUNTS || []).filter(function (a) { return accHeld(a.id); });
+    html += '<div class="arc-h">柜上收着的那一夜（口供 ' + accs.length + '/' + (D.ACCOUNTS || []).length + '）</div>';
+    if (!accs.length) {
+      html += '<div class="arc-lock">还没打听过那一夜 —— 跟阿海、陈婶、柳先生说过话，他们的口供就留在柜上。</div>';
+    } else {
+      html += accs.map(function (a) {
+        var st = (S.acc || {})[a.id] || {};
+        return '<div class="arc-item"><b class="acc-tag">' + a.name + '</b>' + memBody(a) +
+          (a.sight && !st.sighted ? '<span class="mem-w">有一段字被涂掉了 · 得用显影水</span>' : '') +
+          (((S.copies || {})[a.id]) ? '<span class="mem-w">誊本在你身上</span>' : '') +
+          '<span class="mem-row">' +
+            '<button class="pz-btn" data-memread="' + a.id + '">' + (st.read ? '再翻看' : '翻看') + '</button>' +
+            (a.sight ? '<button class="pz-btn" data-memsight="' + a.id + '"' + (st.sighted ? ' disabled' : '') + '>' +
+              (st.sighted ? '已显影' : '滴显影水') + '</button>' : '') +
+            (!((S.copies || {})[a.id]) ? '<button class="pz-btn" data-memcopy="' + a.id + '">誊一份</button>' : '') +
+          '</span></div>';
+      }).join('');
+    }
+    html += '<div class="arc-h">在身上的（' + held.length + '/' + all.length + '）</div>';
     html += memCatGroups(held, false) || '<div class="arc-lock">身上一段记都没有了。</div>';
     if (damagedMem().length) html += '<div class="arc-item">被咬过的记能在记当铺柜台补（补一次 2 枚当金起）。</div>';
     html += '<div class="arc-h">押在柜上的（' + pawned.length + '）—— 当出去了，这儿就是空的</div>';
@@ -1363,6 +1618,7 @@
     html += '<div class="arc-item">当出去换钱，赎回来付原价 —— 一来一回不赚不亏，只是那段时间里，你会真的想不起它。</div>';
     if (pawned.length) html += '<div class="arc-item">押在柜上的，到记当铺柜台能赎回来。</div>';
     p.innerHTML = html;
+    bindMemPane();
   }
   function refreshArchive() {
     var p = $('pane-archive'); if (!p) return;
@@ -3572,7 +3828,8 @@
       '<div class="dv-sec">便利</div>' +
       '<div class="pz-row"><button class="pz-btn" data-dev="oil">灯油 +5</button>' +
       '<button class="pz-btn" data-dev="gold">+10 当金</button>' +
-      '<button class="pz-btn" data-dev="inf">无限灯油：' + (DEVM.inf ? '开' : '关') + '</button></div>';
+      '<button class="pz-btn" data-dev="inf">无限灯油：' + (DEVM.inf ? '开' : '关') + '</button>' +
+      '<button class="pz-btn" data-dev="tools">四件道具全给</button></div>';
     body.querySelectorAll('[data-jump]').forEach(function (b) {
       b.onclick = function () { devJump(+b.getAttribute('data-jump')); };
     });
@@ -3603,6 +3860,10 @@
   }
   function devAction(a) {
     if (a === 'gold') S.gold += 10;
+    if (a === 'tools') {   /* v39：想直接试玩法的，一键把四件货拿到手 */
+      TOOLS.forEach(function (t) { toolGive(t.id, t.once ? 1 : 2); });
+      toast('四件道具都到手了（显影水 ×2）'); dirty.mem = dirty.hud = 1; save();
+    }
     if (a === 'photos') D.PHOTOS.forEach(function (p) { S.photos[p.id] = 1; });
     if (a === 'solve') {
       D.TASKS.filter(function (t) { return t.act === S.act && t.kind === 'main'; }).forEach(function (t) {
@@ -3835,7 +4096,11 @@
       /* v33 判据面：分类 / 名字门控 / 派生总量（探针与回归只读） */
       mem: { link: MEM_LINK, lostName: LOST_NAME, lostSay: LOST_SAY, nameOf: memNameOf, known: memKnown,
              total: memTotalW, cats: CAT_ORDER, catCn: CAT_CN,
-             keyGate: KEY_GATE, keyOf: memKeyOf, keyOpen: memKeyOpen, alt: memAlt },
+             keyGate: KEY_GATE, keyOf: memKeyOf, keyOpen: memKeyOpen, alt: memAlt,
+             read: memRead, body: memBody, has: memHas, readGateOpen: readGateOpen },
+      /* v39 判据面：四件道具 + 摊平比对（探针与验收只读） */
+      tools: { list: TOOLS, own: toolOwn, count: toolCount, byId: toolById, cross: (D.CROSS || null),
+               accById: accById, accHeld: accHeld, itemOf: itemOf, itemState: itemState },
       dev: { state: DEVM, goto: devGoto, memSet: devMemSet, memCycle: devMemCycle,
              flagToggle: devFlagToggle, snap: devSnap, rollback: devRollback, action: devAction,
              pour: pourOil,
