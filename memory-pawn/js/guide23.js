@@ -94,6 +94,14 @@
       beat: ['你摸了摸口袋——里面空了一块，像少了一张纸。'] }
   ];
 
+  /* ---------- 总开关：新手引导便签 ----------
+     用户 2026-10-13 亲口（选项确认）：「整条不要了，直接删掉这个引导便签」。
+     false = 便签在任何状态下都不出现 —— 不挂 on/done/open 类 ⇒ 吃 index.html 里
+     `#guide-note { display: none }` 的默认值，不占位、不让路、也没法被"关不掉"。
+     引导判定（STEPS / 进度 / 插播台词）与 GUIDE23.api 全部照旧跑。
+     要开回来：把下面这行的 false 改成 true，一行的事，CSS 和 DOM 都还在原处。 */
+  var SHOW_NOTE = false;
+
   /* ---------- 状态 ---------- */
   var st = { done: {}, beat: {}, base: {}, shownAt: {}, start: null, finished: false, open: false };
   var hits = { tasks: 0, mem: 0, restart: 0 };
@@ -132,6 +140,7 @@
 
   /* ---------- 便签（index.html 里有；万一没有就自己造一个，别让引导靠 HTML 活着） ---------- */
   function ensureNote() {
+    if (!SHOW_NOTE) return $('guide-note');   /* 关着的时候：不新造元素；HTML 里那份留着当"影子"（判据读内容、将来开回也不用补 DOM） */
     if (note && note.parentNode) return note;
     note = $('guide-note');
     if (note) return note;
@@ -164,15 +173,17 @@
       appN++; if (st.done[sp.id]) doneN++;
     }
     var cls = [];
-    if (st.finished) cls.push('done'); else cls.push(modalUp() ? 'off' : 'on');
-    if (st.open || st.finished) cls.push('open');
-    if (flashT > Date.now()) cls.push('flash');
+    if (SHOW_NOTE) {                     /* 便签拆除后：一个显示类都不挂（旧版还挂着 done+open 就永远关不掉） */
+      if (st.finished) cls.push('done'); else cls.push(modalUp() ? 'off' : 'on');
+      if (st.open || st.finished) cls.push('open');
+      if (flashT > Date.now()) cls.push('flash');
+    }
     el.className = cls.join(' ');
     /* 顶部被引导条占着的时候，场景横幅让一让（手机窄屏会叠字） */
     try {
       var body = global.document && global.document.body;
       if (body && body.classList) {
-        if (el.className.indexOf('off') < 0) body.classList.add('mp-guide');
+        if (SHOW_NOTE && el.className.indexOf('off') < 0) body.classList.add('mp-guide');
         else body.classList.remove('mp-guide');
       }
     } catch (e) { /* ignore */ }
@@ -298,7 +309,7 @@
       return { version: 'guide23-1', on: !st.finished, finished: st.finished,
         id: cur ? cur.id : null, idx: cur ? STEPS.indexOf(cur) : -1,
         total: STEPS.length, applicable: appN, doneApplicable: doneN, done: Object.keys(st.done).length,
-        pending: pending, steps: ids, open: st.open,
+        pending: pending, steps: ids, open: st.open, showNote: SHOW_NOTE,
         visible: !!(el && /(^| )(on|done)( |$)/.test(el.className)), text: el ? el.textContent : '' };
     },
     open: function () { st.open = true; saveSt(); tick(); },
