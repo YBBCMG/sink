@@ -177,6 +177,8 @@
     ];
   }
   function ledger(p) {
+    var st = pledgeStage('claim');          /* v43 献忆①：账对完了，最后那一页还粘在封底上 */
+    if (st) { st(); return; }
     var rows = makeLedger();
     var html = '<p class="pz-tip">' + p.brief + '</p>';
     html += '<div class="mini-clues"><div class="mini-clue">账本边上的批注（掌柜的字）：</div>' +
@@ -501,7 +503,27 @@
       q('#pz-prog').textContent = msg;
       setTimeout(function () { picked = []; draw(); }, 900);
     }
-    H.setBtns([{ label: '算了', fn: function () { H.close(); } }]);
+    /* v43 献忆捷径（改造既有解谜）：原解法 —— 捡碎片拼笔画 —— 一步不动；
+       另给一条路：把「牵我过礁石的那只手」押给掌柜，他把碑上那两个字念给你听。
+       代价就摆在眼前：押完这块碑你自己就认不出了（LOST_NAME 会把它降级成「刻满字的石碑」）。 */
+    var pcfg = pledgeOf('name'), btns = [{ label: '算了', fn: function () { H.close(); } }];
+    if (pcfg && !H.S.flags[pcfg.flag] && memHeld(pcfg.answer)) {
+      btns.unshift({ label: '押一段记，换那个名字', fn: function () {
+        var box = q('#pz-pledge-name');
+        if (!box) { box = el('div', 'pz-pledge', ''); box.id = 'pz-pledge-name'; H.modalBody().appendChild(box); }
+        pledgeUi(pcfg, box, function () {
+          H.openModal();
+          name_(p);                                                        /* 碑面原样回来（碎片没有随机状态） */
+          var back = el('div', 'pz-pledge', '');
+          H.modalBody().appendChild(back);
+          back.innerHTML = (pcfg.reveal || []).map(tip).join('');   /* 碎片顺序那行由面板自己印（已押过的提示），别印两遍 */
+        });
+      } });
+    }
+    if (pcfg && H.S.flags[pcfg.flag]) {
+      H.modalBody().appendChild(el('div', 'pz-clue', '（存底你押过了：左「阝可」、右「阝急」—— 照这个顺序点四片。）'));
+    }
+    H.setBtns(btns);
     draw();
   }
 
@@ -902,6 +924,8 @@
     return a;
   }
   function halves(p) {
+    var st = pledgeStage('voice');          /* v43 献忆②：句子接完了，纸堆底下还压着半张 */
+    if (st) { st(); return; }
     var pairs = (p.pairs || []).slice();
     var lefts = shuffle(pairs.map(function (pr, i) { return { i: i, t: pr[0] }; }));
     var rights = shuffle(pairs.map(function (pr, i) { return { i: i, t: pr[1] }; }));
@@ -1811,6 +1835,121 @@
     };
   })();
   function chainlink() { CHAIN.enter(); }
+
+  /* ============ 19. 献忆（v43）：主动交出一段记，换过关 ============
+     跟 v40「押记」的分工（两条并存，不替换）：
+       · 押记 = 你得**有**那段记（needMem + 空壳册，押进去是寄存，记不丢）；
+       · 献忆 = 你**肯交出**那段记 —— 真当出去，进游戏自己那条可逆的道（state='pawned'），柜台原价赎回。
+     表与文案在 story23 的 PLEDGE；这里只管三件事：
+       ① 把代价摊在点之前（交出哪一段的原文 + 哪几处会改口 + 赎回价 + 不软锁）；
+       ② 押错不吃亏（掌柜把记推回来，什么都扣不掉）；
+       ③ 押完给下文 —— 两处新题的答案是"下文"（半句话 / 碑上那两个字），改造的那处是"捷径"。 */
+  function pledgeOf(id) { return (H.D.pledgeOf ? H.D.pledgeOf(id) : (H.D.PLEDGE || {})[id]) || null; }
+  function memRec(id) {
+    var all = H.D.MEM23 || [];
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return null;
+  }
+  var PNAME = null;                                   /* place id → 点上的名字：从 D.SCENES 现算一次 */
+  function placeName(id) {
+    if (!PNAME) {
+      PNAME = {};
+      var sc = H.D.SCENES || {};
+      Object.keys(sc).forEach(function (k) {
+        (sc[k].places || []).forEach(function (p) { PNAME[p.id] = p.name; });
+      });
+    }
+    return PNAME[id] || id;
+  }
+  /* 记在不在身上：老档缺条目 = 在身上（跟 game23 的 memLinkedSay 同一口径，别另立一套） */
+  function memState(id) { var st = (H.S.mem || {})[id] || {}; return st.state || 'held'; }
+  function memHeld(id) { return memState(id) === 'held'; }
+  function tip(t) { return '<p class="pz-tip">' + t + '</p>'; }
+  /* 代价声明：玩家按下去之前，就得看懂自己失去什么 */
+  function pledgeCost(cfg, m) {
+    var places = ((cfg.affects || {})[m.id] || []).map(placeName);
+    return '<div class="pz-clue">你正要交出的是这一段：<br>「' + m.text + '」</div>' +
+      tip(cfg.why || '') +
+      tip('献出去以后会发生什么：') +
+      tip('· 这段记还在 —— 只是进了当铺账上的「押在柜上」，柜台能原价赎回（−' + (m.w || 0) + ' 枚当金）。') +
+      tip('· 这几处会改口 / 认不出：' + (places.length ? places.join('、') : '（这一段没挂在别的点上）') + '。') +
+      tip('· 不堵死任何一条路：门照开、谜题照解、真结局一样可达。');
+  }
+  /* 献忆面板：整块渲染进 box（可以是整个 #m-body，也可以是既有面板里的一块） */
+  function pledgeUi(cfg, box, after) {
+    var anyHeld = (cfg.cands || []).some(memHeld);
+    var html = (cfg.keeper || []).map(tip).join('') + (cfg.lead || []).map(tip).join('') +
+      '<div class="pz-clue">' + (cfg.clues || []).join('<br>') + '</div>' +
+      '<div class="arc-h">' + cfg.ask + '</div>';
+    html += (cfg.cands || []).map(function (id) {
+      var m = memRec(id); if (!m) return '';
+      var st = memState(id), can = st === 'held';
+      return '<div class="arc-item">' + m.text +
+        '<span class="mem-w">' + (m.tag || '') + ' · 痛感 ' + (m.w || 0) +
+        (can ? '' : ' · ' + (st === 'pawned' ? '已经押在账上了' : '不在身上')) + '</span><br>' +
+        (can ? '<button class="pz-btn" data-psee="' + id + '">看一眼代价</button>' : '') + '</div>';
+    }).join('') + '<div class="pz-pbox"></div>';
+    box.innerHTML = html;
+    var inner = box.querySelector('.pz-pbox');
+    if (inner && !anyHeld) inner.innerHTML = '<div class="pz-clue">' + (cfg.gone || '这几段记都不在你身上。') + '</div>';
+    box.querySelectorAll('[data-psee]').forEach(function (b) {
+      b.onclick = function () {
+        var id = b.getAttribute('data-psee');
+        /* 代价卡片就摊在**你点的那张候选卡里** —— 甩到面板最底下的话，
+           六张候选一长，玩家点完什么都看不见（真机截图抓到过：点了跟没点一样）。 */
+        box.querySelectorAll('.pz-pcard').forEach(function (x) { x.innerHTML = ''; });
+        var card = b.parentNode.querySelector('.pz-pcard');
+        if (!card) { card = el('div', 'pz-pcard', ''); b.parentNode.appendChild(card); }
+        card.innerHTML = pledgeCost(cfg, memRec(id)) +
+          '<div class="pz-row"><button class="pz-btn" id="pz-pgo">献出去</button>' +
+          '<button class="pz-btn" id="pz-pback">再想想</button></div>';
+        card.querySelector('#pz-pback').onclick = function () { card.innerHTML = ''; };
+        card.querySelector('#pz-pgo').onclick = function () { pledgeDo(cfg, id, after); };
+        try { card.scrollIntoView({ block: 'nearest' }); } catch (e) { /* 老浏览器不认参数，算了 */ }
+      };
+    });
+    return anyHeld;
+  }
+  function pledgeDo(cfg, id, after) {
+    var S = H.S;
+    /* 押错不吃亏：掌柜把记推回来，账上什么都不动（唯一解才收） */
+    if (id !== cfg.answer) { H.sfx('wrong'); H.toast(cfg.wrong || '这一段对不上。'); return; }
+    if (!S.mem) S.mem = {};
+    if (!S.mem[id]) S.mem[id] = { state: 'held', pawns: 0, read: 0, sighted: 0, stored: 0 };  /* 老档缺条目：按在身上补齐，不改形状 */
+    if (memState(id) !== 'held') { H.toast(cfg.gone || '这段记不在你身上。'); return; }
+    S.mem[id].state = 'pawned';                     /* 只走游戏自己那条可逆的道：记还在账上，柜台赎得回来 */
+    S.mem[id].pawns = (S.mem[id].pawns || 0) + 1;
+    if (!S.flags) S.flags = {};
+    S.flags[cfg.flag] = 1;
+    H.sfx('coin');
+    H.solve(cfg.hostPuz);                           /* 借引擎的 solve 落盘：置旗标 + 写日志 + save()（含刚写进去的献忆状态） */
+    H.refresh();                                    /* 记面板当场重画：那段记立刻出现在「押在柜上」 */
+    H.toast('掌柜收下了：' + ((memRec(id) || {}).tag || '一段记'));   /* 盖掉引擎那句「解开了 · 底题名」—— 这里不是解底题 */
+    if (after) { after(); return; }
+    pledgeReveal(cfg, id);
+  }
+  function pledgeReveal(cfg, id) {
+    var m = memRec(id) || {};
+    H.setTitle(cfg.title);
+    H.setBody(tip('你把这一段推过柜台：「' + (m.text || '') + '」') +
+      (cfg.reveal || []).map(tip).join('') +
+      tip('（这段记现在押在柜上 —— 柜台原价赎得回来。字一个没少，只是不在你手上了。）'));
+    H.setBtns([{ label: '把手收回来', fn: function () { H.close(); } }]);
+    H.openModal();
+  }
+  /* 底题解开之后，这个点上还留着一层「献忆」；条件不到就返回 null —— 底题照旧 */
+  function pledgeStage(id) {
+    var cfg = pledgeOf(id);
+    if (!cfg || cfg.kind === 'shortcut') return null;
+    if (!H.S.flags[cfg.after] || H.S.flags[cfg.flag]) return null;
+    return function () {
+      H.setTitle(cfg.title);
+      H.setBody('<div id="pz-pledge"></div>');
+      H.setBtns([{ label: '先不押', fn: function () { H.close(); } }]);
+      H.openModal();
+      pledgeUi(cfg, q('#pz-pledge'));
+    };
+  }
 
   var IMPL = {
     code: lampcode, dial: dial, read: read_book, logic: ledger, numbers: scales,
