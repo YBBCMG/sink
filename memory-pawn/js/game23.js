@@ -1169,6 +1169,71 @@
     p.querySelectorAll('[data-memstore]').forEach(function (el) { el.onclick = function () { storeMem(el.getAttribute('data-memstore')); }; });
     p.querySelectorAll('[data-memcross]').forEach(function (el) { el.onclick = function () { crossPanel(); }; });
   }
+  /* ============ v40：两道「道具当钥匙」的谜题 ============
+     用户原话：「这几个道具虽然确实可能会有效果，但和我们的解谜没有任何关系，我们做几个关于这几个道具的有用的解谜。」
+       · northwin（显影水）—— 没显影，窗纸上那个方块认不出是「熄」，三个候选选不出来
+       · back（空壳册）—— 没册子押不了记，里间那道门永远不开
+     两道都挂既有交互点；旗标已置之后再进这个点，就走原来的分发（不重复扣）。 */
+  function toolPuzOf(id) { return (D.toolPuzOf ? D.toolPuzOf(id) : null); }
+  function toolPuzOpen(p) {
+    var K = toolPuzOf(p && p.toolPuz);
+    if (!K || S.flags[K.flag]) return false;
+    /* ① 显影水：看得清 + 选得对 */
+    if (K.tool === 'sight') {
+      var a = (S.acc || {})[K.needAcc];
+      if (!a) { say(K.lead.concat(['（档上那句话，你还得先听柳先生念过一遍。）']), null, { title: K.title }); return true; }
+      if (!a.sighted) { say(K.lead.concat([toolOwn('sight') ? K.haveTool : K.noTool]), null, { title: K.title }); return true; }
+      setTitle(K.title);
+      setBody('<p class="pz-tip">' + K.lead.join('</p><p class="pz-tip">') + '</p>' +
+        '<div class="arc-h">' + K.ask + '</div><div class="pz-row">' +
+        K.opts.map(function (o) { return '<button class="pz-btn" data-toolpick="' + o.id + '">' + o.t + '</button>'; }).join('') + '</div>');
+      setBtns([{ label: '再看一会儿', fn: closeModal }]);
+      openModal();
+      $('m-body').querySelectorAll('[data-toolpick]').forEach(function (el) {
+        el.onclick = function () {
+          if (el.getAttribute('data-toolpick') !== K.answer) { sfx('blip'); toast(K.wrong); return; }
+          sfx('coin');
+          markFlag(K.flag);
+          if (K.gainAcc) grantAcc(K.gainAcc);
+          addLog('（窗纸）' + K.why);
+          setBody('<p class="pz-tip">' + K.why + '</p>');
+          setBtns([{ label: '收起来', fn: function () { closeModal(); say((K.end || []).slice(), null, { title: K.title }); } }]);
+          dirty.mem = dirty.log = dirty.tasks = 1; save();
+        };
+      });
+      return true;
+    }
+    /* ② 空壳册：押对了那一段，门才开（判别看 needMem，不看 tool —— tool 是钥匙件 id） */
+    if (K.needMem) {
+      if (!toolOwn('shell')) { say(K.lead.concat([K.noTool]), null, { title: K.title }); return true; }
+      var held = D.MEM23.filter(function (m) { return memHas(m.id); });
+      setTitle(K.title);
+      setBody('<p class="pz-tip">' + K.lead.join('</p><p class="pz-tip">') + '</p>' +
+        '<div class="arc-h">' + K.ask + '</div>' +
+        (held.map(function (m) {
+          return '<div class="arc-item">' + memBody(m) +
+            '<br><button class="pz-btn" data-pledge="' + m.id + '">押这一段</button></div>';
+        }).join('') || '<div class="arc-lock">身上一段记都没有，押不了。</div>'));
+      setBtns([{ label: '先不押', fn: closeModal }]);
+      openModal();
+      $('m-body').querySelectorAll('[data-pledge]').forEach(function (el) {
+        el.onclick = function () {
+          var id = el.getAttribute('data-pledge');
+          if (id !== K.needMem) { sfx('blip'); toast(K.wrong); return; }
+          sfx('open');
+          S.mem[id].stored = 1;                 /* 押在册子里 = 寄存 */
+          markFlag(K.flag);
+          if (K.gainAcc) grantAcc(K.gainAcc);
+          addLog('（押记）' + K.why);
+          closeModal();
+          dirty.mem = dirty.log = dirty.tasks = 1; save();
+          say((K.end || []).slice(), null, { title: K.title });
+        };
+      });
+      return true;
+    }
+    return false;
+  }
   function nearestPlace() {
     var sc = scene(), best = null, bd = 99;
     for (var i = 0; i < sc.places.length; i++) {
@@ -1204,6 +1269,7 @@
       if (p.kind === 'buy') { buyItem(p); return; }
       if (p.kind === 'puzzle') { if (p.flag) markFlag(p.flag); openPuzzle(p.puz); return; }
       if (p.flag) markFlag(p.flag);
+      if (p.toolPuz && toolPuzOpen(p)) return;   /* v40：道具当钥匙的两道谜题（旗标记完再拦） */
       if (p.to) enterScene(p.to, p.tx, p.ty);
       else if (p.kind === 'jobs') jobsPanel();
     }, { title: memNameOf(p) });
@@ -1292,7 +1358,9 @@
       html += '<div class="arc-h">押在账上的（' + pn.length + '）——赎回要付当金</div>';
       html += pn.map(function (m) {
         var st = S.mem[m.id];
-        return '<div class="arc-item"><b>' + m.id + '</b>' + m.text + '<br>' +
+        /* v40：前缀（记忆 id，如 m_salt）从界面上拿掉 —— 用户原话「把这个前缀删了」。
+           id 字段一个字不动：data-redeem / 存档 / MEM_LINK 都还在用它。 */
+        return '<div class="arc-item">' + m.text + '<br>' +
           '<button class="pz-btn" data-redeem="' + m.id + '">赎回（−' + m.w + '）</button></div>';
       }).join('') || '<div class="arc-lock">账上没有押着东西。</div>';
       html += '<div class="arc-h">灯油（' + (S.oil == null ? 2 : S.oil) + ' 罐）—— 泼一罐，雾里的东西定住 15 秒</div>';
@@ -1319,7 +1387,7 @@
       }).join('') || '<div class="arc-lock">没有缺字的记 —— 账上干净。</div>';
       html += '<div class="arc-h">还在身上的（' + held.length + '）</div>';
       html += held.map(function (m) {
-        return '<div class="arc-item"><b>' + m.id + '</b>' + m.text + '<br>' +
+        return '<div class="arc-item">' + m.text + '<br>' +
           '<button class="pz-btn" data-pawn="' + m.id + '">当掉（+' + m.w + '）</button></div>';
       }).join('') || '<div class="arc-lock">身上空了。</div>';
       setTitle('记当铺 · 柜台');
@@ -4103,6 +4171,7 @@
              read: memRead, body: memBody, has: memHas, readGateOpen: readGateOpen },
       /* v39 判据面：四件道具 + 摊平比对（探针与验收只读） */
       tools: { list: TOOLS, own: toolOwn, count: toolCount, byId: toolById, cross: (D.CROSS || null),
+               puzzle: toolPuzOf,
                accById: accById, accHeld: accHeld, itemOf: itemOf, itemState: itemState },
       dev: { state: DEVM, goto: devGoto, memSet: devMemSet, memCycle: devMemCycle,
              flagToggle: devFlagToggle, snap: devSnap, rollback: devRollback, action: devAction,
