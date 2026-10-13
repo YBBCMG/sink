@@ -73,6 +73,10 @@
     }
 
     var held = ((host.D && host.D.MEM23) || []).filter(function (m) { return host.memHas(m.id); });
+    /* 秤的承诺（`items.js` 里那件 `scale` 的 how 写着「架上每段记会标出轻重」）：**有秤才印数**，
+       没秤不印 —— `stuck` 那句「哪一段最轻你只能凭猜」讲的就是没秤时的样子，两边得对得上。
+       数与一章「记」面板同一口径（`game23.js` 印的是 `痛感 N`），玩家一眼比得出哪段最轻。 */
+    var weigh = !!F(host)['ch2_it_scale'];
     var body = document.bodyOf ? document.bodyOf() : null;
     host.setTitle(X.title);
     var html = '<p class="pz-tip">' + (X.lead || []).join('</p><p class="pz-tip">') + '</p>' +
@@ -81,6 +85,7 @@
         ? held.map(function (m) {
             var C = costOf(host, m.id);
             return '<div class="arc-item">' + host.memBody(m) +
+              (weigh ? ' <span class="pz-tip">秤：痛感 ' + (m.w || 0) + '</span>' : '') +
               '<br><span class="pz-tip">代价：' + (C.count ? '一章 ' + C.count + ' 处会换话' : '只丢它自己') +
               '</span> <button class="pz-btn" data-ch2see="' + m.id + '">先看一眼</button></div>';
           }).join('')
