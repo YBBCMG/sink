@@ -65,7 +65,11 @@
     host.markFlag('ch2_entered');
     host.enterScene(VAULT, 3, 12);
     host.dirty(); host.save();
-    host.say((T('enterLead').length ? T('enterLead') : []).slice(), null, { title: '记忆库 · 当铺里间' });
+    /* 标题读 `CH2_TEXT.sub`（`PROVISIONAL` 清单里那个键）—— 2026-10-14 中枢抓的死插槽：
+       这里从前是写死的字面量 `'记忆库 · 当铺里间'`，改 `text.js` 的 `sub` 屏幕上一点变化都没有，
+       用户当场复现（"进了库房，但并没有改变什么呢"）。verify-ch2 ⑲/⑳ 现在钉死"清单里每个键都得真印上屏"。
+       兜底那个短词只防 `text.js` 没加载时标题全空，不承担文案口径。 */
+    host.say((T('enterLead').length ? T('enterLead') : []).slice(), null, { title: T('sub') || '记忆库' });
     return true;
   }
   function leave(host) {
