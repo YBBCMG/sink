@@ -29,6 +29,7 @@
       legs: {}, oil: 2,          /* legs：跑腿走到第几段；oil：灯油罐数（反制用） */
       it: { sight: 0, knife: 0, copy: 0, shell: 0 }, copies: {}, acc: {},   /* v39：四件道具 + 誊本 + 柜上收着的口供 */
       caught: {}, log: [], seen: {}, ended: null, cleared: false,
+      ch2: { adminEntry: false },   /* v44：管理员入口（顶栏 DEV「第二章 · 直接进入」）。旧档没这个键，load() 补默认 */
       pawned: 0, redeemed: 0, helped: [], introDone: false, t: 0, name: ''
     };
   }
@@ -42,6 +43,7 @@
       legs: S.legs || {}, oil: S.oil == null ? 2 : S.oil, log: S.log.slice(-200),
       it: S.it || { sight: 0, knife: 0, copy: 0, shell: 0 }, copies: S.copies || {}, acc: S.acc || {},
       seen: S.seen, ended: S.ended, cleared: S.cleared, pawned: S.pawned, redeemed: S.redeemed,
+      ch2: S.ch2 || { adminEntry: false },
       helped: S.helped, introDone: S.introDone, t: Math.round(S.t) };
   }
   function load() {
@@ -51,6 +53,9 @@
       var o = JSON.parse(raw); if (!o || o.v !== 23) return null;
       var s = freshState();
       Object.keys(o).forEach(function (k) { if (k in s) s[k] = o[k]; });
+      /* v44：旧档整份没有 ch2 / 或只写了半个对象 —— 补默认，别让 adminEntry 读成 undefined */
+      if (!s.ch2 || typeof s.ch2 !== 'object') s.ch2 = { adminEntry: false };
+      if (typeof s.ch2.adminEntry !== 'boolean') s.ch2.adminEntry = !!s.ch2.adminEntry;
       return s;
     } catch (e) { return null; }
   }
@@ -3913,6 +3918,8 @@
       '<div class="arc-h">终局</div>' +
       '<div class="pz-row"><button class="pz-btn" data-dev="ending">直接通关（真结局）</button>' +
       '<button class="pz-btn" data-dev="wipe">删档重来</button></div>' +
+      '<div class="arc-h">第二章（骨架）</div>' +
+      '<div class="pz-row"><button class="pz-btn" data-dev="ch2admin">第二章 · 直接进入（跳过通关门槛）：' + (S.ch2 && S.ch2.adminEntry ? '开' : '关') + '</button></div>' +
       '<div class="arc-h">状态</div><div class="arc-item">' + JSON.stringify({ scene: S.scene, act: S.act, gold: S.gold, oil: S.oil == null ? 2 : S.oil, tasks: doneCount(), photos: D.photoCount(S), flags: Object.keys(S.flags).length }) + '</div>' +
       '<div class="dv-sec">谜题直达（自动补齐前置）</div>' +
       '<div class="dv-list">' + devPuzzleRows() + '</div>' +
@@ -3969,6 +3976,11 @@
         S.flags[t.flag] = 1; S.tasks[t.id] = 1;
       });
       awardPhotos();
+    }
+    if (a === 'ch2admin') {   /* v44：管理员入口 —— 关回去就恢复"必须通关"的原样 */
+      S.ch2 = S.ch2 || { adminEntry: false };
+      S.ch2.adminEntry = !S.ch2.adminEntry;
+      toast('第二章 · 直接进入：' + (S.ch2.adminEntry ? '开（免通关门槛）' : '关'));
     }
     if (a === 'oil') { S.oil = (S.oil == null ? 2 : S.oil) + 5; toast('灯油 +5'); }
     if (a === 'inf') { DEVM.inf = !DEVM.inf; toast('无限灯油：' + (DEVM.inf ? '开' : '关')); }
