@@ -55,7 +55,7 @@
         ], again: [
           '那半页纸边上有一道干掉的水痕。你摸了一下，纸上没留下痕迹。'
         ] },
-        { id: 'carve', name: '礁石上的刻痕', x: 3, y: 4, kind: 'look', flag: 'saw_carve', say: [
+        { id: 'carve', name: '礁石上的刻痕', x: 3, y: 4, kind: 'look', flag: 'saw_carve', needRead: 'm_sister_hand', say: [
           '礁石背面朝海，风小。上面刻着一道一道的字，高低不齐——刻的人换过很多次姿势，也长高过。',
           '最深的一行是三个字，被海水泡得发白：「阿隐」。',
           '旁边还有一句更小的，刻得浅：「我等」。',
@@ -63,7 +63,16 @@
         ], again: [
           '刻痕在潮气里泛白。「阿隐」两个字刻得最深。'
         ] },
-        { id: 'hai', name: '阿海', x: 6, y: 9, kind: 'npc', npc: 'hai', flag: 'hai_done', say: [
+        { id: 'hai', name: '阿海', x: 6, y: 9, kind: 'npc', npc: 'hai', flag: 'hai_done',
+          gainAcc: 'a_hai',
+          giveCopy: { mem: 'a_night', flag: 'night_settled', gain: 'a_ack',
+            say: [
+              '阿海把誊本接过去，凑到灯下看。纸上的字是他自己的话，被誊得端端正正。',
+              '「……三个人都咬定的一样，才算数。」他把纸折好，塞进袖口，「成。那夜是我记岔了 —— 雾那么大，灯又灭着，我凭什么说我看见的是一个人。」',
+              '「这张纸我留着。」他说，「记不清的事，写下来就赖不掉了。」',
+              '他把袖子按了按，又看了你一眼：「你妈教过你写字。看这字的横，收得住。」'
+            ] },
+          say: [
           '阿海蹲在礁上，手里拎着一只空灯罩，正拿袖子擦里面的盐霜。他抬头看了你一眼，又低头擦。',
           '「灯点上了？喏，行。」他说，「你妈第一夜也没守住。别不好意思——我引了三年灯，头一年夜里哭过两回。风大，眼里进沙。」',
           '「今晚三件事。灯油，桶里剩半桶，灌满。灯罩，盐霜擦出来，别用海水，越擦越糊。礁上那盏小灯也点上。」',
@@ -191,7 +200,7 @@
         ], again: [
           '雾铃在风里轻轻碰着。少一只的那段绳子还在晃。'
         ] },
-        { id: 'chen', name: '当客 · 陈婶', x: 12, y: 10, kind: 'npc', npc: 'chen', flag: 'read_letter', say: [
+        { id: 'chen', name: '当客 · 陈婶', x: 12, y: 10, kind: 'npc', npc: 'chen', flag: 'read_letter', gainAcc: 'a_chen', say: [
           '陈婶在盐仓门口择菜，围裙上有一块洗不掉的绿。看见你，她的手停了半拍。',
           '「哎哟，回来了。」她把菜叶在围裙上擦了擦，「瘦了。灯谁看着呢——哦，你回来了。喏，那就好。」',
           '「你姐呢？」你问。',
@@ -416,7 +425,7 @@
           '第一格最低，几乎贴着水面。那一格的刻痕被摸得发亮——每个来看潮的人，都从那一格开始。',
           '刻名字的人大概没想过有人会来看。你现在就在看。'
         ] },
-        { id: 'wrack', name: '潮水冲上岸的东西', x: 16, y: 8, kind: 'look', say: [
+        { id: 'wrack', name: '潮水冲上岸的东西', x: 16, y: 8, kind: 'look', needRead: 'm_wrack', say: [
           '堤外的滩上堆着潮水冲上来的东西：断绳、木片、一只没有盖的锡壶。',
           '盐工不捡这些。他们说潮水送回来的东西带着别人的日子，捡了要替人记着。',
           '你踢开一段木片，底下压着一只鞋。鞋很小，是个孩子的。',
@@ -474,7 +483,7 @@
       ambient: 'still',
       solids: [[3, 2, 5, 2], [11, 2, 6, 2], [8, 6, 4, 2], [0, 0, 20, 1], [0, 1, 1, 13], [19, 1, 1, 13]],
       places: [
-        { id: 'liu', name: '柳先生', x: 6, y: 5, kind: 'scrolls', npc: 'liu', say: [
+        { id: 'liu', name: '柳先生', x: 6, y: 5, kind: 'scrolls', npc: 'liu', gainAcc: 'a_liu', say: [
           '柳先生的眼睛对着窗，手里捏着一卷纸，像在等谁念给他听。',
           '「脚步轻，脚跟先着地——你妈的儿子。」他侧过脸，「坐。你妈来过，你姐也来过。」',
           '「你姐来的那次，把一册东西塞给我，说：等有人来问，就给他。别早给。」',
@@ -1091,17 +1100,86 @@
     /* cat = self 己（3 条） */
     { id: 'm_ask',         w: 1, tag: '名',   cat: 'self',   text: '上岛先答三个问题。第一问是问你叫什么——我在岛上答过很多遍，每次答完都要想一想。' },
     { id: 'm_halves',      w: 2, tag: '名',   cat: 'self',   text: '那句话我只记得后半截：……把名字还给她。前半截还在雾里。' },
-    { id: 'm_return',      w: 2, tag: '名',   cat: 'self',   text: '岛上的人说，名字还回去以后，灯会亮得稳一点，像有人替它添了油。' }
+    { id: 'm_return',      w: 2, tag: '名',   cat: 'self',   text: '岛上的人说，名字还回去以后，灯会亮得稳一点，像有人替它添了油。' },
+
+    /* ---- v39 的那一夜（三份口供 + 真相 + 阿海认账）**不在 MEM23 里** ----
+       MEM23 的口径是「你身上的记」，回归套两处拿它当判据
+       （world-test ⑳ 开局在身上的段数 = 总数 − 1；smoke23 ㊶ 记面板条目数 = 段数）。
+       口供是别人的记、由当铺收着 —— 另立 ACCOUNTS 表，下面紧跟。 */
   ];
   function mem23ById(id) {
     for (var i = 0; i < MEM23.length; i++) if (MEM23[i].id === id) return MEM23[i];
     return null;
   }
+  /* v39：新增三种记号 —— read 翻看过 / sighted 显过影 / stored 寄存进空壳册 */
   function mem23Fresh() {
     var out = {};
-    MEM23.forEach(function (m) { out[m.id] = { state: m.pawnedFromStart ? 'pawned' : 'held', pawns: 0 }; });
+    MEM23.forEach(function (m) {
+      out[m.id] = { state: m.pawnedFromStart ? 'pawned' : 'held', pawns: 0, read: 0, sighted: 0, stored: 0 };
+    });
     return out;
   }
+
+  /* ============ 八点六、口供表（v39：那一夜，三份对不上的证词） ============
+     口供是**别人的记**，当铺替你收着 —— 本来就不该算进"你身上的记"里，所以另立一张表。
+     三份故意对不上：灯（灭 / 亮 / 熄）、人（一个 / 两个）各说各的；
+     三个人从头到尾都咬定的只有一样 —— 那一夜有大雾。这就是「记忆会串味」。 */
+  var ACCOUNTS = [
+    { id: 'a_hai',  from: 'hai',  tag: '那一夜', name: '阿海的口供',
+      text: '阿海口述：那一夜有大雾。我拴缆绳的时候抬头看了一眼 —— 礁上的灯是灭的。船上下来的只有一个人。' },
+    { id: 'a_chen', from: 'chen', tag: '那一夜', name: '陈婶的口供',
+      text: '陈婶口述：那一夜有大雾，雾一直漫到盐仓门口。灯是亮的，光从窗缝里斜出来，把地上的盐照白了。我看见两个人往堤上走。' },
+    { id: 'a_liu',  from: 'liu',  tag: '那一夜', name: '柳先生念的档',
+      text: '柳先生翻着档念的：戊戌年冬十月，大雾。那一夜的灯■了三刻，档上就记到这儿。船一人过海。',
+      sight: '柳先生翻着档念的：戊戌年冬十月，大雾。那一夜的灯熄了三刻，档上就记到这儿。船一人过海。' },
+    { id: 'a_night', tag: '那一夜', name: '摊平比对出来的真话',
+      text: '三份口供摊平比对出来的只有一条：那一夜有大雾。雾大到什么也看不清 —— 所以「谁上了船」这件事，三个人的记都当不得真，只有雾是三个人都咬定的。' },
+    { id: 'a_ack',   tag: '那一夜', name: '阿海认了账',
+      text: '阿海把誊本接过去，凑到灯下看：「……三个人都咬定的一样，才算数。」他把纸折好塞进袖口，「成。那夜是我记岔了。雾那么大，灯又灭着，我凭什么说我看见的是一个人。」' }
+  ];
+  function accById(id) {
+    for (var i = 0; i < ACCOUNTS.length; i++) if (ACCOUNTS[i].id === id) return ACCOUNTS[i];
+    return null;
+  }
+
+  /* ============ 九点五、柜上新到的四件（v39 玩法道具） ============ */
+  /* 用户原话：「我想要的道具是可以增加一些新的玩法的那种。现在这些道具是纯辅助性作用。
+     然后目前的解谜和我们的记忆是没有什么关联的，做一些和我们这个记忆玩法有关系的东西。」
+     规矩：每件货都得答得上「**没有它时，玩家会卡在哪一步**」——答不上来的不上架。
+     所以每一条都带着 `stuck`，验收脚本逐件按那句话判：没买走不通、买了走得通。
+     价格按「一趟零工 6 枚」定档，落在 4 / 6 / 8 的区间里。 */
+  var MEM_TOOLS = [
+    { id: 'sight', name: '显影水', price: 6, once: false, use: 'sight',
+      desc: '一瓶。滴在被涂掉的字上，那几笔会重新浮出来。',
+      stuck: '没有它：柳先生那份档记上「灯■了三刻」永远是个方块 —— 三份口供凑不齐，摊平比对开不了。' },
+    { id: 'knife', name: '拆线刀', price: 6, once: true, use: 'cross',
+      desc: '一把。挑开记忆之间的线，把几段记摊平了并排看。',
+      stuck: '没有它：三份口供只能在脑子里各说各的，永远比不出哪一条是三个人都咬定的。' },
+    { id: 'copy', name: '誊写纸', price: 4, once: true, use: 'copy',
+      desc: '一沓。把一段记誊成一份能递出去的纸 —— 记第一次成了能给人的东西。',
+      stuck: '没有它：你比对出来的那句话只能自己收着，递不到当事人手上，他也不会认账。' },
+    { id: 'shell', name: '空壳册', price: 8, once: true, use: 'store',
+      desc: '一本。把一段记先寄存在册子里 —— 寄存的记，雾咬不到。',
+      stuck: '辅助：不买也能通关，只是进雾那几趟，身上最要紧的记会先被咬。' }
+  ];
+
+  /* 摊平比对：三份口供串味（三条候选里，只有一条是三个人都咬定的） */
+  var CROSS = {
+    id: 'night_cross',
+    ask: '三份口供摊在一起 —— 三个人都咬定的一样，是哪一条？',
+    accounts: ['a_hai', 'a_chen', 'a_liu'],
+    opts: [
+      { id: 'lamp',  t: '那一夜的灯是亮着的' },
+      { id: 'fog',   t: '那一夜有大雾' },
+      { id: 'two',   t: '有两个人上了堤' },
+      { id: 'north', t: '船是往北边走的' }
+    ],
+    answer: 'fog',
+    wrong: '再摊一遍：三条里只有一条是三个人都提到的，另外几条准有一条对不上。',
+    why: '灯：阿海说灭的，陈婶说亮着，档上记的是熄了三刻 —— 对不上。人：一个说一个人、一个说两个人 —— 也对不上。三份里从头到尾都咬定的，只有那一夜的大雾。',
+    gain: 'a_night',
+    flag: 'cross_ok'
+  };
 
   /* ============ 九、纯函数：查询 / 自检 ============ */
 
@@ -1238,6 +1316,32 @@
       if (tasksOfAct(a).length < 4) errs.push('第 ' + a + ' 幕任务 < 4');
       if (puzzlesOfAct(a).length < 1) errs.push('第 ' + a + ' 幕没有谜题');
     }
+    /* v39：柜上四件货的判据 —— 每件都得答得上「没有它卡在哪一步」，答不上来的不许上架 */
+    var toolIds = {};
+    MEM_TOOLS.forEach(function (t) {
+      if (toolIds[t.id]) errs.push('道具 id 重复：' + t.id);
+      toolIds[t.id] = 1;
+      if (!t.name || !t.desc) errs.push('道具缺 name/desc：' + t.id);
+      if (!(t.price > 0)) errs.push('道具价格必须为正：' + t.id);
+      var gate = String(t.stuck || '');
+      if (gate.indexOf('没有它') !== 0 && gate.indexOf('辅助') !== 0) errs.push('道具没写清「没有它卡在哪一步」：' + t.id);
+      if (['sight', 'cross', 'copy', 'store'].indexOf(t.use) < 0) errs.push('道具用途非法：' + t.id);
+    });
+    if (MEM_TOOLS.length < 4) errs.push('柜上的货少于 4 件（' + MEM_TOOLS.length + '）');
+    /* 摊平比对：答案必须在候选里，三份口供必须真存在，被涂掉的那份必须真有 sight */
+    if (!CROSS.opts.some(function (o) { return o.id === CROSS.answer; })) errs.push('摊平比对的答案不在候选里');
+    CROSS.accounts.forEach(function (id) { if (!accById(id)) errs.push('摊平比对引用了不存在的口供：' + id); });
+    var liuSay = accById('a_liu');
+    if (liuSay && !liuSay.sight) errs.push('被涂掉的那份口供缺 sight（显影水就没有着力点）');
+    if (!accById(CROSS.gain)) errs.push('摊平比对的结果记不存在：' + CROSS.gain);
+    /* 挂点自检：引用了不存在的 id = 那个点永远不亮 / 白给一段空记 —— 死锁 */
+    Object.keys(SCENES).forEach(function (sid) {
+      (SCENES[sid].places || []).forEach(function (p) {
+        if (p.needRead && !mem23ById(p.needRead)) errs.push('needRead 引用了不存在的记：' + sid + '.' + p.id);
+        if (p.gainAcc && !accById(p.gainAcc)) errs.push('gainAcc 引用了不存在的口供：' + sid + '.' + p.id);
+        if (p.giveCopy && !accById(p.giveCopy.mem)) errs.push('giveCopy 引用了不存在的口供：' + sid + '.' + p.id);
+      });
+    });
     return { ok: errs.length === 0, errors: errs, stats: stats() };
   }
 
@@ -1271,6 +1375,7 @@
 
   var api = {
     SCENES: SCENES, TASKS: TASKS, PUZZLES: PUZZLES, PHOTOS: PHOTOS, MEM23: MEM23,
+    MEM_TOOLS: MEM_TOOLS, CROSS: CROSS, ACCOUNTS: ACCOUNTS, accById: accById,
     CHRONICLE: CHRONICLE, ENDINGS: ENDINGS, NPCS: NPCS, TEXT: TEXT, ACT_TITLES: ACT_TITLES,
     sceneById: sceneById, placeById: placeById, placeAt: placeAt, portalAt: portalAt,
     isSolidIn: isSolidIn, tasksOfAct: tasksOfAct, puzzlesOfAct: puzzlesOfAct,
