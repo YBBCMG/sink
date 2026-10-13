@@ -1268,6 +1268,8 @@
       if (p.kind === 'scrolls') { scrollsPanel(p); return; }
       if (p.kind === 'buy') { buyItem(p); return; }
       if (p.kind === 'puzzle') { if (p.flag) markFlag(p.flag); openPuzzle(p.puz); return; }
+      /* v43：第二章的点交给 js/ch2/（它自己管面板与旗标）；没加载 ch2 时照旧往下走 */
+      if (p.ch2 && global.CH2 && global.CH2.open(p, ch2Host())) return;
       if (p.flag) markFlag(p.flag);
       if (p.toolPuz && toolPuzOpen(p)) return;   /* v40：道具当钥匙的两道谜题（旗标记完再拦） */
       if (p.to) enterScene(p.to, p.tx, p.ty);
@@ -2360,6 +2362,7 @@
   }
   /* 一个交互点最后用的是哪套模型（测试据此断言"同场景里两两不重样"） */
   function artOf(p) {
+    if (p.ch2) return 'ch2:' + p.id;          /* v43：第二章的点各有各的模型名（一章回归套 ㊶ 的同一口径） */
     if (p.npc) return 'figure:' + (p.npc || p.id);
     if (PLACE_ART[p.id] && ART_FN[PLACE_ART[p.id]]) return 'art:' + PLACE_ART[p.id];
     if (p.kind === 'portal') return 'gate:' + (GATE_STYLE[p.id] || 'plain');
@@ -3466,6 +3469,22 @@
     poolFloor: artPoolFloor, stoppedClock: artStoppedClock
   };
 
+  /* v43：第二章的占位画 —— 中枢口径「色块 / 文字框 / 纯 CSS 都行，不许画」。
+     一块暗底 + 金边 + 一道斜杠，远远看得见"这儿有个点"就够了，美术线接手后换掉本函数即可。 */
+  function drawCh2Spot(c, p, px, py, col, lit) {
+    var w = CELL * 0.62, h = CELL * 0.5;
+    c.save();
+    c.fillStyle = '#2a2233';
+    c.fillRect(px - w / 2, py - h / 2, w, h);
+    c.strokeStyle = col || '#d9b46a';
+    c.lineWidth = 2;
+    c.strokeRect(px - w / 2, py - h / 2, w, h);
+    c.beginPath();
+    c.moveTo(px - w / 4, py + h / 4);
+    c.lineTo(px + w / 4, py - h / 4);
+    c.stroke();
+    c.restore();
+  }
   function drawPlace(c, p) {
     var px = p.x * CELL + CELL / 2, py = p.y * CELL + CELL / 2;
     var sc = scene(), col = sc.palette.accent;
@@ -3492,6 +3511,8 @@
       drawBoard(c, px, py);
     } else if (p.kind === 'work') {
       drawSite(c, px, py, p.id);
+    } else if (p.ch2) {
+      drawCh2Spot(c, p, px, py, col, lit);     /* v43：第二章骨架的占位方块（美术线接手后换画） */
     } else {
       drawTrace(c, p, px, py);
     }
@@ -4206,6 +4227,23 @@
     dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
   }
 
+  /* ============ v43：第二章骨架（js/ch2/）的宿主接口 ============
+     只借不给：把引擎已经有的能力（面板、旗标、存档、场景切换、记忆表）原样递给 ch2，
+     引擎自己一行逻辑都不加 —— 第二章的规则全在 js/ch2/ 里，出了问题改那边，不回头动本章。 */
+  function ch2Host() {
+    return {
+      D: D, get S() { return S; },
+      MEM_LINK: MEM_LINK, LOST_SAY: LOST_SAY,
+      setTitle: setTitle, setBody: setBody, setBtns: setBtns,
+      openModal: openModal, closeModal: closeModal,
+      body: function () { return $('m-body'); },
+      say: say, toast: toast, sfx: sfx, addLog: addLog,
+      markFlag: markFlag, enterScene: enterScene,
+      memHas: memHas, memBody: memBody, memKnown: memKnown,
+      dirty: function () { dirty.mem = dirty.log = dirty.tasks = dirty.hud = 1; },
+      save: save
+    };
+  }
   /* 谜题层需要的宿主接口 */
   function puzzleHost() {
     return {
