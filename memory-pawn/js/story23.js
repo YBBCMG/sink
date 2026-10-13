@@ -276,7 +276,8 @@
           '「替记的账，一行一笔。」他说，「你自己看：哪一笔不该记在这儿。」',
           '「看错了我不管。账上的错，是记账的人自己认的。」'
         ], again: [
-          '账本翻开着。纸边被翻得起了毛，翻的人不止一个。'
+          '账本翻开着。纸边被翻得起了毛，翻的人不止一个。',
+          '最后那一页还粘在封底上 —— 掌柜说，认领页不兴硬揭，得押着东西才翻得开。'
         ] },
         { id: 'letters', name: '柜台下的信札', x: 5, y: 11, kind: 'look', flag: 'letters_read', say: [
           '柜台底下塞着一沓信，麻线捆着，封口的浆糊干硬了。收信人一栏全写着同一个名字：阿隐。',
@@ -725,7 +726,8 @@
           '你蹲下来，把两半对在一起。对上的那一句，字缝能严丝合缝地接上。',
           '对不上的两个半句，各说各话，风一过就分开了。'
         ], again: [
-          '散着的两半纸还躺在雾里，等一只手把它们接回去。'
+          '散着的两半纸还躺在雾里，等一只手把它们接回去。',
+          '纸堆最底下还压着半张，边上是撕开的毛口 —— 没人去翻它。'
         ] },
         { id: 'chainlink', name: '连环锁', x: 12, y: 4, kind: 'puzzle', puz: 'chainlink', need: 'asks_ok', say: [
           '雾里立着一道铁闸，闸面上五枚铜环，一枚扣着一枚，环上各刻着不同的花纹。',
@@ -1238,6 +1240,127 @@
   };
   function toolPuzOf(id) { return TOOL_PUZZLES[id] || null; }
 
+  /* ============ 八点八、献忆：主动丧失一段记，换过关（v43） ============
+     用户原话（2026-10-14）：「其实我们这个记忆玩法应该可以通过主动丧失一些记忆，
+     来通过一些特殊解谜。这样我们这个赎回以及掌柜就会在这里更容易被重复提题。」
+     与 v40「押记」的分工（两条并存，不替换）：
+       · v40 押记 = 你得**有**那段记（needMem + 空壳册）—— 押进去是"寄存"，记不丢；
+       · v43 献忆 = 你**肯交出**那段记 —— 真当出去（state 变 pawned），记还在账上，柜台原价赎得回来。
+     四条硬口径（中枢锁的，别自己扩）：
+       ① 代价点之前看得懂：交出哪一段（原文照录）、哪儿会改口（affects 反查点名的地点）、
+          拿不拿得回来（柜台原价赎回，−w 枚当金）；
+       ② 绝不软锁：只走游戏自己那条可逆的道（state='pawned'），献忆旗标**不挂任何 need**；
+       ③ 掌柜出场（他收记），口风留半句 —— 二线（掌柜视角那条）的答案不写在这儿；
+       ④ 老档兼容：不加存档字段、不抬 v；老档缺条目按"在身上"处理（与 game23 的 memLinkedSay 同口径）。
+     落点全是**既有交互点**：不新增地图点 —— smoke23 ㊶ 拿「每个交互点各有各的模型」当判据，
+     新点就得往 art31/game23 里加模型（那是别条线的文件），所以两处新题都开在既有谜题点上，
+     底题解开之后才露头（`after`）；改造的那处开在既有谜题面板里，原解法一步不动。 */
+  var PLEDGE = {
+    /* 新解谜①「认领页」· 挂 记当铺·账本（底题 ledger 解开之后才露头）
+       没有献忆卡在哪：认领页粘在封底上，不押东西硬揭不开。 */
+    claim: {
+      host: 'ledger', hostPuz: 'ledger', after: 'ledger_ok', flag: 'pledge_claim_ok',
+      title: '账本最后那一页',
+      keeper: [
+        '你要合账本，掌柜的手先按在封底上：「这一页不能硬揭。」',
+        '「它叫认领页。押品没人来领，就记半句在上面 —— 等人拿自己的一段来对。」',
+        '「对上了，那笔归你认。对不上，账不乱 —— 你也不亏。」'
+      ],
+      lead: ['最后那一页粘在封底上，边角翘着，底下露出半行字，看不全。'],
+      clues: [
+        '认领页上这一笔，只写三样：',
+        '· 押金三枚 —— 当金就是这段记的痛感',
+        '· 当票角上划着一个字：灯',
+        '· 押的人插了一句：那段记里有「三根火柴」'
+      ],
+      ask: '这一笔，得拿你身上的哪一段记来认？',
+      cands: ['m_first_light', 'm_letter', 'm_mother', 'm_salt', 'm_keeper', 'm_blank'],
+      answer: 'm_first_light',
+      wrong: '掌柜把那段记推回来，没抬眼：「这段对不上。账不乱记 —— 三样你再对一遍。」',
+      gone: '掌柜看了看你的手：「那段记不在你身上。柜台先赎回来，再来认。」',
+      why: '痛感三枚、当票角上一个「灯」字、里头有三根火柴 —— 三样都咬在这一段上。',
+      reveal: [
+        '掌柜没数钱。他把认领页揭起一角，用指甲在那半行字底下划了一道。',
+        '半行字补齐了：「押：第一次点灯。赎：随时。」',
+        '底下还有一行更小的字，不是掌柜的笔迹：「押品不入库。过秤的时候，秤那头还有一只手 —— 谁的，账上没写。」',
+        '「这行不是我写的。」掌柜把灯往远挪了挪，「我在这铺子里三十年，没见过写字的人来赎。」'
+      ],
+      affects: {
+        m_first_light: ['lamp', 'book', 'lights', 'logbook', 'sea_lamp'],
+        m_letter: ['letters'],
+        m_mother: ['clock', 'chest', 'oil', 'tin', 'chen', 'stillclock'],
+        m_salt: ['awang', 'saltbook', 'saltpile'],
+        m_keeper: ['keeper'],
+        m_blank: ['ashes', 'liu', 'inbook', 'shelfrow', 'northwin', 'burn']
+      }
+    },
+    /* 新解谜②「没写完的那半张」· 挂 雾里·断句（底题 halves 解开之后才露头）
+       没有献忆卡在哪：那半张压在纸堆底下 —— 写字的人换了口气，你揣着别人的记，就接不上那一句。 */
+    voice: {
+      host: 'halves', hostPuz: 'halves', after: 'halves_ok', flag: 'pledge_voice_ok',
+      title: '没写完的那半张',
+      keeper: [
+        '掌柜的声音隔着雾过来，像从柜台那头传的：「底下还压着半张。」',
+        '「那半张不是你的口气 —— 是替人记的人写的。替记的规矩：谁身上揣着别人的记，谁就接不上那一句。」',
+        '「押回来。押回来它就接得上了。」'
+      ],
+      lead: [
+        '断好的纸摞在一起，最底下还压着半张，边上是撕开的毛口。',
+        '这一张的笔画比别处重，是往下压的 —— 写字的人不是在记自己。'
+      ],
+      clues: [
+        '掌柜要的，是你身上唯一一段不是自己口气的记。',
+        '（那种记，开头就写着：这不是你的口气。）'
+      ],
+      ask: '哪一段记，是从别人嘴里记下来的？',
+      cands: ['m_sis_voice', 'm_mother', 'm_boat', 'm_halves', 'm_return', 'm_salt'],
+      answer: 'm_sis_voice',
+      wrong: '「这段是你自己的。」掌柜的声音挪开一点，「替记的人下笔，起手就不一样。」',
+      gone: '「那段记不在你身上 —— 柜台赎回来再说。」',
+      why: '那一段开头就写着「这段记不是你的口气」—— 是她替你说过的话。',
+      reveal: [
+        '你把那一段推过柜台。雾里那半张纸自己翻了个面。',
+        '半句接上了：「……我不认得你了。可我记得，我要等你。」',
+        '纸角上还有一个没写完的字，墨是被水泡开的，笔画停在中途。',
+        '掌柜把账合上：「替记的人，最后都记不住自己。这半句，是她留给你的。」'
+      ],
+      affects: {
+        m_sis_voice: ['her_words', 'her'],
+        m_mother: ['clock', 'chest', 'oil', 'tin', 'chen', 'stillclock'],
+        m_boat: ['hai', 'sea', 'othlamp', 'boatshape'],
+        m_halves: ['halves'],
+        m_return: ['return'],
+        m_salt: ['awang', 'saltbook', 'saltpile']
+      }
+    },
+    /* 改造既有解谜 · 名字碑（幕四 `name`）：原解法（捡碎片拼笔画）一步不动，
+       另给一条**献忆捷径** —— 把「牵我过礁石的那只手」押给掌柜，他把碑上那两个字念给你听。
+       代价就在眼前：押完这块碑你自己就认不出了（LOST_NAME: '刻满字的石碑'）。 */
+    name: {
+      kind: 'shortcut', host: 'namewall', hostPuz: 'name', flag: 'pledge_name_ok',
+      title: '押一段记，换那个名字',
+      keeper: [
+        '掌柜不知什么时候站在碑后面：「碑上凿掉的那两个字，铺子里有存底。」',
+        '「存底不白给。押一段跟这碑有关的记 —— 押了，我把那两个字念给你听。」',
+        '「不押也行。碎片就在碑脚下，你自己拼。」'
+      ],
+      lead: ['碑上的字被凿掉两个，凿得很深，像是怕它自己长回来。'],
+      ask: '把哪一段押在柜上？',
+      cands: ['m_sister_hand'],
+      answer: 'm_sister_hand',
+      wrong: '掌柜摇头：「这段跟碑对不上。押错了，账就乱。」',
+      gone: '「那段记不在你身上 —— 柜台赎回来再说。」',
+      why: '牵着你过礁石的那只手，和碑上凿掉的名字，是同一件事。',
+      reveal: [
+        '掌柜把那两个字念出来，很轻，像是怕被风带走：「阿隐。」',
+        '「存底底下还有一行小字：立碑的人写完名字就把它凿了 —— 他说，名字还回去，人才能走。」',
+        '碑还立在这儿。你再看它，字口深得认不出写的是什么了。'
+      ],
+      affects: { m_sister_hand: ['carve', 'copy2', 'chest2', 'namewall'] }
+    }
+  };
+  function pledgeOf(id) { return PLEDGE[id] || null; }
+
   /* ============ 九、纯函数：查询 / 自检 ============ */
 
   function sceneById(id) { return SCENES[id] || null; }
@@ -1419,6 +1542,41 @@
         if (p.giveCopy && !accById(p.giveCopy.mem)) errs.push('giveCopy 引用了不存在的口供：' + sid + '.' + p.id);
       });
     });
+    /* v43：献忆表自检 —— 硬口径落成机器判据，不靠人记：
+       ① 答案必须真在候选里、候选必须都是真记；② affects 的记与交互点必须真存在（代价声明不许指向空气）；
+       ③ **献忆旗标一律不许被任何 need 引用**（挂了 need 就是软锁）；④ 每个候选都得有代价声明。 */
+    var pledgeFlags = {}, needRefs = {}, placeScene = {};
+    Object.keys(SCENES).forEach(function (sid) {
+      (SCENES[sid].places || []).forEach(function (p) {
+        placeScene[p.id] = sid;
+        if (p.need) needRefs[p.need] = 1;
+      });
+    });
+    Object.keys(PUZZLES).forEach(function (k) { if (PUZZLES[k].need) needRefs[PUZZLES[k].need] = 1; });
+    Object.keys(PLEDGE).forEach(function (k) {
+      var G = PLEDGE[k];
+      if (!G.flag || pledgeFlags[G.flag]) errs.push('献忆旗标缺失或重复：' + k);
+      pledgeFlags[G.flag] = 1;
+      if (!PUZZLES[G.hostPuz]) errs.push('献忆挂在不存在的谜题上：' + k);
+      if (!placeScene[G.host]) errs.push('献忆挂在不存在的交互点上：' + k);
+      else if (PUZZLES[G.hostPuz] && placeScene[G.host] !== PUZZLES[G.hostPuz].scene) errs.push('献忆挂点与底题不同场景：' + k);
+      if (G.kind !== 'shortcut' && (!G.after || !PUZZLES[G.hostPuz] || G.after !== (PUZZLES[G.hostPuz].flag || G.hostPuz + '_ok'))) errs.push('献忆的前置旗标与底题对不上：' + k);
+      if (!G.answer || (G.cands || []).indexOf(G.answer) < 0) errs.push('献忆的答案不在候选里：' + k);
+      if (!mem23ById(G.answer)) errs.push('献忆的答案不是一条真记：' + k);
+      (G.cands || []).forEach(function (id) {
+        if (!mem23ById(id)) errs.push('献忆候选里有不存在的记：' + k + ' ' + id);
+        if (!(G.affects || {})[id]) errs.push('献忆候选缺代价声明（玩家点之前就看不懂失去什么）：' + k + ' ' + id);
+      });
+      if (needRefs[G.flag]) errs.push('献忆旗标被 need 引用了 —— 会软锁：' + G.flag);
+      Object.keys(G.affects || {}).forEach(function (mid) {
+        if (!mem23ById(mid)) errs.push('献忆代价表引用了不存在的记：' + mid);
+        (G.affects[mid] || []).forEach(function (pid) {
+          if (!placeScene[pid]) errs.push('献忆代价表引用了不存在的交互点：' + pid);
+        });
+      });
+    });
+    if (Object.keys(PLEDGE).length < 3) errs.push('献忆点位少于 3（' + Object.keys(PLEDGE).length + '）');
+
     return { ok: errs.length === 0, errors: errs, stats: stats() };
   }
 
@@ -1454,6 +1612,7 @@
     SCENES: SCENES, TASKS: TASKS, PUZZLES: PUZZLES, PHOTOS: PHOTOS, MEM23: MEM23,
     MEM_TOOLS: MEM_TOOLS, CROSS: CROSS, ACCOUNTS: ACCOUNTS, accById: accById,
     TOOL_PUZZLES: TOOL_PUZZLES, toolPuzOf: toolPuzOf,
+    PLEDGE: PLEDGE, pledgeOf: pledgeOf,
     CHRONICLE: CHRONICLE, ENDINGS: ENDINGS, NPCS: NPCS, TEXT: TEXT, ACT_TITLES: ACT_TITLES,
     sceneById: sceneById, placeById: placeById, placeAt: placeAt, portalAt: portalAt,
     isSolidIn: isSolidIn, tasksOfAct: tasksOfAct, puzzlesOfAct: puzzlesOfAct,
