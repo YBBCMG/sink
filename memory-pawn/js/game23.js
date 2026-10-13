@@ -1100,6 +1100,9 @@
     if (!toolOwn('knife')) { toast('摊平不了 —— 三份记在脑子里各说各的。你得先有一把拆线刀。'); return; }
     var miss = K.accounts.filter(function (id) { return !accHeld(id); });
     if (miss.length) { toast('还差 ' + miss.length + ' 份口供 —— 摊平了也对不齐。'); return; }
+    /* 没逐句翻看过，摊平了也只是三张纸并排 —— 看记忆本身就是解谜动作（用户指名要的那条） */
+    var unread = K.accounts.filter(function (id) { return !memRead(id); });
+    if (unread.length) { toast('还没逐句翻看过 —— 先把柜上那三份口供各翻开看一遍（还差 ' + unread.length + ' 份）。'); return; }
     var unclear = K.accounts.filter(function (id) {
       var m = accById(id) || {}, st = (S.acc || {})[id] || {};
       return !!(m.sight && !st.sighted);
