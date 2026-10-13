@@ -1100,7 +1100,14 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/puzzles23.js?v=39"></script>
 <script src="js/jobs-hard23.js?v=1"></script>
 <script src="js/art31.js?v=36"></script>
-<script src="js/game23.js?v=48"></script>
+<!-- v43：第二章骨架（js/ch2/ 整目录归"记忆玩法·功能玩法"线，story23/puzzles23 一个字没碰）。
+     必须排在 game23.js **之前**：它要在引擎起页前把「记忆库」场景与三个复用挂点装进 WORLD.SCENES。 -->
+<script src="js/ch2/text.js?v=2"></script>
+<script src="js/ch2/items.js?v=2"></script>
+<script src="js/ch2/scenes.js?v=2"></script>
+<script src="js/ch2/puzzles.js?v=2"></script>
+<script src="js/ch2/index.js?v=2"></script>
+<script src="js/game23.js?v=50"></script>
 <script src="js/guide23.js?v=35"></script>
 <script>
 /* v37 全屏键（功能增加线 · D）。U 键 / 顶栏「⛶ 全屏」按钮 切换全屏，ESC 退出。
