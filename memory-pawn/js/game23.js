@@ -1375,6 +1375,7 @@
           : ('买一瓶（−' + t.price + '）· 现有 ' + own + ' 瓶');
         return '<div class="arc-item"><b>' + t.name + '</b> ' + t.desc +
           '<span class="mem-w">' + t.price + ' 枚</span><br>' +
+          '<span class="pz-tip">' + t.how + '</span><br>' +
           '<span class="pz-tip">' + t.stuck + '</span><br>' +
           '<button class="pz-btn" data-buytool="' + t.id + '"' + (t.once && own ? ' disabled' : '') + '>' + label + '</button></div>';
       }).join('') || '<div class="arc-lock">柜上今天没别的货。</div>';
@@ -1424,7 +1425,7 @@
           if (S.gold < t.price) { toast('当金不够 —— ' + t.name + '要 ' + t.price + ' 枚，你有 ' + S.gold + ' 枚。'); return; }
           S.gold -= t.price; toolGive(id, 1); sfx('coin');
           addLog('在柜上买下了：' + t.name + '（−' + t.price + '）。');
-          toast('买下了 · ' + t.name + '（' + t.stuck.replace(/^(没有它|辅助)：/, '') + '）');
+          toast('买下了 · ' + t.name + '｜' + t.how);   /* v41：买入那一刻就给「有它」那句原话 */
           dirty.hud = dirty.mem = 1; save(); render();
         };
       });
@@ -1654,9 +1655,15 @@
       (st.state === 'pawned' ? pawned : held).push({ m: m, st: st });
     });
     var html = '<div class="arc-h">手上的家伙（当金买来的）</div>';
-    html += '<div class="arc-item">显影水 ×' + toolCount('sight') + ' · 拆线刀' + (toolOwn('knife') ? '有一把' : '没有') +
-      ' · 誊写纸' + (toolOwn('copy') ? '有一沓' : '没有') + ' · 空壳册' + (toolOwn('shell') ? '有一本' : '没有') +
-      '<br><span class="pz-tip">这四件都在记当铺柜台买（当金）。</span></div>';
+    /* v41：每件已持有的各跟一句「有它：在哪儿点、点完拿到什么」—— 跟柜台货卡、买入提示
+       同一句（MEM_TOOLS.how），三处复用，不写第二份文案。
+       注意类名别用 mem-tag：smoke23 ㊶ 拿它数「记的条目数 = MEM23 段数」。 */
+    html += TOOLS.map(function (t) {
+      var n = toolCount(t.id);
+      if (!n) return '';
+      return '<div class="arc-item"><b class="tool-tag">' + t.name + '</b>' + (t.once ? '' : ' ×' + n) +
+        '<span class="mem-w">已到手</span><br><span class="pz-tip">' + t.how + '</span></div>';
+    }).join('') || '<div class="arc-item">一件都还没买 —— 四件都在记当铺柜台（当金）。</div>';
     html += '<div class="arc-item"><button class="pz-btn" data-memcross="1">摊平比对 · 那一夜</button>' +
       '<br><span class="pz-tip">三份口供摊平了并排看：要拆线刀；有字被涂掉的，得先用显影水显出来。</span></div>';
     /* v39：口供单独一栏 —— 它们不是"你身上的记"，是当铺替你收着的别人的话。
