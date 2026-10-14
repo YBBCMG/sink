@@ -226,9 +226,26 @@
     };
   }
 
+  /* ---------- 给开发者面板的节点表（面板不抄第二份 ch2 数据）----------
+     一处献忆 = 一个节点：场景 + 点位 + 旗标 + 要献的记 + 要的道具。ch2 加一处献忆，面板自动多一行
+     （verify-ch2 ㉒「面板列出的节点数 = ch2 实际谜题数」就是这么钉住的）。 */
+  var NODE_PLACE = { door: [VAULT, 'ch2_door'], tickets: [VAULT, 'ch2_tickets'], fog: ['mist', 'ch2_fog'] };
+  function devNodes() {
+    var out = [];
+    Object.keys((global.CH2_PUZ || {}).list || {}).forEach(function (k) {
+      var P = global.CH2_PUZ.list[k], where = NODE_PLACE[k] || [];
+      out.push({ key: k, puzzle: true, sid: where[0], pid: where[1], name: (T(k).title || k),
+        flag: P.flag, item: P.needItem, answer: P.answer });
+    });
+    out.push({ key: 'shelf', puzzle: false, sid: VAULT, pid: 'ch2_shelf', name: '柜上留下的三样（取道具）', flag: 'ch2_shelf_taken' });
+    out.push({ key: 'vaultdoor', puzzle: false, sid: 'pawnshop', pid: 'ch2_vaultdoor', name: '里间 · 那排架子', flag: 'ch2_entered' });
+    return out;
+  }
+
   global.CH2 = {
     VAULT: VAULT, install: install, report: function () { return installed; },
     open: open, cleared: cleared, adminEntry: adminEntry, validate: validate, noSoftLock: noSoftLock,
+    devNodes: devNodes,
     state: function (s) {
       s = s || (global.PAWN_DEBUG && global.PAWN_DEBUG.api ? global.PAWN_DEBUG.api.state : null);
       var f = (s && s.flags) || {};
