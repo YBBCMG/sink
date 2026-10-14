@@ -3920,6 +3920,13 @@
       '<button class="pz-btn" data-dev="wipe">删档重来</button></div>' +
       '<div class="arc-h">第二章（骨架）</div>' +
       '<div class="pz-row"><button class="pz-btn" data-dev="ch2admin">第二章 · 直接进入（跳过通关门槛）：' + (S.ch2 && S.ch2.adminEntry ? '开' : '关') + '</button></div>' +
+      '<div class="pz-row"><button class="pz-btn" data-ch2jump="vault">跳到第二章（记忆库）</button>' +
+      '<button class="pz-btn" data-ch2jump="fog">跳到第二章结局（码头雾里）</button>' +
+      '<button class="pz-btn" data-dev="ch2prep">补齐第二章前置</button></div>' +
+      '<div class="dv-sec">第二章 · 献忆直达（' + ch2Nodes().filter(function (n) { return n.puzzle; }).length + ' 处）</div>' +
+      '<div class="dv-list">' + devCh2Rows() + '</div>' +
+      '<div class="dv-sec">第二章 · 献忆状态（点一下：在身上 ⇄ 已献）</div>' +
+      '<div class="dv-list">' + devCh2MemRows() + '</div>' +
       '<div class="arc-h">状态</div><div class="arc-item">' + JSON.stringify({ scene: S.scene, act: S.act, gold: S.gold, oil: S.oil == null ? 2 : S.oil, tasks: doneCount(), photos: D.photoCount(S), flags: Object.keys(S.flags).length }) + '</div>' +
       '<div class="dv-sec">谜题直达（自动补齐前置）</div>' +
       '<div class="dv-list">' + devPuzzleRows() + '</div>' +
@@ -3947,6 +3954,16 @@
     });
     body.querySelectorAll('[data-pz]').forEach(function (b) {
       b.onclick = function () { var v = b.getAttribute('data-pz').split('|'); devGoto(v[0], v[1]); };
+    });
+    /* v51：第二章那三组（跳关 / 献忆直达 / 献忆状态）—— 用户点单"面板要管得着第二章" */
+    body.querySelectorAll('[data-ch2jump]').forEach(function (b) {
+      b.onclick = function () { devCh2Jump(b.getAttribute('data-ch2jump')); };
+    });
+    body.querySelectorAll('[data-ch2]').forEach(function (b) {
+      b.onclick = function () { var v = b.getAttribute('data-ch2').split('|'); devCh2Goto(v[0], v[1]); };
+    });
+    body.querySelectorAll('[data-ch2mem]').forEach(function (b) {
+      b.onclick = function () { devCh2Mem(b.getAttribute('data-ch2mem')); };
     });
     body.querySelectorAll('[data-mem]').forEach(function (b) {
       b.onclick = function () { devMemCycle(b.getAttribute('data-mem')); };
@@ -3983,6 +4000,7 @@
       toast('第二章 · 直接进入：' + (S.ch2.adminEntry ? '开（免通关门槛）' : '关'));
     }
     if (a === 'oil') { S.oil = (S.oil == null ? 2 : S.oil) + 5; toast('灯油 +5'); }
+    if (a === 'ch2prep') { devCh2Prep(); toast('第二章前置已补齐（一章旗标 / 四件道具 / ch2 进门旗标）'); }
     if (a === 'inf') { DEVM.inf = !DEVM.inf; toast('无限灯油：' + (DEVM.inf ? '开' : '关')); }
     if (a === 'mem0') { (D.MEM23 || []).forEach(function (m) { devMemSet(m.id, 'pawned', 0); }); toast('全部记忆归零'); }
     if (a === 'memall') { (D.MEM23 || []).forEach(function (m) { devMemSet(m.id, 'held', 0); }); dirty.mem = dirty.arch = 1; bgDirty = true; toast('全部记忆恢复'); }
@@ -4053,6 +4071,86 @@
     dirty.hud = dirty.tasks = dirty.arch = dirty.mem = 1;
     toggleDev();
     toast('已直达：' + (p.name || pid));
+  }
+  /* ============ v51：面板管到第二章（用户点单：「管理员权限对第二章能力太少，加跳关、跳到解谜」）============
+     数据不在这里抄第二份：节点表从 `global.CH2.devNodes()` 现取 —— ch2 加一处献忆，面板自动多一行，
+     判据 ㉒ 的"面板列出的节点数 = ch2 实际谜题数"就是这么钉住的。跳关补的是**正常存档字段**
+     （任务 / 旗标 / 四件道具 / ch2 进门旗标），DEVM 一个字节没动（v34 B5 口径照旧）。 */
+  function ch2Nodes() { var C = global.CH2; try { return (C && C.devNodes) ? C.devNodes() : []; } catch (e) { return []; } }
+  function devCh2Prep() {
+    S.flags.back_ok = 1;                                        /* ch2 三个挂点都 need: 'back_ok' */
+    S.flags.ch2_entered = 1;
+    ['wax', 'slip', 'scale', 'ledger'].forEach(function (i) { S.flags['ch2_it_' + i] = 1; });
+    S.flags.ch2_shelf_taken = 1;
+    dirty.hud = dirty.tasks = dirty.mem = 1; bgDirty = true;
+  }
+  function devCh2Rows() {
+    var rows = ch2Nodes().filter(function (n) { return n.puzzle && n.sid && n.pid; });
+    if (!rows.length) return '<div class="dv-sub">（第二章没接上：global.CH2.devNodes 取不到）</div>';
+    return rows.map(function (n) {
+      return '<button class="dv-row" data-ch2="' + n.sid + '|' + n.pid + '">' + n.name +
+        '<i>' + (S.flags[n.flag] ? '已过' : '未过') + '</i></button>';
+    }).join('');
+  }
+  function ch2Lightest() {          /* 雾那处要的是"身上最轻的一段"（与 ch2 现算口径一致） */
+    var best = null;
+    (D.MEM23 || []).forEach(function (m) {
+      if ((S.mem[m.id] || {}).state === 'donated') return;
+      if (!best || (m.w || 0) < (best.w || 0)) best = m;
+    });
+    return best ? best.id : null;
+  }
+  function devCh2Answer(n) { return n.answer === 'lightest' ? ch2Lightest() : n.answer; }
+  function devCh2MemRows() {
+    var rows = ch2Nodes().filter(function (n) { return n.puzzle; });
+    if (!rows.length) return '<div class="dv-sub">（第二章没接上）</div>';
+    return rows.map(function (n) {
+      var id = devCh2Answer(n), m = id ? D.mem23ById(id) : null;
+      var done = !!id && (S.mem[id] || {}).state === 'donated';
+      return '<button class="dv-row" data-ch2mem="' + n.key + '">' + n.name + ' → ' +
+        (n.answer === 'lightest' ? '最轻的那段' : (m ? '「' + (m.tag || id) + '」' : id)) +
+        '<i>' + (done ? '已献' : '在身上') + '</i></button>';
+    }).join('');
+  }
+  function devCh2Mem(key) {         /* 献忆那一套：一段记"在身上 ⇄ 已献"，跳过试错 */
+    var n = ch2Nodes().filter(function (x) { return x.key === key; })[0];
+    if (!n) { toast('面板里没有这一处：' + key); return; }
+    var id = devCh2Answer(n);
+    if (!id) { toast('没有可交的记了。'); return; }
+    var cur = (S.mem[id] || {}).state, next = cur === 'donated' ? 'held' : 'donated';
+    S.mem[id] = { state: next, hurt: 0, pawns: (S.mem[id] && S.mem[id].pawns) || 0 };
+    if (next === 'donated') { S.flags['ch2_gave_' + id] = 1; S.flags.ch2_given = 1; }
+    else { delete S.flags['ch2_gave_' + id]; }
+    dirty.mem = dirty.arch = 1; bgDirty = true;
+    renderDev();
+    toast(n.name + '：' + (next === 'donated' ? '已献（柜上不赎）' : '放回身上'));
+  }
+  function devCh2Goto(sid, pid) {   /* 跳到解谜：前置补足再落到点上，面板自己收起来 */
+    devCh2Prep();
+    devGoto(sid, pid);
+  }
+  function devCh2Jump(where) {      /* 跳关：前几幕主线补齐 + 第二章前置一次给足 */
+    D.TASKS.forEach(function (t) { S.tasks[t.id] = 1; S.flags[t.flag] = 1; });
+    awardPhotos();
+    devCh2Prep();
+    S.maxAct = Math.max(S.maxAct || 1, 5); S.act = 5;   /* 第二章不是"幕"，别把 act 顶到 6 */
+    dirty.hud = dirty.tasks = dirty.arch = dirty.mem = 1;
+    if (where === 'vault') {
+      enterScene(global.CH2 ? global.CH2.VAULT : 'ch2_vault');
+      toggleDev();
+      toast('已跳到第二章 · 记忆库');
+      return;
+    }
+    /* where === 'fog'：三处献忆一次办完（记切成已献 + 三个旗标），再落到雾里那个点 */
+    ch2Nodes().filter(function (n) { return n.puzzle; }).forEach(function (n) {
+      var id = devCh2Answer(n);
+      if (id) { S.mem[id] = { state: 'donated', hurt: 0, pawns: 0 }; S.flags['ch2_gave_' + id] = 1; }
+      if (n.flag) S.flags[n.flag] = 1;
+    });
+    S.flags.ch2_given = 1;
+    var fog = ch2Nodes().filter(function (n) { return n.key === 'fog'; })[0] || {};
+    devGoto(fog.sid || 'mist', fog.pid || 'ch2_fog');
+    toast('三处献忆已办完 —— 进雾里就有第二章结局卡');
   }
   /* B2：记忆 —— 归零 / 恢复 / 单条四态循环（有 → 当出 → 半碎 → 咬碎） */
   function devMemSet(id, st, hurt) {
