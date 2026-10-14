@@ -274,6 +274,32 @@
   .knock-track span.wrong { color: var(--red); }
   .knock-track span.slot { color: var(--dim); opacity: .45; }
   .riddle-row { display: flex; gap: 8px; align-items: center; }
+  /* 主界面 · 选章节（v44）—— 结局之后进这里；第二章要一章通关才解锁。
+     复用结局模态那套皮（--panel / --gold / --gold2 / --line），不另起一套设计语言。 */
+  #home-modal {
+    position: absolute; inset: 0; background: rgba(12, 9, 24, .94);
+    display: none; align-items: center; justify-content: center; z-index: 9; padding: 14px;
+  }
+  #home-modal.show { display: flex; }
+  #home-card {
+    width: min(660px, 96%); background: var(--panel); border: 2px solid var(--gold);
+    border-radius: 16px; padding: 22px 24px; box-shadow: 0 5px 0 rgba(0,0,0,.35);
+  }
+  #home-title { font-size: 24px; color: var(--gold2); font-weight: 700; letter-spacing: 8px; text-align: center; }
+  #home-sub { font-size: 12px; color: var(--dim); text-align: center; margin: 6px 0 16px; }
+  #home-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+  .hm-card {
+    flex: 1 1 250px; background: rgba(255,255,255,.03); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .hm-card.locked { opacity: .5; }
+  .hm-name { font-size: 17px; color: var(--gold2); font-weight: 700; letter-spacing: 2px; }
+  .hm-meta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
+  .hm-state { font-size: 13px; }
+  .hm-hint { font-size: 11px; color: var(--dim); }
+  .hm-go { margin-top: auto; }
+  #home-foot { font-size: 12px; color: var(--dim); text-align: center; margin-top: 16px; }
+  #home-foot button { margin-left: 8px; }
   /* 结局模态 */
   #end-modal {
     position: absolute; inset: 0; background: rgba(16, 11, 32, .9);
@@ -1014,6 +1040,7 @@ button:active { transform: translate(1px, 1px); }
       <span class="hitem">目标 <b id="hud-goal" style="color:var(--gold2)">—</b></span>
       <button id="btn-restart" title="回到本幕开头自动记下的存档点（每幕开头记一次）">↺ 存档点</button>
       <button id="btn-bgm" title="背景音乐开关">♪ 开</button>
+      <button id="btn-home" title="主界面：挑一章进去（结局之后进这儿）">▤ 主界面</button>
       <button id="btn-archive" title="通关后解锁：世界档案">档案</button>
       <button id="btn-fs" title="全屏 / 退出全屏（U 键；ESC 也能退出）">⛶ 全屏</button>
       <button id="btn-dev" title="开发者模式（按 ` 或 F2 切换）">DEV</button>
@@ -1051,6 +1078,14 @@ button:active { transform: translate(1px, 1px); }
           <div id="m-btns"></div>
         </div>
       </div>
+      <div id="home-modal">
+        <div id="home-card">
+          <div id="home-title">记忆当铺</div>
+          <div id="home-sub">柜上两本账 —— 你挑一本</div>
+          <div id="home-cards"></div>
+          <div id="home-foot"></div>
+        </div>
+      </div>
       <div id="end-modal">
         <div id="end-card">
           <div id="end-name"></div>
@@ -1058,6 +1093,7 @@ button:active { transform: translate(1px, 1px); }
           <div id="end-stats"></div>
           <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
             <button id="btn-again">再走一遍这条路</button>
+            <button id="btn-home-end">▸ 回到主界面</button>
             <button id="btn-main" style="display:none; background:transparent; color:var(--gold2); border:1px solid var(--gold); font-weight:500;">▸ 走进世界档案</button>
           </div>
         </div>
@@ -1107,7 +1143,7 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/ch2/scenes.js?v=2"></script>
 <script src="js/ch2/puzzles.js?v=3"></script>
 <script src="js/ch2/index.js?v=4"></script>
-<script src="js/game23.js?v=51"></script>
+<script src="js/game23.js?v=52"></script>
 <script src="js/guide23.js?v=35"></script>
 <script>
 /* v37 全屏键（功能增加线 · D）。U 键 / 顶栏「⛶ 全屏」按钮 切换全屏，ESC 退出。
