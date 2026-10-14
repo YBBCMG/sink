@@ -3853,10 +3853,80 @@
     return k;
   }
 
+  /* ============ v44：主界面 · 选章节（结局之后进这儿；第二章要一章通关才解锁） ============
+     只当门牌，不碰玩法：解锁口径读 js/ch2/index.js 现成的 cleared()/adminEntry()，
+     进场调它现成的 CH2.open('ch2_vaultdoor') —— 引擎里一行第二章逻辑都不加。
+     面板不进存档（不动 pack/load）：关掉菜单就是关掉，什么都不记。 */
+  var homeOpen = false;
+  function ch2SlotText() {                        /* 章名走插槽：玩法线改 text.js，菜单跟着变 */
+    var t = global.CH2_TEXT || {};
+    return { name: t.title || '第二章', sub: t.sub || '' };
+  }
+  function homeCh1Meta() {
+    var scenes = Object.keys(D.SCENES).filter(function (k) { return k.indexOf('ch2_') !== 0; }).length;
+    return scenes + ' 场景 · ' + D.TASKS.length + ' 任务 · ' + Object.keys(D.PUZZLES).length + ' 谜题 · 4 结局';
+  }
+  function homeCards() {
+    var inCh2 = /^ch2_/.test(String(S.scene || ''));
+    var c1 = {
+      name: '第一章 · 望归岛',
+      meta: homeCh1Meta(),
+      state: S.cleared
+        ? '已通关 · 结局 ' + endingsRun().length + '/4 · 相簿 ' + D.photoCount(S) + '/4'
+        : '进行中 · 第 ' + S.act + ' 幕 · 任务 ' + doneCount() + '/' + D.TASKS.length + ' · 相簿 ' + D.photoCount(S) + '/4',
+      hint: inCh2 ? '你现在站在第二章里 —— 按这颗回岛上去。' : '接着上次停下的地方走。',
+      btn: inCh2 ? '回岛上去' : '继续第一章',
+      go: inCh2 ? 'back1' : 'stay',
+    };
+    var unlocked = !!(global.CH2 && global.CH2.cleared(S));
+    var admin = !!(global.CH2 && global.CH2.adminEntry(S));
+    var slot = ch2SlotText();
+    var c2 = {
+      name: slot.name, meta: slot.sub || '新主角 · 独立一章',
+      state: unlocked
+        ? '已解锁 · ' + (S.flags.ch2_entered ? '进去过了' : '还没进去过')
+        : (admin ? '未解锁 —— 但 DEV 口子开着' : '未解锁 · 得先把第一章走完'),
+      hint: unlocked ? '进去了也回得来：主界面一直在顶栏。'
+        : (admin ? 'DEV 面板里把「二章免通」打开就能进。' : '把一个结局走完，里间那道门才认你。'),
+      btn: (unlocked || admin) ? '进入' + slot.name : '未解锁',
+      go: (unlocked || admin) ? 'ch2' : 'no',
+    };
+    return [c1, c2];
+  }
+  function renderHome() {
+    var cards = homeCards(), box = $('home-cards');
+    box.innerHTML = cards.map(function (c, i) {
+      return '<div class="hm-card' + (c.go === 'no' ? ' locked' : '') + '" data-card="' + i + '">' +
+        '<div class="hm-name">' + c.name + '</div>' +
+        '<div class="hm-meta">' + c.meta + '</div>' +
+        '<div class="hm-state">' + c.state + '</div>' +
+        '<div class="hm-hint">' + c.hint + '</div>' +
+        '<button class="hm-go"' + (c.go === 'no' ? ' disabled' : '') + '>' + c.btn + '</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('.hm-go'), function (b, i) {
+      b.onclick = function () { homeGo(cards[i].go); };
+    });
+    $('home-foot').innerHTML = S.cleared
+      ? '掌柜：账合上了。要看旧账 —— <button id="btn-home-archive">▸ 世界档案</button>'
+      : '掌柜：账还没合。哪一本都得自己走完。';
+    var ar = $('btn-home-archive');
+    if (ar) ar.onclick = function () { closeHome(); $('btn-archive').click(); };
+  }
+  function homeGo(go) {
+    if (go === 'stay') { closeHome(); return; }
+    if (go === 'no') { sfx('wrong'); toast('第二章还没解锁 —— 先把第一章走完。'); return; }
+    if (!global.CH2) { toast('第二章没装上。'); return; }
+    closeHome();
+    global.CH2.open({ ch2: true, id: go === 'ch2' ? 'ch2_vaultdoor' : 'ch2_back' }, ch2Host());
+  }
+  function showHome() { homeOpen = true; renderHome(); $('home-modal').classList.add('show'); }
+  function closeHome() { homeOpen = false; $('home-modal').classList.remove('show'); }
+
   function keydown(e) {
     var k = keyNameOf(e);
     if (k === '`' || k === 'F2') { toggleDev(); e.preventDefault(); return; }
     if (k === 'f' || k === 'F') { pourOil(); e.preventDefault(); return; }   /* 面板开着也能泼 */
+    if (homeOpen) { if (k === 'Escape') closeHome(); return; }               /* v44：主界面开着就不走位 */
     if (modalOpen) {
       if (k === 'Escape') { closeModal(); }
       if (k === 'Enter' || k === 'e' || k === 'E') {
@@ -4282,6 +4352,9 @@
     $('dev-close').onclick = toggleDev;
     $('btn-again').onclick = function () { $('end-modal').classList.remove('show'); restart(); };
     $('btn-main').onclick = function () { $('end-modal').classList.remove('show'); $('btn-archive').click(); };
+    $('btn-home').onclick = function () { showHome(); };
+    $('btn-home-end').onclick = function () { $('end-modal').classList.remove('show'); showHome(); };
+    $('home-modal').onclick = function (e) { if (e.target === $('home-modal')) closeHome(); };
     bindTabs();
     if (global.MUSIC) {
       $('btn-bgm').textContent = global.MUSIC.enabled() ? '♪ 开' : '♪ 关';
