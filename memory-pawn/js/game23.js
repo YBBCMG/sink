@@ -3919,7 +3919,13 @@
     closeHome();
     global.CH2.open({ ch2: true, id: go === 'ch2' ? 'ch2_vaultdoor' : 'ch2_back' }, ch2Host());
   }
-  function showHome() { homeOpen = true; renderHome(); $('home-modal').classList.add('show'); }
+  function showHome() {
+    homeOpen = true; renderHome();
+    $('home-modal').classList.add('show');
+    /* v45：主界面是像素场景（当铺柜台）——进主界面时烘一次画布，
+       之后每帧零成本；没加载到 home-art.js 就退回纯 DOM 版（不至于白屏）。 */
+    if (global.HOMEART && HOMEART.mount) { try { HOMEART.mount(); } catch (e) { /* 退回 DOM 版 */ } }
+  }
   function closeHome() { homeOpen = false; $('home-modal').classList.remove('show'); }
 
   function keydown(e) {
@@ -4302,7 +4308,10 @@
   function boot() {
     canvas = $('world'); ctx = canvas.getContext('2d');
     setupCanvas();
-    window.addEventListener('resize', function () { setupCanvas(); });
+    window.addEventListener('resize', function () {
+      setupCanvas();
+      if (homeOpen && global.HOMEART && HOMEART.mount) { try { HOMEART.mount(); } catch (e) { /* ignore */ } }
+    });
     var q = global.location && global.location.search || '';
     if (q.indexOf('fresh=1') >= 0) { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } clearGuide(); }
     S = load() || freshState();
