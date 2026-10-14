@@ -3911,6 +3911,7 @@
       : '掌柜：账还没合。哪一本都得自己走完。';
     var ar = $('btn-home-archive');
     if (ar) ar.onclick = function () { closeHome(); $('btn-archive').click(); };
+    return cards;                                   /* 给 showHome 传给画布：第二章封不封 */
   }
   function homeGo(go) {
     if (go === 'stay') { closeHome(); return; }
@@ -3920,11 +3921,15 @@
     global.CH2.open({ ch2: true, id: go === 'ch2' ? 'ch2_vaultdoor' : 'ch2_back' }, ch2Host());
   }
   function showHome() {
-    homeOpen = true; renderHome();
+    homeOpen = true;
+    var cards = renderHome();
     $('home-modal').classList.add('show');
-    /* v45：主界面是像素场景（当铺柜台）——进主界面时烘一次画布，
-       之后每帧零成本；没加载到 home-art.js 就退回纯 DOM 版（不至于白屏）。 */
-    if (global.HOMEART && HOMEART.mount) { try { HOMEART.mount(); } catch (e) { /* 退回 DOM 版 */ } }
+    /* v45：主界面是像素场景（当铺柜台）——进主界面时烘一次画布，之后每帧零成本；
+       第二章封不封由游戏状态决定（解锁了就不画封条/铜锁/火漆，不然图文打架）；
+       没加载到 home-art.js 就退回纯 DOM 版（不至于白屏）。 */
+    if (global.HOMEART && HOMEART.mount) {
+      try { HOMEART.mount({ lockedB: !!(cards && cards[1] && cards[1].go === 'no') }); } catch (e) { /* 退回 DOM 版 */ }
+    }
   }
   function closeHome() { homeOpen = false; $('home-modal').classList.remove('show'); }
 
