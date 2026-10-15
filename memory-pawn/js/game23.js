@@ -1526,7 +1526,8 @@
     $('end-name').textContent = (e.true ? '★ ' : '') + e.name;
     $('end-text').innerHTML = e.text.split('\n').map(function (l) { return '<p class="dlg-line">' + l + '</p>'; }).join('');
     $('end-stats').innerHTML = stats;
-    $('btn-main').style.display = 'inline-block';
+    var bm = $('btn-main');                        /* v47：那颗「走进世界档案」摘了 —— 有才点，没有不报错 */
+    if (bm) bm.style.display = 'inline-block';
     $('end-modal').classList.add('show');
     sfx(e.true ? 'end' : 'endSad');
     music(e.true ? 'm4' : 'm5');
@@ -1610,6 +1611,14 @@
         (has ? ph.text : '（还没有 · ' + ph.get + '）') + '</div>';
     });
     html += '<div class="arc-h">提示</div><div class="arc-item">相簿四张齐，终幕才有「把名字还给她」。</div>';
+    /* v47：世界档案那扇门摘了（用户：「删了吧，没啥用」），可**结局图鉴是玩家资产**——
+       不能跟着面板一起变成孤儿，挪到相簿这页来（同一套 arc-* 样式，看着还是自家东西）。
+       面板本身原样留着，接回来就是把页签那颗按钮加回去。 */
+    html += '<div class="arc-h">结局图鉴（' + endingsRun().length + '/4）</div>';
+    D.ENDINGS.forEach(function (e) {
+      var got = endingsRun().indexOf(e.id) >= 0;
+      html += '<div class="arc-item' + (got ? '' : ' locked') + '"><b>' + (got ? (e.true ? '★' : '●') : '○') + ' ' + e.name + '</b>' + e.cond + '</div>';
+    });
     p.innerHTML = html;
   }
   /* 「记」面板：游戏叫记忆当铺，这一栏就是你的记
@@ -3954,10 +3963,8 @@
       el.onclick = function () { homePick(i); if (cards[i].go !== 'no') homeGo(cards[i].go); };
     });
     $('home-foot').innerHTML = S.cleared
-      ? '掌柜：账合上了。要看旧账 —— <button id="btn-home-archive">▸ 世界档案</button>'
+      ? '掌柜：账合上了。旧账都归到「相簿」那页了。'
       : '掌柜：账还没合。哪一本都得自己走完。';
-    var ar = $('btn-home-archive');
-    if (ar) ar.onclick = function () { closeHome(); $('btn-archive').click(); };
     return cards;                                   /* 给 showHome 传给画布：第二章封不封 */
   }
   function homeGo(go) {
@@ -4041,7 +4048,8 @@
     else if (k === 'd') keys.right = 0;
   }
   function cycleTab() {
-    var tabs = ['tab-log', 'tab-mem', 'tab-tasks', 'tab-album', 'tab-archive'];
+    /* v47：少了一颗按钮（世界档案那张页签摘了）也得转得动 —— 先滤掉不在 DOM 里的 */
+    var tabs = ['tab-log', 'tab-mem', 'tab-tasks', 'tab-album', 'tab-archive'].filter(function (t) { return $(t); });
     var cur = tabs.filter(function (t) { return $(t).classList.contains('on'); })[0] || tabs[0];
     var i = (tabs.indexOf(cur) + 1) % tabs.length;
     $(tabs[i]).click();
@@ -4049,10 +4057,17 @@
 
   /* ---------- 面板 / DEV ---------- */
   function bindTabs() {
+    /* v47：这里按 id 逐个接线 —— 少一颗按钮就是空指针，一摘门整个面板全白。
+       接线照旧全写，缺哪个跳哪个（接回来时不用改这里）。 */
     var map = { 'tab-log': 'pane-log', 'tab-mem': 'pane-mem', 'tab-tasks': 'pane-tasks', 'tab-album': 'pane-album', 'tab-archive': 'pane-archive' };
     Object.keys(map).forEach(function (tab) {
-      $(tab).onclick = function () {
-        Object.keys(map).forEach(function (t) { $(t).classList.toggle('on', t === tab); $(map[t]).classList.toggle('on', t === tab); });
+      var btn = $(tab), pane = $(map[tab]);
+      if (!btn || !pane) return;
+      btn.onclick = function () {
+        Object.keys(map).forEach(function (t) {
+          var b = $(t), pn = $(map[t]); if (!b || !pn) return;
+          b.classList.toggle('on', t === tab); pn.classList.toggle('on', t === tab);
+        });
         dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
         refreshPanels();
       };
@@ -4447,11 +4462,15 @@
       $('btn-bgm').textContent = on ? '♪ 开' : '♪ 关';
       toast(on ? '背景音乐 · 开' : '背景音乐 · 关');
     };
-    $('btn-archive').onclick = function () { $('tab-archive').click(); };
+    /* v47：顶栏「档案」+ 结局画面「走进世界档案」两颗按钮摘了。接线照旧留着、有才接 ——
+       哪天文案要接回来，HTML 里把那两颗加回去就通，这份代码一个字不用动。 */
+    var ba = $('btn-archive');
+    if (ba) ba.onclick = function () { var t = $('tab-archive'); if (t) t.click(); };
     $('btn-dev').onclick = toggleDev;
     $('dev-close').onclick = toggleDev;
     $('btn-again').onclick = function () { $('end-modal').classList.remove('show'); restart(); };
-    $('btn-main').onclick = function () { $('end-modal').classList.remove('show'); $('btn-archive').click(); };
+    var bm = $('btn-main');
+    if (bm) bm.onclick = function () { $('end-modal').classList.remove('show'); if (ba) ba.click(); };
     $('btn-home').onclick = function () { showHome(); };
     $('btn-home-end').onclick = function () { $('end-modal').classList.remove('show'); showHome(); };
     $('home-modal').onclick = function (e) { if (e.target === $('home-modal')) closeHome(); };
