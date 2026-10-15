@@ -71,7 +71,9 @@
   #btn-bgm.off { color: var(--dim); text-decoration: line-through; }
   /* 「档案」那颗按钮已摘（用户：「这个世界档案删了吧，没啥用」）—— 样式一起收走，
      免得留一条指着不存在按钮的规则。面板本身（#pane-archive）还在，接回来时把上面这段和
-     顶栏那颗一起加回即可。 */
+     顶栏那颗一起加回即可。
+     JS 那侧也留了同一句话：refreshArchive() 与 #pane-archive 一个字节没删，refreshAlbum()
+     里接上了「结局图鉴（y/4）」这块玩家资产 —— 旧门摘了，里面的东西有人接。 */
   /* v37 全屏键：跟旁边那族同款外观；.on = 当前在全屏里 */
   #btn-fs {
     background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
