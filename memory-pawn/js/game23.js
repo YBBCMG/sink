@@ -3886,10 +3886,11 @@
       state: unlocked
         ? '已解锁 · ' + (S.flags.ch2_entered ? '进去过了' : '还没进去过')
         : (admin ? '未解锁 —— 但 DEV 口子开着' : '未解锁 · 得先把第一章走完'),
-      hint: unlocked ? '进去了也回得来：主界面一直在顶栏。'
-        : (admin ? 'DEV 面板里把「二章免通」打开就能进。' : '把一个结局走完，里间那道门才认你。'),
-      btn: (unlocked || admin) ? '进入' + slot.name : '未解锁',
-      go: (unlocked || admin) ? 'ch2' : 'no',
+      hint: inCh2 ? '你正站在第二章里 —— 关掉这页就是接着玩。'
+        : (unlocked ? '进去了也回得来：主界面一直在顶栏。'
+          : (admin ? 'DEV 面板里把「二章免通」打开就能进。' : '把一个结局走完，里间那道门才认你。')),
+      btn: (unlocked || admin) ? (inCh2 ? '接着玩' : '进入' + slot.name) : '未解锁',
+      go: (unlocked || admin) ? (inCh2 ? 'stay' : 'ch2') : 'no',
     };
     return [c1, c2];
   }
@@ -3920,7 +3921,8 @@
     closeHome();
     global.CH2.open({ ch2: true, id: go === 'ch2' ? 'ch2_vaultdoor' : 'ch2_back' }, ch2Host());
   }
-  function showHome() {
+  function openHome() {                             /* 真开：不看手上有没有弹窗（启动落点走这条） */
+    if ($('dev-panel') && $('dev-panel').classList.contains('show')) toggleDev();   /* 面板别跟菜单叠着 */
     homeOpen = true;
     var cards = renderHome();
     $('home-modal').classList.add('show');
@@ -3930,6 +3932,18 @@
     if (global.HOMEART && HOMEART.mount) {
       try { HOMEART.mount({ lockedB: !!(cards && cards[1] && cards[1].go === 'no') }); } catch (e) { /* 退回 DOM 版 */ }
     }
+    return true;
+  }
+  /* v45：主界面是"模式"不是"又一页" —— 顶栏那颗 / 结局那颗开之前先看清手上有没有没处理完的弹窗。
+     对话 / 谜题 / 柜台 半路上不许走：那种时候菜单一压上去，半路上的交互（尤其台词回调里
+     才落旗标的那种）就断在半路。**用"禁用"而不是"确认框"**：这个引擎的 E 键是
+     "点弹窗第一个按钮"，确认框叠在谜题上会被 E 直接误点掉；而禁用是唯一一个字节都不动的做法
+     （每个弹窗都有退路 —— ESC 或「算了」，玩家不会卡住）。
+     唯一的例外是**启动落点**（boot 那次直接调 openHome）：进场独白本来就该排在菜单后面 ——
+     菜单层级比 #modal 高（z 80 > 6），玩家关掉菜单照样看得见它，一个字节都不会丢。 */
+  function showHome() {
+    if (modalOpen) { sfx('wrong'); toast('先把手上这一页处理完（ESC 或「算了」）—— 免得进度丢在这一步。'); return false; }
+    return openHome();
   }
   function closeHome() { homeOpen = false; $('home-modal').classList.remove('show'); }
 
@@ -4319,7 +4333,8 @@
     });
     var q = global.location && global.location.search || '';
     if (q.indexOf('fresh=1') >= 0) { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } clearGuide(); }
-    S = load() || freshState();
+    var loadedSave = load();     /* v45：有档 = 老玩家 —— 这次开游戏先落主界面（第一章卡就是"接着玩"） */
+    S = loadedSave || freshState();
     purgeMemLog();     /* 老存档里已经抄进日志的正文，进游戏就先抹一次 */
     endingRun = endingsRun();
     window.addEventListener('keydown', keydown);
@@ -4337,6 +4352,7 @@
        触摸那次会再补一个合成 click，用 500ms 窗口去重，避免一下按出两回 */
     var eTouchedAt = 0;
     function eAction() {
+      if (homeOpen) return;                       /* v45：主界面开着时不认 E（别把身后那个点点了） */
       if (modalOpen) { var m = $('m-btns'); if (m && m.firstChild) m.firstChild.click(); return; }
       interact();
     }
@@ -4386,6 +4402,10 @@
       say(D.TEXT.prologue.slice(), function () { banner(scene().name, scene().sub); }, { title: '记忆当铺 · 归潮屿', end: '点亮灯' });
     }
     dirty.hud = dirty.log = dirty.tasks = dirty.album = dirty.arch = 1; dirty.mem = 1;
+    /* v45：启动落点 = 主界面。只在「读到了存档、而且序章已经翻过」时落 ——
+       没档的新玩家照旧先走序章（首玩导览不动，回归套那 72 条也照旧）；
+       老玩家落这儿，点第一章就是"接着玩"：位置、旗标、任务一个字节没动（存档只在 save() 时才写）。 */
+    if (loadedSave && S.introDone) openHome();
     raf = requestAnimationFrame(loop);
     window.PAWN_DEBUG = {
       S: S, D: D,
