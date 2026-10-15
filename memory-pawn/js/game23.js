@@ -3858,6 +3858,7 @@
      进场调它现成的 CH2.open('ch2_vaultdoor') —— 引擎里一行第二章逻辑都不加。
      面板不进存档（不动 pack/load）：关掉菜单就是关掉，什么都不记。 */
   var homeOpen = false;
+  var homeSel = 0;                                /* v46：小人这会儿挑的是哪一本（0＝第一章） */
   function ch2SlotText() {                        /* 章名走插槽：玩法线改 text.js，菜单跟着变 */
     var t = global.CH2_TEXT || {};
     return { name: t.title || '第二章', sub: t.sub || '' };
@@ -3894,6 +3895,46 @@
     };
     return [c1, c2];
   }
+  /* ---- v46：小人走位选章 ----
+     「选中哪一本」＝画布上那个小人走到哪一本跟前（走路是 js/home-art.js 的事）；
+     这边只管三件：选了哪本 / 能不能进 / 锁着的时候怎么回话。 */
+  function homeLocked() { return homeCards()[1].go === 'no'; }
+  function homeGauge() {                            /* 第一章那 12 格刻度＝真进度 */
+    if (S.cleared) return 12;
+    return Math.max(0, Math.min(12, Math.round(doneCount() / Math.max(1, D.TASKS.length) * 12)));
+  }
+  function homeMarkSel() {                          /* DOM 那层跟着亮（画布那层是金边 + 光池） */
+    var box = $('home-cards'), i;
+    if (!box) return;
+    var els = box.querySelectorAll('.hm-card');
+    for (i = 0; i < els.length; i++) {
+      if (i === homeSel) els[i].classList.add('sel'); else els[i].classList.remove('sel');
+    }
+    var p = $('home-prev'), n = $('home-next');
+    if (p) p.classList.toggle('sel', homeSel === 0);
+    if (n) n.classList.toggle('sel', homeSel === 1);
+  }
+  function homePick(i) {
+    i = i ? 1 : 0;
+    var same = (i === homeSel);
+    homeSel = i;
+    homeMarkSel();
+    if (global.HOMEART && HOMEART.setSel) { try { HOMEART.setSel(i); } catch (e) { /* 没画布也能选 */ } }
+    /* 锁着那本：站过去了就别再往前走 —— 铜锁抖一下 + 一句人话，绝不放进去 */
+    if (i === 1 && homeLocked() && same) homeRefuse();
+  }
+  function homeRefuse() {
+    if (global.HOMEART && HOMEART.jiggle) { try { HOMEART.jiggle(); } catch (e) { /* ignore */ } }
+    sfx('wrong');
+    toast('第二章还锁着 —— 把一个结局走完，里间那道门才认你。');
+  }
+  function homeArrive() {                           /* 画布回调：走到跟前了 */
+    if (homeSel === 1 && homeLocked()) homeRefuse();
+  }
+  function homeConfirm() {                          /* E / 空格 / 回车：进选中的那一本 */
+    var cards = homeCards();
+    homeGo(cards[homeSel] ? cards[homeSel].go : 'no');
+  }
   function renderHome() {
     var cards = homeCards(), box = $('home-cards');
     box.innerHTML = cards.map(function (c, i) {
@@ -3905,7 +3946,12 @@
         '<button class="hm-go"' + (c.go === 'no' ? ' disabled' : '') + '>' + c.btn + '</button></div>';
     }).join('');
     Array.prototype.forEach.call(box.querySelectorAll('.hm-go'), function (b, i) {
-      b.onclick = function () { homeGo(cards[i].go); };
+      b.onclick = function (e) { if (e && e.stopPropagation) e.stopPropagation(); homeGo(cards[i].go); };
+    });
+    /* 整张卡都能点（手机上手大）：先把他挑过去，再走按钮那条路。
+       锁着那张只挑过去 —— 让他走到跟前，铜锁抖一下、给一句解锁条件（不再另弹一句，免得刷屏）。 */
+    Array.prototype.forEach.call(box.querySelectorAll('.hm-card'), function (el, i) {
+      el.onclick = function () { homePick(i); if (cards[i].go !== 'no') homeGo(cards[i].go); };
     });
     $('home-foot').innerHTML = S.cleared
       ? '掌柜：账合上了。要看旧账 —— <button id="btn-home-archive">▸ 世界档案</button>'
@@ -3924,14 +3970,20 @@
   function openHome() {                             /* 真开：不看手上有没有弹窗（启动落点走这条） */
     if ($('dev-panel') && $('dev-panel').classList.contains('show')) toggleDev();   /* 面板别跟菜单叠着 */
     homeOpen = true;
+    homeSel = 0;                                    /* 每次进来先落在「第一章」那本上（小人已经站那儿） */
     var cards = renderHome();
+    document.body.classList.add('mp-home');         /* 提示条要压在菜单上头（见 #toast 那条规则） */
     $('home-modal').classList.add('show');
-    /* v45：主界面是像素场景（当铺柜台）——进主界面时烘一次画布，之后每帧零成本；
-       第二章封不封由游戏状态决定（解锁了就不画封条/铜锁/火漆，不然图文打架）；
+    /* v46：主界面是像素场景（当铺柜台 + 会走的小人）。底图按状态烘一次，之后每帧只重画
+       小人/光圈/铜锁；第二章封不封由游戏状态决定（解锁了就不画封条/铜锁/火漆，不然图文打架）；
        没加载到 home-art.js 就退回纯 DOM 版（不至于白屏）。 */
     if (global.HOMEART && HOMEART.mount) {
-      try { HOMEART.mount({ lockedB: !!(cards && cards[1] && cards[1].go === 'no') }); } catch (e) { /* 退回 DOM 版 */ }
+      HOMEART.onArrive = homeArrive;
+      try {
+        HOMEART.mount({ lockedB: homeLocked(), gauge: homeGauge(), sel: homeSel });
+      } catch (e) { /* 退回 DOM 版 */ }
     }
+    homeMarkSel();
     return true;
   }
   /* v45：主界面是"模式"不是"又一页" —— 顶栏那颗 / 结局那颗开之前先看清手上有没有没处理完的弹窗。
@@ -3940,18 +3992,33 @@
      "点弹窗第一个按钮"，确认框叠在谜题上会被 E 直接误点掉；而禁用是唯一一个字节都不动的做法
      （每个弹窗都有退路 —— ESC 或「算了」，玩家不会卡住）。
      唯一的例外是**启动落点**（boot 那次直接调 openHome）：进场独白本来就该排在菜单后面 ——
-     菜单层级比 #modal 高（z 80 > 6），玩家关掉菜单照样看得见它，一个字节都不会丢。 */
+     菜单层级比 #modal 高（z 120 > 60），玩家关掉菜单照样看得见它，一个字节都不会丢。
+     v46 加了走位选章：← A → D 挑一本、E/空格/回车 进 —— **只动小人，不动玩家**，
+     v44 那条「菜单开着四个方向都走不动」的判据照旧成立（玩家那套 keys 一个字节没碰）。 */
   function showHome() {
     if (modalOpen) { sfx('wrong'); toast('先把手上这一页处理完（ESC 或「算了」）—— 免得进度丢在这一步。'); return false; }
     return openHome();
   }
-  function closeHome() { homeOpen = false; $('home-modal').classList.remove('show'); }
+  function closeHome() {
+    homeOpen = false;
+    if (document.body.classList) document.body.classList.remove('mp-home');
+    $('home-modal').classList.remove('show');
+    if (global.HOMEART && HOMEART.stop) { try { HOMEART.stop(); } catch (e) { /* ignore */ } }
+  }
 
   function keydown(e) {
     var k = keyNameOf(e);
     if (k === '`' || k === 'F2') { toggleDev(); e.preventDefault(); return; }
     if (k === 'f' || k === 'F') { pourOil(); e.preventDefault(); return; }   /* 面板开着也能泼 */
-    if (homeOpen) { if (k === 'Escape') closeHome(); return; }               /* v44：主界面开着就不走位 */
+    /* v46：主界面开着 → 方向键走的是**画布上那个小人**（挑哪一本），玩家一步都不许动 ——
+       v44 那条「菜单开着四个方向都走不动」就靠这个 return 守着（keys 一个字节没碰）。 */
+    if (homeOpen) {
+      if (k === 'Escape') closeHome();
+      else if (k === 'a') homePick(0);
+      else if (k === 'd') homePick(1);
+      else if (k === 'e') homeConfirm();
+      return;
+    }
     if (modalOpen) {
       if (k === 'Escape') { closeModal(); }
       if (k === 'Enter' || k === 'e' || k === 'E') {
@@ -4329,7 +4396,10 @@
     setupCanvas();
     window.addEventListener('resize', function () {
       setupCanvas();
-      if (homeOpen && global.HOMEART && HOMEART.mount) { try { HOMEART.mount(); } catch (e) { /* ignore */ } }
+      /* v46：重排也带上当前状态 —— 不然缩窗会把选中的那本打回第一章 */
+      if (homeOpen && global.HOMEART && HOMEART.mount) {
+        try { HOMEART.mount({ lockedB: homeLocked(), gauge: homeGauge(), sel: homeSel }); } catch (e) { /* ignore */ }
+      }
     });
     var q = global.location && global.location.search || '';
     if (q.indexOf('fresh=1') >= 0) { try { store().removeItem(SAVE_KEY); store().removeItem(CHECK_KEY); } catch (e) { /**/ } clearGuide(); }
@@ -4385,6 +4455,10 @@
     $('btn-home').onclick = function () { showHome(); };
     $('btn-home-end').onclick = function () { $('end-modal').classList.remove('show'); showHome(); };
     $('home-modal').onclick = function (e) { if (e.target === $('home-modal')) closeHome(); };
+    /* v46：地板两头那两颗「挑一本」（触屏/鼠标都吃）—— 只挑，进不进由卡片那颗按钮决定 */
+    var hp = $('home-prev'), hn = $('home-next');
+    if (hp) hp.onclick = function () { homePick(0); };
+    if (hn) hn.onclick = function () { homePick(1); };
     bindTabs();
     if (global.MUSIC) {
       $('btn-bgm').textContent = global.MUSIC.enabled() ? '♪ 开' : '♪ 关';
