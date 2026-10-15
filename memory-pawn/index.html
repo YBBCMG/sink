@@ -274,22 +274,41 @@
   .knock-track span.wrong { color: var(--red); }
   .knock-track span.slot { color: var(--dim); opacity: .45; }
   .riddle-row { display: flex; gap: 8px; align-items: center; }
-  /* 主界面 · 选章节（v45 像素版）—— 不另起一套设计语言：**主界面就是当铺柜台本身**。
-     画布 960×672 逻辑（js/home-art.js 烘一次，不是每帧画），文字与按钮留在 DOM 层，
-     按逻辑坐标绝对定位到两本账册的标签牌上 —— 字因此不被像素化，清晰可读、键鼠可达。
+  /* 主界面 · 选章节（v46 像素版）—— 不另起一套设计语言：**主界面就是当铺柜台本身**。
+     画布 960×672 逻辑（js/home-art.js 烘一张底图，每帧只重画小人/光圈/铜锁），文字与按钮
+     留在 DOM 层，按逻辑坐标绝对定位到两本账册的标签牌上 —— 字因此不被像素化，键鼠可达。
+     v45 那版三个坑，这版都堵上：① 遮罩只盖画布区 → 右侧面板与半截顶栏露在外头；
+     ② 画布按屏幕算一套倍率、文字按另一套 → 两层对不上，字压在字上；
+     ③ 卡内文字靠 margin 硬堆 + 按钮 absolute 钉死 → 提示语一折行就压按钮。
+     现在：整屏盖、整块 stage 一起缩、卡内真 flex（行高锁死 + 提示行留两行 + 按钮顶到牌底）。
+     字号收成四级：17（章名）/ 13（按钮）/ 12（招牌副题·页脚）/ 11（三行小字）。
      ⚠ 下面两组坐标来自 js/home-art.js 的 GEO：标签牌 = 封面 +34/+34、宽 −58、高 −84。
        第一章 108,278 → 标签牌 142,312 · 第二章 552,278 → 586,312（242×166）。
      旧版是一张 660×355 的 2px 金线白板压在平灰遮罩上 —— 跟世界两套材质语言，所以重做。 */
+  /* 主界面是**整屏一个模式**，不是压在画布上的一张纸 —— 顶栏、右侧「日志/任务/相簿」
+     面板全归它盖住。v45 只盖画布区，旁边那一列紫块、半截顶栏就是它漏出来的。
+     fixed + 挂在 body 下：不受 #world-wrap 的 overflow:hidden / contain:paint 管。 */
   #home-modal {
-    position: absolute; inset: 0; background: #0b0814;
-    display: none; align-items: center; justify-content: center; z-index: 80; overflow: hidden;
+    position: fixed; inset: 0; z-index: 120; overflow: hidden;
+    display: none; align-items: center; justify-content: center;
+    /* 大屏上 960×672 铺不满（画质口径就是 1:1，不放大）——剩下的地方不许是"没画完的黑":
+       给它一块当铺暗处的席子（2×2 抖动）+ 一圈铜边，读起来才是"匾挂在暗处"，不是没画完。 */
+    background: #0d0a16;
+    background-image: repeating-conic-gradient(#141020 0% 25%, #0d0a16 0% 50%);
+    background-size: 4px 4px;
   }
   #home-modal.show { display: flex; }
-  #home-stage { position: relative; }
-  #home-stage > canvas { display: block; }
+  /* 背板恒 960×672；装不下才整体缩 stage —— 画布和文字同吃这一个变换，
+     两层永远不会各自按不同倍率缩放（v45 的穿模就是这么来的）。
+     外边那两圈是铜边 + 硬台阶影，跟书封面的包角一个料。 */
+  #home-stage {
+    position: relative; transform-origin: 0 0;
+    box-shadow: 0 0 0 2px #8a6c38, 0 0 0 4px #241a10, 6px 8px 0 rgba(0, 0, 0, .5);
+  }
+  #home-stage > canvas { display: block; image-rendering: pixelated; }
   #home-layer {
     position: absolute; left: 0; top: 0; width: 960px; height: 672px;
-    transform-origin: 0 0;
+    transform: none;
     font-family: ui-monospace, Consolas, "Cascadia Mono", monospace;
   }
   #home-card { position: absolute; inset: 0; }
@@ -303,45 +322,94 @@
     font-size: 12px; letter-spacing: 3px; color: #c9b98c;
   }
   #home-cards { position: absolute; inset: 0; }
-  .hm-card { position: absolute; display: flex; flex-direction: column; }
+  /* 卡片＝账册封面上那块深墨标签牌：内边距 9px、行高锁死、按钮 margin-top:auto。
+     不写死按钮坐标 —— 提示语折行时是它自己被顶，不许压到别人身上（v45 就压在这）。 */
+  .hm-card {
+    position: absolute; display: flex; flex-direction: column; overflow: hidden;
+    padding: 9px 9px 10px; box-sizing: border-box; cursor: pointer;
+  }
   .hm-card[data-card="0"] { left: 142px; top: 312px; width: 242px; height: 166px; }
   .hm-card[data-card="1"] { left: 586px; top: 312px; width: 242px; height: 166px; }
   /* 锁态不靠整体调透明度 —— 那会把字一起糊掉；"锁着"由画布上的封条 + 铜锁 + 火漆交代 */
   .hm-card.locked { opacity: 1; }
-  .hm-name { font-size: 17px; letter-spacing: 2px; font-weight: 700; color: var(--gold2); }
-  /* 锁态：字要够亮 —— 底下那块标签牌比第一章暗，按原色直接放上去几乎读不出来 */
+  .hm-name { font-size: 17px; line-height: 1.25; letter-spacing: 2px; font-weight: 700; color: var(--gold2); }
+  .hm-meta { font-size: 11px; line-height: 1.3; color: #c9bda8; margin-top: 3px; }
+  .hm-state { font-size: 11px; line-height: 1.3; color: #ded6f2; margin-top: 6px; }
+  /* 提示行**留两行高度**：折行是它自己的事，按钮位置不许跟着动（v45 的穿模就从这来） */
+  .hm-hint { font-size: 11px; line-height: 1.35; color: #b9aecd; margin-top: 6px; min-height: 30px; }
   .hm-card.locked .hm-name { color: #d8d0ea; }
+  .hm-card.locked .hm-meta { color: #a79ec6; }
   .hm-card.locked .hm-state { color: #cfc7e6; }
   .hm-card.locked .hm-hint { color: #a79ec6; }
-  .hm-meta { font-size: 11px; color: #c9bda8; margin-top: 4px; line-height: 1.35; }
-  .hm-state { font-size: 11px; color: #ded6f2; margin-top: 7px; line-height: 1.35; }
-  .hm-hint { font-size: 11px; color: #8e86ad; margin-top: 5px; line-height: 1.35; }
+  /* 选中那本（小人走到跟前那本）：字更亮 —— 画布那边还有金边 + 光晕 + 地上光池 */
+  .hm-card.sel .hm-name { color: #ffe6a8; text-shadow: 0 0 12px rgba(255,206,132,.5); }
   /* 按钮：金底黑字 + 硬台阶；锁态是暗底内凹（看得出"按不动"，不是"没看到"）。
      像素皮那节给所有 button 强推了 2px 边框 + 切角，这里按设计图压回来。 */
-  .hm-go, #home-foot button {
+  .hm-go, #home-foot button, #home-nav button {
     border: 0 !important; clip-path: none !important; border-radius: 0 !important;
     font-family: inherit; cursor: pointer;
   }
   .hm-go {
-    /* 钉在标签牌下沿上方 46px：再往下就压到画布上那把铜锁和封条了（实测压过）。
-       absolute 而不是 margin-top:auto —— 状态行折行时按钮位置不许跟着动。 */
-    position: absolute; left: 0; right: 0; bottom: 46px;
+    /* margin-top:auto 顶到牌子下沿。**不许再 absolute 钉坐标** —— v45 就是这么钉死的，
+       提示语一折行按钮就被字压住（用户截图里那处穿模）。 */
+    margin-top: auto; width: 100%;
     font-size: 13px; letter-spacing: 2px; padding: 6px 0;
     background: #e8b74a; color: #1a1206; font-weight: 700;
     box-shadow: 0 2px 0 #7d5a12, 0 0 0 1px #f4d891 inset !important;
   }
+  .hm-card.sel .hm-go:not([disabled]) { background: #ffd473; }
   .hm-go:active { transform: translate(0, 2px); box-shadow: 0 0 0 #7d5a12, 0 0 0 1px #f4d891 inset !important; }
   .hm-go[disabled] {
     background: #241d34; color: #7d75a0; font-weight: 400; cursor: not-allowed;
     box-shadow: 0 2px 0 #120d1e, 0 0 0 1px #4a3f75 inset !important;
   }
-  #home-foot { position: absolute; left: 0; right: 0; top: 624px; text-align: center; font-size: 12px; color: #b3a9cf; }
+  /* 页脚那行字：刻在柜台正面（画布 528..600 那条凹槽里），不是黑条上的一行浮字 */
+  #home-foot {
+    position: absolute; left: 0; right: 0; top: 552px; text-align: center;
+    font-size: 12px; color: #e2cfa4; text-shadow: 0 1px 0 rgba(0,0,0,.7);
+  }
   #home-foot button {
     font-size: 12px; margin-left: 8px; padding: 4px 10px;
     background: #3a3158; color: var(--gold2);
     box-shadow: 0 2px 0 #1d1830, 0 0 0 1px #6a5f96 inset !important;
   }
   #home-foot button:active { transform: translate(0, 2px); box-shadow: 0 0 0 #1d1830, 0 0 0 1px #6a5f96 inset !important; }
+  /* 触屏/鼠标那两颗「挑左边／挑右边」：站在地板两头，跟小人一条线，不抢戏 */
+  #home-nav {
+    position: absolute; left: 0; right: 0; top: 602px; padding: 0 12px;
+    display: flex; justify-content: space-between; pointer-events: none;
+  }
+  #home-nav button {
+    pointer-events: auto; font-size: 12px; padding: 7px 12px;
+    background: #2a2340; color: var(--gold2);
+    box-shadow: 0 2px 0 #14101f, 0 0 0 1px #6a5f96 inset !important;
+  }
+  #home-nav button:active { transform: translate(0, 2px); box-shadow: 0 0 0 #14101f, 0 0 0 1px #6a5f96 inset !important; }
+  /* 手机（≤700px）：画布收工，两张卡走静态列表 —— 960 的版心缩到 390 会把字压到读不出。
+     与其缩成蚂蚁，不如把卡片摊平；小人只在画布上有，手机靠这两颗箭头挑。 */
+  @media (max-width: 700px) {
+    #home-modal.mob { align-items: flex-start; overflow-y: auto; padding: 14px 10px 20px; }
+    /* 铺满宽度：flex 项的 auto 宽是 fit-content，390 下卡片只撑到 297/370 —— 摊平就该摊满 */
+    #home-modal.mob #home-stage { transform: none !important; width: 100% !important; height: auto !important; }
+    #home-modal.mob #home-cv { display: none; }
+    #home-modal.mob #home-layer { position: static; width: auto; height: auto; }
+    #home-modal.mob #home-card { position: static; }
+    #home-modal.mob #home-title { position: static; width: auto; font-size: 24px; letter-spacing: 6px; margin: 4px 0 2px; }
+    #home-modal.mob #home-sub { position: static; width: auto; margin-bottom: 12px; }
+    #home-modal.mob #home-cards { position: static; display: flex; flex-direction: column; gap: 10px; }
+    #home-modal.mob .hm-card {
+      position: static; width: auto; height: auto; padding: 12px 13px;
+      background: #1b1628; border: 2px solid #6a5f96;
+    }
+    #home-modal.mob .hm-card.sel { border-color: var(--gold2); box-shadow: 0 0 0 2px rgba(232,183,74,.22); }
+    #home-modal.mob .hm-name { font-size: 19px; }
+    #home-modal.mob .hm-meta, #home-modal.mob .hm-state, #home-modal.mob .hm-hint { font-size: 13px; }
+    #home-modal.mob .hm-hint { min-height: 0; }
+    #home-modal.mob .hm-go { margin-top: 10px; font-size: 15px; padding: 9px 0; }
+    #home-modal.mob #home-nav { position: static; padding: 0; margin: 12px 0 0; gap: 10px; }
+    #home-modal.mob #home-nav button { flex: 1; font-size: 15px; padding: 11px 0; }
+    #home-modal.mob #home-foot { position: static; margin-top: 14px; }
+  }
   /* 结局模态 */
   #end-modal {
     position: absolute; inset: 0; background: rgba(16, 11, 32, .9);
@@ -803,6 +871,8 @@ body.mp-modal #btn-e { display: none !important; }
   @keyframes biteShake { 0%, 100% { transform: translateX(0); } 18% { transform: translateX(-7px); } 42% { transform: translateX(6px); } 68% { transform: translateX(-3px); } }
   #m-card.mp-bite { animation: biteShake .46s ease; box-shadow: 0 0 0 2px rgba(255,80,80,.9), 0 0 30px rgba(255,50,50,.45); }
   body.mp-modal #toast { z-index: 72; }            /* 面板开着时的提示要压在面板上头，不然看不见 */
+  /* v46：主界面是整屏模态（z 120）——「第二章还锁着」那句提示得压在它上头，不然白弹 */
+  body.mp-home #toast { z-index: 130; }
   /* 名字重建：两片拼一个字 —— 窄屏整体折行，别把网格挤出去 */
   .pz-pair { display: flex; align-items: center; gap: 6px; }
   .pz-pair i { font-style: normal; color: var(--dim, #9a9a9a); font-size: 13px; }
@@ -1120,19 +1190,8 @@ button:active { transform: translate(1px, 1px); }
           <div id="m-btns"></div>
         </div>
       </div>
-      <div id="home-modal">
-        <div id="home-stage">
-          <canvas id="home-cv" width="960" height="672"></canvas>
-          <div id="home-layer">
-            <div id="home-card">
-              <div id="home-title">记忆当铺</div>
-              <div id="home-sub">柜上两本账 —— 你挑一本</div>
-              <div id="home-cards"></div>
-              <div id="home-foot"></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- v46：主界面那道遮罩搬去 body 末尾了（见文件尾）——它要盖整屏，
+           留在 #world-wrap 里会被 overflow:hidden / contain:paint 关在画布区。 -->
       <div id="end-modal">
         <div id="end-card">
           <div id="end-name"></div>
@@ -1183,7 +1242,7 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/puzzles23.js?v=39"></script>
 <script src="js/jobs-hard23.js?v=1"></script>
 <script src="js/art31.js?v=36"></script>
-<script src="js/home-art.js?v=1"></script>
+<script src="js/home-art.js?v=46"></script>
 <!-- v43：第二章骨架（js/ch2/ 整目录归"记忆玩法·功能玩法"线，story23/puzzles23 一个字没碰）。
      必须排在 game23.js **之前**：它要在引擎起页前把「记忆库」场景与三个复用挂点装进 WORLD.SCENES。 -->
 <script src="js/ch2/text.js?v=4"></script>
@@ -1191,7 +1250,7 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/ch2/scenes.js?v=2"></script>
 <script src="js/ch2/puzzles.js?v=3"></script>
 <script src="js/ch2/index.js?v=4"></script>
-<script src="js/game23.js?v=54"></script>
+<script src="js/game23.js?v=55"></script>
 <script src="js/guide23.js?v=35"></script>
 <script>
 /* v37 全屏键（功能增加线 · D）。U 键 / 顶栏「⛶ 全屏」按钮 切换全屏，ESC 退出。
@@ -1256,5 +1315,25 @@ button:active { transform: translate(1px, 1px); }
   sync();
 })();
 </script>
+<!-- 主界面 · 选章节（v46）：整屏一个模式，所以挂在 body 末尾、position:fixed ——
+     它要盖住顶栏和右侧面板；留在 #world-wrap 里会被 overflow:hidden 关在画布区。
+     小人会走（画布 960×672 里），文字按钮留在这一层按 GEO 的逻辑坐标定位。 -->
+<div id="home-modal">
+  <div id="home-stage">
+    <canvas id="home-cv" width="960" height="672"></canvas>
+    <div id="home-layer">
+      <div id="home-card">
+        <div id="home-title">记忆当铺</div>
+        <div id="home-sub">柜上两本账 —— 你挑一本</div>
+        <div id="home-cards"></div>
+        <div id="home-foot"></div>
+        <div id="home-nav">
+          <button id="home-prev" title="挑左边那本（← / A）">◀ 第一章</button>
+          <button id="home-next" title="挑右边那本（→ / D）">第二章 ▶</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
