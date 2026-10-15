@@ -69,13 +69,9 @@
   }
   #btn-bgm:hover { color: #fff; border-color: var(--gold); }
   #btn-bgm.off { color: var(--dim); text-decoration: line-through; }
-  /* 「档案」按钮漏了样式 —— 裸按钮会走浏览器默认外观（buttonface 白底 + outset 边框），
-     深色顶栏上就成了一块白方块。补齐，跟旁边「↺ 存档点 / ♪ 开 / DEV」同一族。 */
-  #btn-archive {
-    background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
-    border-radius: 8px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit;
-  }
-  #btn-archive:hover { color: var(--gold2); border-color: var(--gold); }
+  /* 「档案」那颗按钮已摘（用户：「这个世界档案删了吧，没啥用」）—— 样式一起收走，
+     免得留一条指着不存在按钮的规则。面板本身（#pane-archive）还在，接回来时把上面这段和
+     顶栏那颗一起加回即可。 */
   /* v37 全屏键：跟旁边那族同款外观；.on = 当前在全屏里 */
   #btn-fs {
     background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
@@ -495,7 +491,7 @@
     #hud b { font-size: 12.5px; }
     .bar { width: 60px; height: 8px; }
     #relics { font-size: 11px; }
-    #btn-restart, #btn-bgm, #btn-dev, #btn-archive, #btn-fs { padding: 3px 8px; font-size: 11px; }
+    #btn-restart, #btn-bgm, #btn-dev, #btn-fs { padding: 3px 8px; font-size: 11px; }
     main { flex-direction: column; }
     #world-wrap {
       max-width: min(100%, calc((100vh - 220px) * 10 / 7));
@@ -1153,7 +1149,6 @@ button:active { transform: translate(1px, 1px); }
       <button id="btn-restart" title="回到本幕开头自动记下的存档点（每幕开头记一次）">↺ 存档点</button>
       <button id="btn-bgm" title="背景音乐开关">♪ 开</button>
       <button id="btn-home" title="主界面：挑一章进去（开游戏也先落这儿；对话/谜题/柜台半路上不认）">▤ 主界面</button>
-      <button id="btn-archive" title="通关后解锁：世界档案">档案</button>
       <button id="btn-fs" title="全屏 / 退出全屏（U 键；ESC 也能退出）">⛶ 全屏</button>
       <button id="btn-dev" title="开发者模式（按 ` 或 F2 切换）">DEV</button>
     </div>
@@ -1200,7 +1195,6 @@ button:active { transform: translate(1px, 1px); }
           <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
             <button id="btn-again">再走一遍这条路</button>
             <button id="btn-home-end">▸ 回到主界面</button>
-            <button id="btn-main" style="display:none; background:transparent; color:var(--gold2); border:1px solid var(--gold); font-weight:500;">▸ 走进世界档案</button>
           </div>
         </div>
       </div>
@@ -1223,12 +1217,13 @@ button:active { transform: translate(1px, 1px); }
           <button id="tab-mem">记</button>
           <button id="tab-tasks">任务</button>
           <button id="tab-album">相簿</button>
-          <button id="tab-archive">世界档案</button>
         </div>
         <div id="pane-log" class="pane on"></div>
         <div id="pane-mem" class="pane"></div>
         <div id="pane-tasks" class="pane"></div>
         <div id="pane-album" class="pane"></div>
+        <!-- 世界档案那张页签已摘（面板与数据原样留着：只摘门，不拆房）。
+             接回来 = 上面 #tabs 里加一颗 <button id="tab-archive">世界档案</button>，别的都不用动。 -->
         <div id="pane-archive" class="pane"></div>
       </section>
     </aside>
@@ -1250,7 +1245,7 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/ch2/scenes.js?v=2"></script>
 <script src="js/ch2/puzzles.js?v=3"></script>
 <script src="js/ch2/index.js?v=4"></script>
-<script src="js/game23.js?v=55"></script>
+<script src="js/game23.js?v=56"></script>
 <script src="js/guide23.js?v=35"></script>
 <script>
 /* v37 全屏键（功能增加线 · D）。U 键 / 顶栏「⛶ 全屏」按钮 切换全屏，ESC 退出。
