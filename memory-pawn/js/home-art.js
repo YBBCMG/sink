@@ -424,70 +424,186 @@
     e.cv.style.transform = k < 0.999 ? 'scale(' + k.toFixed(4) + ')' : 'none';
     return k;
   }
-  /* 一页纸：羊皮纸四阶 + 2×2 抖动纸纹 + 页边压暗 + 一行行账目 + 一枚朱印 */
+  /* 烘层（都只烘一次，之后每帧只 blit）：
+     jsdom 里 createPattern 拿不到图案，DITH 会退化成逐像素兜底 —— 大面积每帧抖动 = 每帧几十万次
+     fillRect，帧一慢，游戏那边按挂钟算的位移每帧就跨得更远（实测：玩家越过触发格，判据全乱）；真机也吃帧。
+     但**好看的那一版就是抖动**（2×2 才是这屋里的手感），所以不砍画法，改成"抖的东西烘一次"。 */
+  var iBaked = null, iBook = null;
+  function iNewCv() {
+    var cv = doc.createElement && doc.createElement('canvas'), c = null;
+    if (!cv || !cv.getContext) return null;
+    cv.width = VW; cv.height = VH;
+    c = cv.getContext('2d');
+    return c ? cv : null;
+  }
+  /* 灯池（抖动版）：只在烘层里用，面积大也不心疼 */
+  function iPool(c, cx, cy, w, h, ph) {
+    var bands = [[0, '.020'], [5, '.028'], [11, '.040'], [18, '.056'], [26, '.078']], i = 0, k = 0, bw = 0, bh = 0;
+    for (i = 4; i >= 0; i--) {
+      k = bands[i][0];
+      bw = w - k * 2; bh = h - k * 1.5;
+      DITH(c, cx - bw / 2, cy - bh / 2, bw, bh, 'rgba(255,206,132,' + bands[i][1] + ')', (i + ph) & 1);
+      DITH(c, cx - bw * 0.36, cy - bh / 2 - 6, bw * 0.72, bh + 12, 'rgba(255,206,132,' + bands[i][1] + ')', (i + ph + 1) & 1);
+      DITH(c, cx - bw / 2 - 8, cy - bh * 0.34, bw + 16, bh * 0.68, 'rgba(255,206,132,' + bands[i][1] + ')', (i + ph) & 1);
+    }
+  }
+  function iBackdrop() {
+    if (iBaked !== null) return iBaked;
+    var cv = iNewCv(), c = null, i = 0;
+    iBaked = false;
+    if (!cv) return null;
+    c = cv.getContext('2d');
+    R(c, 0, 0, VW, VH, '#0e0a14');                                  /* 里屋的墙 */
+    for (i = 0; i < 6; i++) R(c, 0, 34 + i * 44, VW, 1, 'rgba(40,30,50,.45)');
+    R(c, 0, 258, VW, 10, '#241a12');                                /* 柜台沿 */
+    R(c, 0, 258, VW, 2, '#5a4227');
+    R(c, 0, 268, VW, VH - 268, '#2e2115');                          /* 柜面板（暗一号的木） */
+    DITH(c, 0, 268, VW, VH - 268, 'rgba(122,86,48,.26)', 0);        /* 木头的中间调 */
+    for (i = 0; i < 21; i++) R(c, 8 + i * 46, 272, 1, VH - 276, 'rgba(18,11,6,.30)');   /* 短竖木纹 */
+    for (i = 0; i < 9; i++) R(c, 26 + i * 112, 300, 5, 3, 'rgba(14,9,5,.45)');          /* 木结子 */
+    R(c, 0, 268, VW, 3, '#6d4c28');                                 /* 磨亮的柜沿 */
+    R(c, 0, 271, VW, 1, '#3a2816');
+    iPool(c, 169, 292, 168, 92, 0);                                 /* 挂灯脚下那一小摊 */
+    iPool(c, VW / 2, 400, 300, 168, 1);                             /* 账册底下那一摊 */
+    R(c, 58, 168, 250, 7, '#3a2a1a');                               /* 墙上那层架板 */
+    R(c, 58, 168, 250, 2, '#6d5230');
+    R(c, 58, 175, 250, 2, 'rgba(8,5,3,.5)');
+    R(c, 74, 140, 26, 28, '#4a3420'); R(c, 76, 142, 22, 3, '#6b4c2c');      /* 架上：两个罐 + 一只匣 */
+    R(c, 76, 152, 22, 14, '#3a2818');
+    R(c, 112, 132, 30, 36, '#443019'); R(c, 114, 136, 26, 4, '#6b4c2c');
+    R(c, 116, 148, 22, 16, '#33240f');
+    R(c, 156, 148, 44, 20, '#2a1c10'); R(c, 158, 144, 40, 6, '#4a3420');
+    R(c, 168, 156, 20, 3, '#8a6c38');
+    for (i = 0; i < 3; i++) {                                       /* 右边一串挂着的当票 */
+      R(c, 792 + i * 34, 96 + i * 12, 22, 30, '#dccba2');
+      R(c, 795 + i * 34, 100 + i * 12, 16, 2, 'rgba(58,40,24,.40)');
+      R(c, 795 + i * 34, 108 + i * 12, 12, 2, 'rgba(58,40,24,.30)');
+      R(c, 795 + i * 34, 116 + i * 12, 14, 2, 'rgba(58,40,24,.30)');
+      R(c, 801 + i * 34, 92 + i * 12, 4, 6, 'rgba(20,14,8,.6)');
+    }
+    R(c, 0, 596, VW, 2, 'rgba(12,7,4,.45)');                        /* 柜台抽屉缝 */
+    R(c, 300, 596, 360, 2, '#6d4c28');
+    R(c, 468, 604, 24, 14, '#8a6c38');                              /* 铜环 */
+    R(c, 472, 608, 16, 6, '#2a2010');
+    R(c, 96, 292, 46, 7, '#cbb98f');                                /* 一沓当票 */
+    R(c, 99, 288, 40, 6, '#dccba2');
+    R(c, 102, 284, 34, 5, '#e9dcb8');
+    R(c, 118, 284, 1, 40, 'rgba(58,40,24,.35)');
+    R(c, 812, 296, 52, 20, '#1d1712');                              /* 一方砚 */
+    R(c, 808, 292, 60, 5, '#2a2118');
+    R(c, 818, 300, 40, 12, '#0d0a08');
+    R(c, 742, 300, 9, 9, '#8a6c38');                                /* 两枚铜钱 */
+    R(c, 744, 302, 5, 5, '#3a2c14');
+    R(c, 764, 306, 9, 9, '#7a5f30');
+    R(c, 766, 308, 5, 5, '#33260f');
+    DITH(c, 0, 0, VW, VH, 'rgba(255,226,170,.038)', 0);             /* 浮尘 */
+    DITH(c, 0, 0, VW, VH, 'rgba(255,226,170,.030)', 1);
+    iBaked = cv;
+    return cv;
+  }
+  /* 一页纸：羊皮纸四阶 + 2×2 抖动中间调 + 账目（行首字块 + 长短不一 + 红笔小记）+ 一枚真朱印 */
   function iPage(c, x, y, w, h, side) {
     var j = 0, rows = 0, ly = 0, sx = 0;
-    R(c, x, y, w, h, IPAPER[1]);
-    DITH(c, x + 2, y + 2, w - 4, h - 4, 'rgba(168,148,104,.16)', side);
-    R(c, x, y, w, 2, IPAPER[0]);
-    R(c, x, y + h - 2, w, 2, IPAPER[3]);
+    R(c, x, y, w, h, '#e6d5ac');
+    DITH(c, x, y, w, h, 'rgba(198,176,128,.50)', side);
+    DITH(c, x + 3, y + 3, w - 6, Math.round(h * 0.42), 'rgba(255,244,214,.34)', (side + 1) & 1);
+    R(c, x, y, w, 1, '#f7eed2');
+    R(c, x, y + h - 2, w, 2, '#b39d72');
     if (side === 0) {
-      R(c, x, y, 3, h, 'rgba(74,52,32,.34)');
-      R(c, x + w - 7, y, 7, h, 'rgba(74,52,32,.20)');
+      R(c, x, y, 7, h, 'rgba(92,66,40,.26)');
+      R(c, x + w - 4, y, 4, h, 'rgba(92,66,40,.15)');
+      R(c, x + w - 1, y + 3, 1, h - 6, 'rgba(58,40,24,.34)');
     } else {
-      R(c, x + w - 3, y, 3, h, 'rgba(74,52,32,.34)');
-      R(c, x, y, 7, h, 'rgba(74,52,32,.20)');
+      R(c, x + w - 7, y, 7, h, 'rgba(92,66,40,.26)');
+      R(c, x, y, 4, h, 'rgba(92,66,40,.15)');
+      R(c, x, y + 3, 1, h - 6, 'rgba(58,40,24,.34)');
     }
-    rows = Math.max(0, Math.floor((h - 20) / 11));
+    rows = Math.max(0, Math.floor((h - 40) / 17));
     for (j = 0; j < rows; j++) {
-      ly = y + 11 + j * 11;
-      R(c, x + 9, ly, w - 18, 1, 'rgba(58,40,24,.40)');
-      R(c, x + 9, ly + 4, Math.round((w - 18) * (0.30 + ((j * 7 + side * 3) % 5) * 0.12)), 1, 'rgba(58,40,24,.20)');
+      ly = y + 20 + j * 17;
+      R(c, x + 12, ly - 4, 5, 7, 'rgba(58,40,24,.52)');
+      if (j % 3 === 1) R(c, x + 19, ly - 3, 4, 5, 'rgba(58,40,24,.38)');
+      R(c, x + 28, ly, Math.round((w - 44) * (0.28 + ((j * 7 + side * 3) % 5) * 0.14)), 1, 'rgba(64,45,28,.40)');
+      if (j % 4 === 2) R(c, x + 28, ly + 5, Math.round((w - 44) * 0.20), 1, 'rgba(150,54,42,.32)');
     }
-    sx = side === 0 ? x + w - 30 : x + 12;
-    R(c, sx, y + h - 32, 15, 15, 'rgba(152,58,44,.30)');
-    R(c, sx + 4, y + h - 28, 7, 7, 'rgba(152,58,44,.24)');
+    sx = side === 0 ? x + w - 38 : x + 17;
+    R(c, sx, y + h - 44, 20, 20, 'rgba(150,54,42,.40)');
+    R(c, sx + 2, y + h - 42, 16, 16, 'rgba(196,86,60,.30)');
+    R(c, sx + 6, y + h - 38, 8, 8, 'rgba(150,54,42,.34)');
+    R(c, sx + 4, y + h - 35, 3, 1, 'rgba(244,226,196,.34)');
+    R(c, sx + 13, y + h - 29, 3, 1, 'rgba(244,226,196,.28)');
   }
-  function iPaint(c, t) {
-    var cx = VW / 2, cy = 300;
-    var i = 0, sp = 0, e = 0, pw = 0, ph = 0, bx = 0, by = 0, g = 0, q = 0, rr = 0, ww = 0, hh = 0, q2 = 0;
-    R(c, 0, 0, VW, VH, '#0a0714');
-    sp = Math.min(1, t / 0.44); e = sp * sp * (3 - 2 * sp);
-    pw = Math.round(46 + e * 186); ph = Math.round(104 + e * 76);
-    bx = Math.round(cx - pw); by = Math.round(cy - ph / 2);
-    /* 书缝里先透出一圈暖光（灯亮起来那一下） */
-    if (t < 0.62) {
-      g = t < 0.44 ? e : Math.max(0, 1 - (t - 0.44) / 0.18);
-      DITH(c, cx - pw - 70, by - 48, (pw + 70) * 2, ph + 96, 'rgba(255,206,132,' + (0.05 + g * 0.07).toFixed(3) + ')', 0);
-      DITH(c, cx - Math.round(pw * 0.62), by - 18, Math.round(pw * 1.24), ph + 36, 'rgba(255,226,170,' + (0.06 + g * 0.09).toFixed(3) + ')', 1);
-    }
+  /* 账册本体整本烘一层（页面 + 中缝 + 起脊 + 上下封皮 + 铜包角 + 书签带 + 落地影）：
+     每帧只是"从书缝往两边 clip 揭示"，像素不缩不糊，帧也便宜。 */
+  function iBookLayer() {
+    if (iBook !== null) return iBook;
+    var cv = iNewCv(), c = null, i = 0, cx = VW / 2, cy = 396, pw = 220, ph = 204;
+    var bx = Math.round(cx - pw), by = Math.round(cy - ph / 2);
+    iBook = false;
+    if (!cv) return null;
+    c = cv.getContext('2d');
+    R(c, bx - 4, by + ph + 16, pw * 2 + 8, 10, 'rgba(10,6,4,.30)');  /* 柜面上的影（垫在书下面） */
     iPage(c, bx, by, pw, ph, 0);
     iPage(c, cx, by, pw, ph, 1);
-    R(c, cx - 3, by - 3, 6, ph + 6, '#2a1c10');                 /* 中缝 + 书脊 */
-    R(c, cx - 1, by - 3, 2, ph + 6, '#4a3420');
-    R(c, bx - 6, by - 6, pw * 2 + 12, 6, '#3a2818');            /* 上下封皮 */
-    R(c, bx - 6, by + ph, pw * 2 + 12, 6, '#3a2818');
-    R(c, bx - 6, by - 6, pw * 2 + 12, 1, '#6b4a28');
-    R(c, bx - 6, by + ph + 5, pw * 2 + 12, 1, '#1a1208');
-    /* 过渡：暖光一圈圈往外铺（14 圈抖动，越外越淡） */
-    if (t > 0.44) {
-      q = Math.min(1, (t - 0.44) / 0.42);
-      for (i = 0; i < 14; i++) {
-        rr = (i + 1) / 14;
-        ww = Math.round(q * VW * 0.62 * rr); hh = Math.round(q * VH * 0.62 * rr);
-        DITH(c, cx - ww, cy - hh, ww * 2, hh * 2, 'rgba(255,206,132,' + (0.017 * (1 - rr * 0.55)).toFixed(3) + ')', i & 1);
+    R(c, cx - 4, by - 5, 8, ph + 10, '#2a1c10');                    /* 中缝 */
+    R(c, cx - 1, by - 5, 2, ph + 10, '#5a3f26');
+    for (i = 0; i < 3; i++) R(c, cx - 5, by + 40 + i * 68, 10, 3, '#3f2b18');
+    R(c, bx - 9, by - 9, pw * 2 + 18, 9, '#43301c');                /* 上下封皮 */
+    R(c, bx - 9, by + ph, pw * 2 + 18, 9, '#43301c');
+    R(c, bx - 9, by - 9, pw * 2 + 18, 1, '#7a5530');
+    R(c, bx - 9, by + ph + 8, pw * 2 + 18, 1, '#1a1208');
+    FRAME(c, bx - 7, by - 7, pw * 2 + 14, ph + 14, 'rgba(232,183,74,.55)');
+    R(c, bx - 12, by - 12, 15, 4, '#e8b74a'); R(c, bx - 12, by - 12, 4, 15, '#e8b74a');
+    R(c, cx + pw - 3, by - 12, 15, 4, '#e8b74a'); R(c, cx + pw + 8, by - 12, 4, 15, '#e8b74a');
+    R(c, bx - 12, by + ph + 8, 15, 4, '#e8b74a'); R(c, bx - 12, by + ph - 3, 4, 15, '#e8b74a');
+    R(c, cx + pw - 3, by + ph + 8, 15, 4, '#e8b74a'); R(c, cx + pw + 8, by + ph - 3, 4, 15, '#e8b74a');
+    R(c, cx + pw - 30, by + ph + 8, 7, 26, '#8d3a2c');              /* 书签带 */
+    R(c, cx + pw - 30, by + ph + 30, 7, 4, '#5e2418');
+    iBook = cv;
+    return cv;
+  }
+  function iPaint(c, t) {
+    var cx = VW / 2, cy = 396, bg = iBackdrop(), bk = null;
+    var sp = 0, e = 0, pw = 0, ph = 0, by = 0, i = 0, q = 0, rr = 0, ww = 0, hh = 0, q2 = 0, flick = 0;
+    if (bg) c.drawImage(bg, 0, 0, VW, VH); else R(c, 0, 0, VW, VH, '#0e0a14');
+    R(c, 168, 92, 2, 44, '#2a2028');                                /* 梁下那盏挂灯（灯在跳） */
+    R(c, 150, 136, 38, 6, '#4a3a22');
+    R(c, 154, 142, 30, 14, '#6b4c2c');
+    R(c, 158, 146, 22, 8, '#ffd88f');
+    flick = 0.85 + 0.15 * Math.sin(t * 7.3);
+    R(c, 161, 148, 16, 4, 'rgba(255,243,204,' + flick.toFixed(2) + ')');
+    sp = Math.min(1, t / 0.46); e = sp * sp * (3 - 2 * sp);
+    pw = Math.round(48 + e * 172); ph = Math.round(112 + e * 92);
+    by = Math.round(cy - ph / 2);
+    bk = iBookLayer();
+    if (bk) {                                                       /* 从书缝往两边摊开 */
+      if (c.save) c.save();
+      if (c.beginPath) { c.beginPath(); if (c.rect) c.rect(cx - pw, by - 30, pw * 2, ph + 70); if (c.clip) c.clip(); }
+      c.drawImage(bk, 0, 0, VW, VH);
+      if (c.restore) c.restore();
+    }
+    if (t < 0.66) {                                                 /* 书缝里透出来的那线光 */
+      SPK(c, cx - 26, by - 12, 52, ph + 24, 'rgba(255,224,168,.14)', 1 + Math.round(e * 2), 0);
+      R(c, cx - 2, by - 5, 4, ph + 10, 'rgba(255,222,168,' + (0.10 + e * 0.18).toFixed(3) + ')');
+    }
+    if (t > 0.46) {                                                 /* 过渡：暖光一圈圈往外铺 */
+      q = Math.min(1, (t - 0.46) / 0.42);
+      for (i = 0; i < 10; i++) {
+        rr = (i + 1) / 10;
+        ww = Math.round(q * VW * 0.66 * rr); hh = Math.round(q * VH * 0.66 * rr);
+        c.fillStyle = 'rgba(255,206,132,' + (0.010 * (1 - rr * 0.5)).toFixed(4) + ')';
+        c.fillRect(cx - ww, cy - hh, ww * 2, hh * 2);
       }
     }
-    /* 标题阶段：账册压暗、四角收黑，DOM 那行字浮在上头 */
-    if (t > 0.86) {
+    if (t > 0.86) {                                                 /* 标题阶段：整套压暗，DOM 那行字浮在上头 */
       q2 = Math.min(1, (t - 0.86) / 0.30);
-      DITH(c, 0, 0, VW, VH, 'rgba(4,3,8,' + (0.26 + q2 * 0.36).toFixed(3) + ')', 0);
-      DITH(c, 0, cy - 130, VW, 260, 'rgba(255,206,132,' + (0.032 * q2).toFixed(3) + ')', 1);
-      R(c, cx - 116, cy + 96, 232, 1, 'rgba(217,180,106,.45)');
-      SPK(c, cx - 150, cy - 60, 300, 150, 'rgba(255,214,150,.05)', 1, 0);
+      c.fillStyle = 'rgba(6,4,10,' + (0.30 + q2 * 0.42).toFixed(3) + ')';
+      c.fillRect(0, 0, VW, VH);
+      R(c, cx - 116, cy + 52, 232, 1, 'rgba(217,180,106,.45)');
     }
     return t;
   }
+
   var iBound = false;
   function iOnKey(e) {
     if (!INT.active) return;
@@ -529,8 +645,11 @@
   function skipIntro() { if (INT.active) iEnd('skip'); }
   function iFrame(ts) {
     if (!INT.active) return;
-    var dt = INT.last ? Math.min(0.05, (ts - INT.last) / 1000) : 0.016;
-    INT.last = ts; INT.t += dt;
+    /* 时间轴走**挂钟**（rAF 的 ts 就是 performance.now 那口钟），不是累加每帧 dt ——
+       累加那种一遇重帧（截图 / 大片抖动重绘）就被"每帧封顶 0.05s"拖长，
+       1.55 秒的动画能拖成两秒多（真机实测：收尾正好卡在淡出窗口里）。 */
+    if (!INT.last) INT.last = ts;
+    INT.t = (ts - INT.last) / 1000;
     var e = iEls();
     if (e.cv) {
       var c = e.cv.getContext && e.cv.getContext('2d');
