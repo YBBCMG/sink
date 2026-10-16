@@ -499,13 +499,15 @@
   function attachIntro() {
     if (iBound) return;
     iBound = true;
-    try { doc.addEventListener('keydown', iOnKey); doc.addEventListener('keyup', iOnKey); } catch (e) { /* ignore */ }
+    /* **只听 keydown，不听 keyup** —— 进场那颗键的 up 会在 20ms 后到，等于把动画当场跳过
+       （真机实测：键盘进场＝动画基本看不见）。重复键在上头已经滤掉了。 */
+    try { doc.addEventListener('keydown', iOnKey); } catch (e) { /* ignore */ }
     try { global.addEventListener('pointerdown', iOnPtr); global.addEventListener('touchstart', iOnPtr); } catch (e) { /* ignore */ }
   }
   function detachIntro() {
     if (!iBound) return;
     iBound = false;
-    try { doc.removeEventListener('keydown', iOnKey); doc.removeEventListener('keyup', iOnKey); } catch (e) { /* ignore */ }
+    try { doc.removeEventListener('keydown', iOnKey); } catch (e) { /* ignore */ }
     try { global.removeEventListener('pointerdown', iOnPtr); global.removeEventListener('touchstart', iOnPtr); } catch (e) { /* ignore */ }
   }
   function iEnd(why) {
