@@ -44,6 +44,12 @@
   function open(p, host) {
     if (!p || !p.ch2) return false;
     switch (p.id) {
+      /* 2026-10-17 二次修正：一章当铺那道『里间 · 那排架子』(16,10) 现在真能用 ——
+         从前它只有 say，按 E 只出一行字、人不进去（用户复现："库房根本进不去"）。
+         它走的就是这一条（`case 'ch2_vaultdoor'` → enterVault），**不挂引擎的 `to`**：
+         一章的地图里没有 `ch2_vault` 这张图（库房由 js/ch2/scenes.js 装），
+         挂 `to:` 会被一章自己的世界校验判成死门（world-test ①/④ 实测红过）。
+         `need:'ch2_entered'` 照旧 ⇒ 没进过库房的人连这个点都看不见；闸门仍是 enterVault。 */
       case 'ch2_vaultdoor': return enterVault(host);
       case 'ch2_shelf':     return shelf(host);
       case 'ch2_tickets':   return step('tickets', host);
