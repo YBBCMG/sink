@@ -54,12 +54,16 @@
       default: return false;
     }
   }
+  /* 2026-10-17 用户点单：**里间那道门删了** —— 进二章这条路只剩主界面（第一章/第二章那两本册子）。
+     所以这道闸口的原话（"门不认你"）跟着门一起没了，但**闸本身照旧**：
+     未通关 / 未开 DEV 免通 ⇒ 拦在门外，一句话都不多说（按钮那边本来就是灰的）。
+     闸还是那两句口径（`cleared() || adminEntry()`），一个字没改。 */
   function enterVault(host) {
     if (!cleared(host.S) && !adminEntry(host.S)) {
       host.say([
-        '（里间那道门后面还有一层。你听得见里面有纸的声音，可门不认你。）',
+        '（这边进不去。要进第二章，回主界面选「第二章」那本册子。）',
         '（得先把岛上那一夜走完 —— 一个人是不是掌柜，不是自己说了算的。）'
-      ], null, { title: '里间 · 那排架子' });
+      ], null, { title: '记忆库' });
       return true;
     }
     host.markFlag('ch2_entered');
@@ -238,7 +242,10 @@
         flag: P.flag, item: P.needItem, answer: P.answer });
     });
     out.push({ key: 'shelf', puzzle: false, sid: VAULT, pid: 'ch2_shelf', name: '柜上留下的三样（取道具）', flag: 'ch2_shelf_taken' });
-    out.push({ key: 'vaultdoor', puzzle: false, sid: 'pawnshop', pid: 'ch2_vaultdoor', name: '里间 · 那排架子', flag: 'ch2_entered' });
+    /* 里间那道门 2026-10-17 删了（用户点单）⇒ 面板不再列它。
+       进二章现在只有一条路：主界面选第二章（game23.js:~4008 直接调 CH2.open('ch2_vaultdoor')），
+       所以这一行的落点标回**主界面**，跳过去仍然落在库房里。 */
+    out.push({ key: 'enter', puzzle: false, sid: VAULT, pid: 'ch2_vaultdoor', name: '进记忆库（主界面选第二章）', flag: 'ch2_entered' });
     return out;
   }
 
