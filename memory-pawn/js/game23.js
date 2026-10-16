@@ -3862,6 +3862,9 @@
     return k;
   }
 
+  /* v47：走到那一端再按同方向 ＝ 直接开章；进每一章各放一次入场动画（js/home-art.js 画）。
+     动画是**纯视觉**的：overlay pointer-events:none、层级压在 #modal 之下、监听器不拦键 ——
+     不吞开场独白、不卡交互，任意键/点击跳过。
   /* ============ v44：主界面 · 选章节（结局之后进这儿；第二章要一章通关才解锁） ============
      只当门牌，不碰玩法：解锁口径读 js/ch2/index.js 现成的 cleared()/adminEntry()，
      进场调它现成的 CH2.open('ch2_vaultdoor') —— 引擎里一行第二章逻辑都不加。
@@ -3944,6 +3947,33 @@
     var cards = homeCards();
     homeGo(cards[homeSel] ? cards[homeSel].go : 'no');
   }
+  /* ---- v47：走位到那一端再按同方向 ＝ 直接开章（不必再按 E） ----
+     三条口径：① **同方向连按/长按只许触发一次** —— 进场那一瞬间 homeOpen 就翻了，
+     之后的重复键落在 `if (homeOpen)` 之外，压根到不了这儿；② **走位途中不许误触发** ——
+     homeAt() 要 home-art 那边报 arrived，走路途中它一直是 false；③ **锁着的那本照样不许进** ——
+     到端点再按只有"抖铜锁 + 一句人话"，跟 v46 一个待遇，绝不被"到端点自动进场"绕过。 */
+  function homeIsMob() {                            /* 窄屏：画布收工走静态列表，没有走位这回事 */
+    try { return !!(global.matchMedia && global.matchMedia('(max-width: 700px)').matches); } catch (e) { return false; }
+  }
+  function homeAt(i) {                              /* 小人这会儿是不是已经站在第 i 本跟前了 */
+    if (i !== homeSel) return false;
+    if (homeIsMob()) return true;                   /* 手机：选中即到头，第二下同方向就进 */
+    var st = global.HOMEART && HOMEART.state;       /* 它是**对象**不是函数（写成 state() 真机直接 TypeError） */
+    if (!st) return true;                           /* 没画布：退回纯 DOM，第二下也能进 */
+    return st.arrived !== false;
+  }
+  function homeStep(i) {                            /* 方向键：第一次走位，已经在跟前了再按就开章 */
+    i = i ? 1 : 0;
+    if (!homeAt(i)) { homePick(i); return false; }  /* 还在走路 → 只是换个目标 */
+    if (i === 1 && homeLocked()) { homeRefuse(); return false; }
+    homeConfirm();
+    return true;
+  }
+  function homeIntro() {                            /* v47：进场动画，标题取玩家挑的那张卡 */
+    if (!global.HOMEART || !HOMEART.playIntro) return false;
+    var cards = homeCards(), c = cards[homeSel] || cards[0];
+    try { return !!HOMEART.playIntro({ title: c.name, sub: c.meta, sel: homeSel }); } catch (e) { return false; }
+  }
   function renderHome() {
     var cards = homeCards(), box = $('home-cards');
     box.innerHTML = cards.map(function (c, i) {
@@ -3968,10 +3998,13 @@
     return cards;                                   /* 给 showHome 传给画布：第二章封不封 */
   }
   function homeGo(go) {
-    if (go === 'stay') { closeHome(); return; }
+    if (go === 'stay') { closeHome(); homeIntro(); return; }
     if (go === 'no') { sfx('wrong'); toast('第二章还没解锁 —— 先把第一章走完。'); return; }
     if (!global.CH2) { toast('第二章没装上。'); return; }
     closeHome();
+    /* v47：进场动画**先放**（纯视觉、不挡路、不吞键），再真的进场 ——
+       二章那场开场独白排在它下面（层级 60 > 55），照样弹得出来。 */
+    homeIntro();
     global.CH2.open({ ch2: true, id: go === 'ch2' ? 'ch2_vaultdoor' : 'ch2_back' }, ch2Host());
   }
   function openHome() {                             /* 真开：不看手上有没有弹窗（启动落点走这条） */
@@ -4021,8 +4054,8 @@
        v44 那条「菜单开着四个方向都走不动」就靠这个 return 守着（keys 一个字节没碰）。 */
     if (homeOpen) {
       if (k === 'Escape') closeHome();
-      else if (k === 'a') homePick(0);
-      else if (k === 'd') homePick(1);
+      else if (k === 'a') homeStep(0);
+      else if (k === 'd') homeStep(1);
       else if (k === 'e') homeConfirm();
       return;
     }
