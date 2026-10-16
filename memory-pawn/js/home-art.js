@@ -341,6 +341,7 @@
     else drawFrame();
   }
   function stop() {
+    if (INT.active) iEnd('stop');                  /* v47：动画也跟着收，别留空转 */
     running = false;
     if (raf && global.cancelAnimationFrame) { try { global.cancelAnimationFrame(raf); } catch (e) { /* ignore */ } }
     raf = 0;
@@ -398,10 +399,169 @@
   }
   function setLocked(v) { G.lockedB = !!v; }
   function jiggle() { G.jig = 0.42; play(); }
+  /* ================= v47：每章入场动画 =================
+     账册翻开 → 暖光过渡 → 章节标题 → 收起（露出该章第一屏）。
+     三条口径写死在这里：
+       ① **纯视觉、不拦任何输入** —— overlay 是 pointer-events:none；这里的监听器走冒泡、
+          **不 stopPropagation、不 preventDefault**：跳过用的那颗键照旧落到引擎手里（不吞键）。
+       ② 层级 55 < #modal 的 60：二章开场独白压在它上头，照样看得见（不吞独白）。
+       ③ 任意键 / 点击可跳过（**按住不放的重复键不算**，否则长按走位那一串会把动画瞬间吃掉）；
+          放完自己收（display:none），不留空转。 */
+  var IDUR = 1.55;
+  var INT = { active: false, plays: 0, skipped: 0, done: 0, t: 0, dur: IDUR,
+              title: '', sub: '', raf: 0, last: 0, timer: 0 };
+  var IPAPER = ['#f2e8cc', '#e4d5b0', '#cbb98f', '#a89468'];
+  function iEls() {
+    return { box: doc.getElementById('chapter-intro'), cv: doc.getElementById('ci-cv'),
+             ch: doc.getElementById('ci-ch'), sub: doc.getElementById('ci-sub') };
+  }
+  function iFit() {                                  /* 装不下整体缩（跟主界面一套口径） */
+    var e = iEls();
+    if (!e.cv) return 1;
+    var w = global.innerWidth || VW, h = global.innerHeight || VH;
+    var k = Math.min(1, (w - 12) / VW, (h - 12) / VH);
+    e.cv.style.width = VW + 'px'; e.cv.style.height = VH + 'px';
+    e.cv.style.transform = k < 0.999 ? 'scale(' + k.toFixed(4) + ')' : 'none';
+    return k;
+  }
+  /* 一页纸：羊皮纸四阶 + 2×2 抖动纸纹 + 页边压暗 + 一行行账目 + 一枚朱印 */
+  function iPage(c, x, y, w, h, side) {
+    var j = 0, rows = 0, ly = 0, sx = 0;
+    R(c, x, y, w, h, IPAPER[1]);
+    DITH(c, x + 2, y + 2, w - 4, h - 4, 'rgba(168,148,104,.16)', side);
+    R(c, x, y, w, 2, IPAPER[0]);
+    R(c, x, y + h - 2, w, 2, IPAPER[3]);
+    if (side === 0) {
+      R(c, x, y, 3, h, 'rgba(74,52,32,.34)');
+      R(c, x + w - 7, y, 7, h, 'rgba(74,52,32,.20)');
+    } else {
+      R(c, x + w - 3, y, 3, h, 'rgba(74,52,32,.34)');
+      R(c, x, y, 7, h, 'rgba(74,52,32,.20)');
+    }
+    rows = Math.max(0, Math.floor((h - 20) / 11));
+    for (j = 0; j < rows; j++) {
+      ly = y + 11 + j * 11;
+      R(c, x + 9, ly, w - 18, 1, 'rgba(58,40,24,.40)');
+      R(c, x + 9, ly + 4, Math.round((w - 18) * (0.30 + ((j * 7 + side * 3) % 5) * 0.12)), 1, 'rgba(58,40,24,.20)');
+    }
+    sx = side === 0 ? x + w - 30 : x + 12;
+    R(c, sx, y + h - 32, 15, 15, 'rgba(152,58,44,.30)');
+    R(c, sx + 4, y + h - 28, 7, 7, 'rgba(152,58,44,.24)');
+  }
+  function iPaint(c, t) {
+    var cx = VW / 2, cy = 300;
+    var i = 0, sp = 0, e = 0, pw = 0, ph = 0, bx = 0, by = 0, g = 0, q = 0, rr = 0, ww = 0, hh = 0, q2 = 0;
+    R(c, 0, 0, VW, VH, '#0a0714');
+    sp = Math.min(1, t / 0.44); e = sp * sp * (3 - 2 * sp);
+    pw = Math.round(46 + e * 186); ph = Math.round(104 + e * 76);
+    bx = Math.round(cx - pw); by = Math.round(cy - ph / 2);
+    /* 书缝里先透出一圈暖光（灯亮起来那一下） */
+    if (t < 0.62) {
+      g = t < 0.44 ? e : Math.max(0, 1 - (t - 0.44) / 0.18);
+      DITH(c, cx - pw - 70, by - 48, (pw + 70) * 2, ph + 96, 'rgba(255,206,132,' + (0.05 + g * 0.07).toFixed(3) + ')', 0);
+      DITH(c, cx - Math.round(pw * 0.62), by - 18, Math.round(pw * 1.24), ph + 36, 'rgba(255,226,170,' + (0.06 + g * 0.09).toFixed(3) + ')', 1);
+    }
+    iPage(c, bx, by, pw, ph, 0);
+    iPage(c, cx, by, pw, ph, 1);
+    R(c, cx - 3, by - 3, 6, ph + 6, '#2a1c10');                 /* 中缝 + 书脊 */
+    R(c, cx - 1, by - 3, 2, ph + 6, '#4a3420');
+    R(c, bx - 6, by - 6, pw * 2 + 12, 6, '#3a2818');            /* 上下封皮 */
+    R(c, bx - 6, by + ph, pw * 2 + 12, 6, '#3a2818');
+    R(c, bx - 6, by - 6, pw * 2 + 12, 1, '#6b4a28');
+    R(c, bx - 6, by + ph + 5, pw * 2 + 12, 1, '#1a1208');
+    /* 过渡：暖光一圈圈往外铺（14 圈抖动，越外越淡） */
+    if (t > 0.44) {
+      q = Math.min(1, (t - 0.44) / 0.42);
+      for (i = 0; i < 14; i++) {
+        rr = (i + 1) / 14;
+        ww = Math.round(q * VW * 0.62 * rr); hh = Math.round(q * VH * 0.62 * rr);
+        DITH(c, cx - ww, cy - hh, ww * 2, hh * 2, 'rgba(255,206,132,' + (0.017 * (1 - rr * 0.55)).toFixed(3) + ')', i & 1);
+      }
+    }
+    /* 标题阶段：账册压暗、四角收黑，DOM 那行字浮在上头 */
+    if (t > 0.86) {
+      q2 = Math.min(1, (t - 0.86) / 0.30);
+      DITH(c, 0, 0, VW, VH, 'rgba(4,3,8,' + (0.26 + q2 * 0.36).toFixed(3) + ')', 0);
+      DITH(c, 0, cy - 130, VW, 260, 'rgba(255,206,132,' + (0.032 * q2).toFixed(3) + ')', 1);
+      R(c, cx - 116, cy + 96, 232, 1, 'rgba(217,180,106,.45)');
+      SPK(c, cx - 150, cy - 60, 300, 150, 'rgba(255,214,150,.05)', 1, 0);
+    }
+    return t;
+  }
+  var iBound = false;
+  function iOnKey(e) {
+    if (!INT.active) return;
+    if (e && e.repeat) return;                     /* 按住不放的重复键不算"新按一下" */
+    if (e && e.key === 'Escape') return;           /* ESC 留给引擎（关弹窗），不当跳过键 */
+    skipIntro();
+  }
+  function iOnPtr() { if (INT.active && INT.t > 0.04) skipIntro(); }
+  function attachIntro() {
+    if (iBound) return;
+    iBound = true;
+    try { doc.addEventListener('keydown', iOnKey); doc.addEventListener('keyup', iOnKey); } catch (e) { /* ignore */ }
+    try { global.addEventListener('pointerdown', iOnPtr); global.addEventListener('touchstart', iOnPtr); } catch (e) { /* ignore */ }
+  }
+  function detachIntro() {
+    if (!iBound) return;
+    iBound = false;
+    try { doc.removeEventListener('keydown', iOnKey); doc.removeEventListener('keyup', iOnKey); } catch (e) { /* ignore */ }
+    try { global.removeEventListener('pointerdown', iOnPtr); global.removeEventListener('touchstart', iOnPtr); } catch (e) { /* ignore */ }
+  }
+  function iEnd(why) {
+    if (!INT.active) return;
+    INT.active = false;
+    if (INT.raf && global.cancelAnimationFrame) { try { global.cancelAnimationFrame(INT.raf); } catch (e) { /* ignore */ } }
+    INT.raf = 0;
+    detachIntro();
+    if (why === 'skip') INT.skipped++; else INT.done++;
+    var e = iEls(), box = e.box;
+    if (box && box.classList) box.classList.add('out');
+    if (INT.timer) { try { global.clearTimeout(INT.timer); } catch (er) { /* ignore */ } }
+    INT.timer = global.setTimeout(function () {
+      INT.timer = 0;
+      if (!box || !box.classList) return;
+      try { box.classList.remove('show'); box.classList.remove('out'); box.classList.remove('titled'); } catch (er) { /* ignore */ }
+    }, 190);
+  }
+  function skipIntro() { if (INT.active) iEnd('skip'); }
+  function iFrame(ts) {
+    if (!INT.active) return;
+    var dt = INT.last ? Math.min(0.05, (ts - INT.last) / 1000) : 0.016;
+    INT.last = ts; INT.t += dt;
+    var e = iEls();
+    if (e.cv) {
+      var c = e.cv.getContext && e.cv.getContext('2d');
+      if (c) { try { c.setTransform(1, 0, 0, 1, 0, 0); iPaint(c, INT.t); } catch (er) { /* 画不出来也不许炸 */ } }
+    }
+    if (e.box && e.box.classList && INT.t >= 0.86) e.box.classList.add('titled');
+    if (INT.t >= INT.dur) { iEnd('done'); return; }
+    INT.raf = global.requestAnimationFrame ? global.requestAnimationFrame(iFrame) : 0;
+    if (!INT.raf) iEnd('done');                    /* 没有 rAF 就不许挂着不放 */
+  }
+  function playIntro(o) {
+    var e = iEls(), c = null;
+    if (!e.box || !e.cv) return false;             /* 页面里没有那层（老页面）就别硬放 */
+    if (INT.timer) { try { global.clearTimeout(INT.timer); } catch (er) { /* ignore */ } INT.timer = 0; }
+    INT.title = (o && o.title) || ''; INT.sub = (o && o.sub) || '';
+    INT.t = 0; INT.last = 0; INT.active = true; INT.plays++;
+    if (e.ch) e.ch.textContent = INT.title;
+    if (e.sub) e.sub.textContent = INT.sub || '';
+    if (e.box.classList) { e.box.classList.add('show'); e.box.classList.remove('out'); e.box.classList.remove('titled'); }
+    iFit();
+    attachIntro();
+    c = e.cv.getContext && e.cv.getContext('2d');
+    if (c) { try { iPaint(c, 0); } catch (er) { /* ignore */ } }
+    if (global.requestAnimationFrame) INT.raf = global.requestAnimationFrame(iFrame);
+    else { INT.t = INT.dur; iEnd('done'); }
+    return true;
+  }
+
   var API = {
-    version: '46.0', VW: VW, VH: VH, GEO: GEO, plateA: PLATE_A, plateB: PLATE_B,
+    version: '47.0', VW: VW, VH: VH, GEO: GEO, plateA: PLATE_A, plateB: PLATE_B,
     paint: paint, mount: mount, stop: stop, setSel: setSel, setLocked: setLocked,
     jiggle: jiggle, stopOf: stopOf, state: G, onArrive: null,
+    playIntro: playIntro, skipIntro: skipIntro, introState: INT, _iPaint: iPaint,
     _bake: bake, _frame: drawFrame, ramp: ramp, blend: blend
   };
   global.HOMEART = API;
