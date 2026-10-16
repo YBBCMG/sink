@@ -3901,7 +3901,7 @@
         : (admin ? '未解锁 —— 但 DEV 口子开着' : '未解锁 · 得先把第一章走完'),
       hint: inCh2 ? '你正站在第二章里 —— 关掉这页就是接着玩。'
         : (unlocked ? '进去了也回得来：主界面一直在顶栏。'
-          : (admin ? 'DEV 面板里把「二章免通」打开就能进。' : '把一个结局走完，里间那道门才认你。')),
+          : (admin ? 'DEV 面板里把「二章免通」打开就能进。' : '把一个结局走完，柜上才认你。')),
       btn: (unlocked || admin) ? (inCh2 ? '接着玩' : '进入' + slot.name) : '未解锁',
       go: (unlocked || admin) ? (inCh2 ? 'stay' : 'ch2') : 'no',
     };
@@ -3938,7 +3938,7 @@
   function homeRefuse() {
     if (global.HOMEART && HOMEART.jiggle) { try { HOMEART.jiggle(); } catch (e) { /* ignore */ } }
     sfx('wrong');
-    toast('第二章还锁着 —— 把一个结局走完，里间那道门才认你。');
+    toast('第二章还锁着 —— 把一个结局走完，柜上才认你。');
   }
   function homeArrive() {                           /* 画布回调：走到跟前了 */
     if (homeSel === 1 && homeLocked()) homeRefuse();
