@@ -681,9 +681,12 @@
     rect(c, x, y + 12, 62, 1, P.woodLit);
     rect(c, x, y + 21, 62, 1, P.woodDeep);
     for (var i = 6; i < 58; i += 14) rect(c, x + i, y + 14, 1, 7, 'rgba(0,0,0,.18)');
-    rect(c, x + 4, y + 2, 26, 11, mixOf(P.paperDark, P.paper, 0.5));
-    rect(c, x + 4, y + 2, 26, 1, P.paper);
-    rect(c, x + 34, y + 4, 22, 9, mixOf(P.pottery, P.potDark, 0.4));
+    rect(c, x + 4, y + 1, 26, 12, mixOf(P.woodDark, P.wood, 0.45));   /* 一只矮箱（原来给的是纸色，实拍里像块浮着的白板） */
+    rect(c, x + 4, y + 1, 26, 1, P.woodLit);
+    rect(c, x + 8, y + 6, 18, 1, 'rgba(0,0,0,.20)');
+    rect(c, x + 34, y + 3, 22, 10, mixOf(P.pottery, P.potDark, 0.42));
+    rect(c, x + 34, y + 3, 22, 1, P.potLit);
+    dith(c, x + 2, y + 21, 60, 6, 'rgba(0,0,0,.26)', 0);
   }
   function sack(c, x, y, P) {
     rect(c, x, y, 26, 22, mixOf('#9c8a6a', P.paperDark, 0.45));
