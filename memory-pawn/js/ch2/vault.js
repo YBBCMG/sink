@@ -48,7 +48,9 @@
   var LIB = 'ch2_vault';                                  /* 库房那串账（设计 §8 定的键名） */
   /* 本模块允许写进档的旗标白名单（判据 C11-a 拿它当尺子） */
   var WKEYS = [LIB, 'ch2_salvage_n', 'ch2_bad_fault', 'ch2_shop_lv', 'ch2_hint_n',
-               'ch2_lowd', 'ch2_e5_bad', 'ch2_lastday', 'ch2_gold_boot', 'ch2_seen'];
+               'ch2_lowd', 'ch2_e5_bad', 'ch2_lastday', 'ch2_gold_boot', 'ch2_seen',
+               /* V8：身上那串记的 id 列表（进白名单它也是"不许起名字"的：一个 id 就是一段，没有名字位） */
+               'ch2_carry'];
 
   /* 一格的行字段白名单（判据 C2-a 拿它当尺子）。**没有可命名语义的字段** —— 这是 V7-a。 */
   var FIELDS = ['slot', 'date', 'batch', 'weight', 'owner', 'tainted', 'occupied'];
@@ -367,6 +369,240 @@
     host.openModal();
     return true;
   }
+  /* ============================================================
+     七之二、逐格交互（用户 2026-10-17 口径 → V8 四条子判据）
+     ------------------------------------------------------------
+     「目前罐子不可以交互，应该是每个罐子都可以交互的。然后当你身上有记忆的时候，对一个罐子交互就可以
+      选择是否将某一段记忆存入其中。然后再交互就会选择是否取出这段记忆，但是不显示名字。直到交易之前
+      都不会显示名字，只会显示罐子的代号。只有交还之后才知道给的正确还是错误。」
+     四个动作照中枢拍板：① 26 格全可交互（空罐照按）② 身上有记 + 空格 → 给"选哪一段"的面
+     ③ 同格再按 = 取出（**回身上**，不是销毁）④ 满格 + 身上有记 → 必须先取出，**不许替换、不许顶掉**。
+
+     ⚠️ 这一节的两条边界（改了就等于把难度送人）：
+       · **选段的面只列序号**，不列名字、不列 tag、不列原文 —— 顾客看得见的那一栏只有「第 N 段 · 重 X 档」。
+       · 「取」在这里**只把记拿回身上**；对/错是交割那次 `take()` 才结的账。这一面在交割前逐字节一样。
+     ============================================================ */
+  /* **身上那串记**：一章是 `S.mem[id].state`（held/spoiled/donated）。二章只借一个"哪几段在身上"的
+     列表——**只存 id**，不存名字、不存内容（口径 A）。`ch2_carry` 进 WKEYS 白名单。 */
+  var CARRY = 'ch2_carry';
+  function carryIds(s) {
+    return String(fget(s, CARRY) == null ? '' : fget(s, CARRY))
+      .split(',').filter(function (x) { return x !== ''; });
+  }
+  function setCarry(s, ids) {
+    var uniq = [];
+    (ids || []).forEach(function (x) { if (x && uniq.indexOf(x) < 0) uniq.push(x); });
+    /* 账号串进档；**顺序 = 玩家收进来的顺序**（这也是"只能靠记性"的一部分：系统不替你排）。 */
+    fset({ S: s, save: function () {} }, CARRY, uniq.join(','));
+    return uniq;
+  }
+  function carryList(s) {
+    return carryIds(s).map(function (id, i) { return { id: id, n: i + 1, slot: null }; });
+  }
+  /* 真机上"身上有记"就是一章那套 `S.mem` 里 state=held/spoiled 的那几段 —— 顺手搬进搬运列表，
+     这样逐格交互不需要引擎多给一个接口（跟"包一层 CH2.open"同一个手法）。判据里用 carryPush 造。 */
+  function carryFromMem(s) {
+    var mem = (s && s.mem) || {}, ids = carryIds(s), add = [];
+    Object.keys(mem).forEach(function (k) {
+      var st = (mem[k] || {}).state;
+      if ((st === 'held' || st === 'spoiled') && ids.indexOf(k) < 0 && add.indexOf(k) < 0) add.push(k);
+    });
+    return add.length ? setCarry(s, ids.concat(add)) : ids;
+  }
+  function carryPush(s, id) { return setCarry(s, carryIds(s).concat([id])); }
+  function carryDrop(s, id) {
+    var ids = carryIds(s), i = ids.indexOf(id);
+    if (i < 0) return { ok: false, msg: 'not-carried' };
+    ids.splice(i, 1); setCarry(s, ids);
+    return { ok: true, id: id };
+  }
+  /* 记在这库房里的四种状态：在册 / 已上架 / 在手上 / 空 —— **状态只走 S.mem，不另造表**。 */
+  function memState(s, id) {
+    var m = ((s && s.mem) || {})[id];
+    if (m && m.ch2_stored != null) return 'stored';
+    if (carryIds(s).indexOf(id) >= 0) return 'held';
+    if (m && (m.state === 'held' || m.state === 'spoiled')) return 'held';
+    return 'gone';
+  }
+  /* 存进去（**必须走"那一格"**：玩家指哪只罐子就进哪只，不许系统自己挑空格） */
+  function storeHeld(host, slot, id) {
+    var s = S_(host && host.S ? host.S : null);
+    if (!(slot >= 0 && slot < COUNT)) return { ok: false, msg: 'bad-slot' };
+    var row = slotRow(s, slot);
+    /* ④ 满格必须先取 —— 替换在这里就被挡住（不是"顶掉最旧的"）。 */
+    if (row && row.occupied) { txt(host, LETTERS[slot] + ' 格已经满了 —— 先把它取出来，再存新的。'); return { ok: false, msg: 'full-slot', id: LETTERS[slot] }; }
+    if (carryIds(s).indexOf(id) < 0) return { ok: false, msg: 'not-carried' };
+    var r = store(host, { o: '', d: num(fget(s, 'ch2_lastday'), 1), w: 0 });
+    if (!r.ok) return r;                                   /* 架全满（26/26）也走这条 */
+    var from = r.slot, to = slot;
+    if (from !== to) {                                     /* store() 落的是"第一格空的" —— 搬回玩家指的那格 */
+      var moved = slotRow(s, from);
+      putRow(s, emptyRow(from));
+      moved.slot = to;
+      putRow(s, moved);
+    }
+    var m = (s.mem = s.mem || {})[id] || {};
+    s.mem[id] = m;
+    m.ch2_stored = to;                                     /* 存哪一格 —— 交割/取回都按它认账 */
+    m.donated = 1;
+    m.state = 'donated';                                   /* 一章的 memHas() 立刻按"不在身上"算 */
+    carryDrop(s, id);
+    if (host && host.save) host.save();
+    if (host && host.addLog) host.addLog('（库房）把身上这一段存进 ' + LETTERS[to] + ' 格。');
+    if (host && host.sfx) host.sfx('coin');
+    return { ok: true, slot: to, id: LETTERS[to], mem: id };
+  }
+  /* 取回身上（③）：格腾空、号留着；**记回到手上**，不是销毁。对/错不在这里判。 */
+  function takeHeld(host, slot) {
+    var s = S_(host && host.S ? host.S : null);
+    var key = String(slot);
+    var id = null;
+    Object.keys((s && s.mem) || {}).forEach(function (k) { if (String(s.mem[k].ch2_stored) === key) id = k; });
+    if (id == null) return { ok: false, msg: 'nothing' };
+    var r = take(host, slot, slot, { render: false });
+    if (!r.right) return { ok: false, msg: 'no-row', id: LETTERS[slot] };
+    var m = s.mem[id];
+    delete m.ch2_stored;
+    m.state = 'held';                                      /* 回到身上 */
+    carryPush(s, id);
+    if (host && host.save) host.save();
+    if (host && host.addLog) host.addLog('（库房）从 ' + LETTERS[slot] + ' 格把记取回身上。');
+    return { ok: true, slot: slot, id: LETTERS[slot], mem: id, gold: r.gold };
+  }
+  /* 交割前那一面：**只有格号 + 空满 + 封条色 + 重量档 + 入库日**，一个字的对错都没有。
+     判据 V8-c 就是拿它对「对后 / 错后」两种面板做逐字节比对。 */
+  function faceOf(s, k) {
+    var row = slotRow(s, k) || emptyRow(k);
+    return '<p class="pz-tip">第 <b>' + LETTERS[k] + '</b> 格</p>'
+      + '<p class="pz-tip">' + (row.occupied
+        ? '入库 ' + row.date + ' 日 · 封条 ' + sealColor(row.batch) + ' · 重 ' + row.weight + ' 档 · '
+          + (row.tainted ? '带串味' : '无串味')
+        : '空罐 · 号还留着（格号不复用）') + '</p>'
+      + '<p class="pz-tip">里头那段记：<b>…</b></p>';
+  }
+  function actJar(host, slot) {
+    var s = S_(host && host.S ? host.S : null);
+    if (!(slot >= 0 && slot < COUNT)) return { ok: false, msg: 'bad-slot' };
+    carryFromMem(s);                                       /* 真机：身上的记随时搬进来（不弹提示） */
+    var row = slotRow(s, slot), held = carryIds(s);
+    if (row && row.occupied) return jarTakePanel(host, s, slot);
+    if (held.length) return jarStorePanel(host, s, slot, held);
+    say(host, 'empty');                                    /* ① 空罐照样有回应：不许"按了没动静" */
+    return { ok: true, msg: 'empty', id: LETTERS[slot] };
+  }
+  /* ② 手里有记：给「选哪一段」的面 —— **只列序号 + 重量档，不列名字**。 */
+  function jarStorePanel(host, s, slot, held) {
+    var btns = held.map(function (id, i) {
+      return {
+        label: '第 ' + (i + 1) + ' 段', fn: function () {
+          var r = storeHeld(host, slot, held[i]);
+          if (host && host.closeModal) host.closeModal();
+          if (host && host.addLog) { /* 结果已经记过日志 */ }
+          return r;
+        }
+      };
+    });
+    btns.push({ label: '算了', fn: host && host.closeModal ? host.closeModal : function () {} });
+    if (host && host.setTitle && host.setBtns) {
+      host.setTitle(LETTERS[slot] + ' 格空着 · 存一段进去？');
+      host.setBtns(btns);
+      if (host.setBody) host.setBody('<p class="pz-tip">要存哪一段？<b>只有序号</b> —— 名字和内容都不给你看。</p>');
+      if (host.openModal) host.openModal();
+    }
+    return { ok: true, waiting: true, id: LETTERS[slot], count: held.length };
+  }
+  /* ③ 满格：取出（回身上）。「认」那一步等交割才结账。 */
+  function jarTakePanel(host, s, slot) {
+    var row = slotRow(s, slot);
+    var id = null;
+    Object.keys((s && s.mem) || {}).forEach(function (k) { if (String(s.mem[k].ch2_stored) === String(slot)) id = k; });
+    var btns = [{ label: '取出来', fn: function () {
+      var r = id == null ? { ok: false, msg: 'nothing' } : takeHeld(host, slot);
+      /* 取出之后面板要跟着变（不然屏上还挂着"已经有一件货"、"取出来"再按就落空）。
+         **交割前不判对错**：这里只说"回身上了 / 号还留着"，一个字都不提这段对不对。 */
+      if (host && host.closeModal) host.closeModal();
+      if (r && r.ok) txt(host, LETTERS[slot] + ' 格空了 —— 号还留着。');
+      else txt(host, LETTERS[slot] + ' 格本来就是空的。');
+      return r;
+    } }];
+    btns.push({ label: '算了', fn: host && host.closeModal ? host.closeModal : function () {} });
+    if (host && host.setTitle && host.setBtns) {
+      host.setTitle(LETTERS[slot] + ' 格 · 已经有一件货');
+      if (host.setBody) host.setBody(faceOf(s, slot) + '<p class="pz-tip">要把它取回身上吗？（号还留着，格号不复用）</p>');
+      host.setBtns(btns);
+      if (host.openModal) host.openModal();
+    }
+    return { ok: true, waiting: true, id: LETTERS[slot], occupied: true, filled: !!row };
+  }
+  /* 判据 V8-a/b/d 直接用这两个函数做"哑宿主"驱动；真机上走上面那两个面板。
+     ⚠️ 2026-10-17：模块没落盘时判据也要能红得"干净"（不能抛 TypeError 把整批断言带塌）
+     —— 所以这里连模块自己的装载期都兜得住。 */
+  function jarButtonLabels(host, slot) {
+    var seen = [];
+    var dumb = {
+      S: host && host.S, say: function () {}, toast: function () {},
+      setTitle: function () {}, setBody: function () {},
+      setBtns: function (a) { seen = [].concat(a || []); },
+      openModal: function () {}, closeModal: function () {}, save: function () {},
+      addLog: function () {}, sfx: function () {}, dirty: function () {}
+    };
+    actJar(dumb, slot);
+    return seen.map(function (b) { return b.label; });
+  }
+
+  /* ============================================================
+     七之三、账本那一面（「架子一个点 → 26 格账本 → 选格存取」）
+     ------------------------------------------------------------
+     用户原话是「每个罐子都可以交互」，但这一版架子横跨 x=4..15 只有 12 格宽、一排 13 只罐 ⇒
+     一罐一点在几何上塞不下（tools/verify-vault-points.mjs ②-1 那段注释记着这条），
+     挂到过道上又会把走道堵死（交互点所在格在引擎里算障碍）。
+     所以账房那个点（`ch2_vault_store`）开出的是**这本账**：把 26 只罐子按架上顺序排成账页，
+     玩家在账上挑格 —— 挑哪一只就是哪一只，**系统不替玩家"自动挑第一格空的"**。
+
+     ⚠️ 账面上只许有 **格号 + 空满 + 封条色（＋入库日 / 重量档）**：
+       · 空格不隐藏（"空着"本身就是线索：腾出来的格子号还留着）；
+       · 名字 / 原文 / tag / 记的 id / 对错，一个都不许上账 —— 交割那一刻才结账。
+     ============================================================ */
+  var LEDGER_SID = 'ch2vault-ledger';
+  /* 账面那一格只给数据面（判据 C12-a 钉死：本模块**不许自建 DOM**，格子也由宿主 setBtns 长出来）。
+     26 格排成账页靠注入一段"只管排版"的样式：宿主那张面板的按钮是 flex 一列排下来的，
+     这里把它的排法改成 13 列的账格子 —— 样式不承担任何逻辑（谁可点、点了干嘛，全在按钮自己的 fn 上）。 */
+  var LEDGER_CSS = '<style>#m-card:has(#' + LEDGER_SID + ') #m-btns'
+    + '{display:grid;grid-template-columns:repeat(13,1fr);gap:4px;margin-top:8px}'
+    + '#m-card:has(#' + LEDGER_SID + ') #m-btns button'
+    + '{padding:6px 2px;text-align:center;font-size:9.5px;line-height:1.3;letter-spacing:0;'
+    + 'border-radius:7px;white-space:normal;overflow-wrap:anywhere}</style>';
+  /* 一行＝一只罐子：`A 空` / `B 3日·封条`。首字必须是格号（判据 V9-a 拿它当尺子），
+     第二个词只说"空/满 + 入库日 + 封条" —— 名字、原文、记的 id 一个都不许上账。 */
+  function ledgerRowLabel(s, k) {
+    var row = slotRow(s, k);
+    if (!row || !row.occupied) return LETTERS[k] + ' 空';
+    return LETTERS[k] + ' ' + row.date + '日·封条';
+  }
+  function ledgerPanel(host, s) {
+    if (!host || !host.setTitle || !host.setBody || !host.setBtns || !host.openModal) return null;
+    s = S_(s || (host.S || null));
+    var btns = [];
+    for (var i = 0; i < COUNT; i++) btns.push({ label: ledgerRowLabel(s, i), fn: (function (k) {
+      return function () { return actJar(host, k); };
+    })(i) });
+    host.setTitle('库房账本 · 26 格');
+    host.setBody('<p class="pz-tip">一格格记着进出：架子横着一排十三只、两排，账上就按这个顺序排。</p>'
+      + '<p class="pz-tip">进来几件、出去几件 —— 同时刻在架上最多二十六段，腾出来的格子号还留着。</p>'
+      + '<p class="pz-tip">罐子全库同款：铜牌上只有格号，封条的颜色只跟入库批次走。<b>哪一格是谁，得你自己记。</b></p>'
+      + LEDGER_CSS + '<div id="' + LEDGER_SID + '"></div>');
+    host.setBtns(btns.concat([{ label: '合上账本', fn: host.closeModal }]));
+    host.openModal();
+    return { ok: true, opened: true, cells: COUNT };
+  }
+  /* 账房那个点开的就是它（`ch2_vault_store`）；没落盘/没宿主时退回那三句话（零副作用）。 */
+  function ledgerOpen(host) {
+    var out = ledgerPanel(host, host && host.S ? host.S : null);
+    if (out) return out;
+    say(host, 'store');
+    return { ok: false, msg: 'no-host' };
+  }
+
   /* 判据 C12-c 读这个：三面都必须给得出东西，且**不许把整句话端上来**（正文里不许出现句号）。 */
   function FACES() {
     return {
@@ -407,7 +643,9 @@
   var TEXT = {
     store: ['（收当）过秤、问明来源、写票、上架。', '（空罐一只只排着，号是刻在铜牌上的。）'],
     take: ['（取当）客人报的是他自己那段记 —— 你得把它从 26 只一模一样的罐子里拎出来。'],
-    full: ['（架上一格空位都没有了。先出一件货，再收新的。）']
+    full: ['（架上一格空位都没有了。先出一件货，再收新的。）'],
+    /* ① 空罐也得有回应 —— 按了没动静，玩家只会以为"罐子不能交互"（用户原话的由来） */
+    empty: ['（空罐。号刻在铜牌上，底下没货 —— 也没起过名。）']
   };
   function say(host, k) { if (host && host.say) host.say(TEXT[k].slice()); }
   /* 取当这一面的玩家动作：host 若是验收脚本递进来的"哑宿主"，它自己会用 pick 指定；真机上走面板。 */
@@ -423,14 +661,20 @@
     })(i) });
     if (host && host.setTitle && host.setBtns) {
       host.setTitle('取当 · 客人说的是「' + (slot == null ? '—' : LETTERS[slot]) + '」那一段吗');
-      host.setBtns(keys.slice(0, 12).concat([{ label: '算了', fn: host.closeModal }]));
+      host.setBtns(keys.concat([{ label: '算了', fn: host.closeModal }]));
       if (host.openModal) host.openModal();
     }
     return { ok: true, waiting: true };
   }
+  /* 账房那个点（`ch2_vault_store`）：开账本。
+     2026-10-17 改：从前这里只 `say` 三句（"格号/批次/二十六/腾格"那三句），玩家按 E 看完字就没了 ——
+     用户点单要的是 **架子一个点 → 26 格账本 → 选格存取** 这条路。现在真开账本；
+     那三句口径一句不少，挪到账面正文里（tools/verify-vault-points.mjs ②-1 那条静态判据照旧读 scenes.js 的 say）。 */
   function openVault(host) {
+    var out = ledgerPanel(host, host && host.S ? host.S : null);
+    if (out) { if (host && host.sfx) host.sfx('click'); return { ok: true, opened: true }; }
     say(host, 'store');
-    return true;
+    return { ok: true, kind: 'say' };
   }
 
   function install() {
@@ -441,7 +685,7 @@
     C.open = function (p, host) {
       if (p && p.ch2 === true && p.id) {
         if (p.id === V) return openVault(host);
-        if (p.id.indexOf('ch2_jar_') === 0) return actTake(host, LETTERS.indexOf(p.id.slice(8)));
+        if (p.id.indexOf('ch2_jar_') === 0) return actJar(host, LETTERS.indexOf(p.id.slice(8)));
         if (p.id === 'ch2_vault_store') return openVault(host);
       }
       return v0.apply(this, arguments);
@@ -464,7 +708,15 @@
     penalty: penalty, bootGold: bootGold, tickDay: tickDay, broke: broke, bad: bad,
     /* 接线与自检 */
     install: install, mounted: mounted, FACES: FACES, selfcheck: selfcheck,
-    open: openVault, actTake: actTake,
+    /* 账本那一面（V9 三条判据的入口） */
+    ledgerPanel: ledgerPanel, ledgerOpen: ledgerOpen, ledgerRowLabel: ledgerRowLabel,
+    open: openVault, actTake: actTake, actJar: actJar,
+    /* V8 · 逐格交互：身上那串记 / 逐格存 / 逐格取回 / 交割前面 */
+    CARRY: CARRY, carryIds: carryIds, carryList: carryList, carryFromMem: carryFromMem,
+    carryPush: carryPush, carryDrop: carryDrop, memState: memState,
+    storeHeld: storeHeld, takeHeld: takeHeld, faceOf: faceOf,
+    memoOf: function (s, k) { var r = slotRow(s, k); return r && r.occupied ? r.weight : null; },
+    jarButtonLabels: jarButtonLabels,
     /* 自检用：装载成功没 */
     loadedAt: mounted
   };
