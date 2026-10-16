@@ -302,9 +302,10 @@
      照样看得见（不吞独白）；② pointer-events:none —— 它只许盖画面，绝不许拦交互（不卡住）；
      ③ 画布恒 960×672，装不下整体缩（跟主界面一套，不用自己算倍率）。 */
   #chapter-intro {
-    /* 层级 5 = **压在 #modal(6) 之下**：二章开场独白照旧看得见（不吞独白）；
-       顶栏/右侧面板照旧在它上面 —— 它只是「章节门牌」，不抢 HUD 的位置。 */
-    position: fixed; inset: 0; z-index: 5; overflow: hidden;
+    /* **必须待在 #world-wrap 里**（跟 #modal 同一个层叠上下文）——z-index 只在同一层叠上下文里
+       才有意义：挂在 body 上时它是 5 > #world-wrap 自己那一层，整块 UI（含开场独白）会被它盖住，
+       实测独白量得出来在屏上、图里却看不见。搬进来之后 5 < 60 才是真的。 */
+    position: absolute; inset: 0; z-index: 5; overflow: hidden;
     display: none; align-items: center; justify-content: center;
     background: #0a0714; pointer-events: none;
   }
@@ -1200,6 +1201,13 @@ button:active { transform: translate(1px, 1px); }
         </div>
         <button id="btn-e" title="互动 / 确定（等同 E 键）">E</button>
       </div>
+      <!-- v47：每章入场动画（画布 + DOM 章名）。**就摆在 #modal 前面、同一个层叠上下文里**，
+           这样 z-index 5 < #modal 的 60 才成立 —— 开场独白照旧压在它上头（不吞独白）。
+           pointer-events:none：只盖画面，不拦交互；任意键 / 点击跳过，跳过的键照旧落到引擎手里。 -->
+      <div id="chapter-intro" aria-hidden="true">
+        <canvas id="ci-cv" width="960" height="672"></canvas>
+        <div id="ci-title"><div id="ci-ch"></div><div id="ci-rule"></div><div id="ci-sub"></div></div>
+      </div>
       <div id="modal">
         <div id="m-card">
           <div id="m-title"></div>
@@ -1259,7 +1267,7 @@ button:active { transform: translate(1px, 1px); }
 <script src="js/puzzles23.js?v=39"></script>
 <script src="js/jobs-hard23.js?v=1"></script>
 <script src="js/art31.js?v=36"></script>
-<script src="js/home-art.js?v=59"></script>
+<script src="js/home-art.js?v=60"></script>
 <!-- v43：第二章骨架（js/ch2/ 整目录归"记忆玩法·功能玩法"线，story23/puzzles23 一个字没碰）。
      必须排在 game23.js **之前**：它要在引擎起页前把「记忆库」场景与三个复用挂点装进 WORLD.SCENES。 -->
 <script src="js/ch2/text.js?v=4"></script>
@@ -1352,14 +1360,6 @@ button:active { transform: translate(1px, 1px); }
       </div>
     </div>
   </div>
-</div>
-
-<!-- v47：每章入场动画。画面是像素画（js/home-art.js 画在 #ci-cv 上，硬边 + 2×2 抖动，
-     不引任何外部资源），文字走 DOM。层级压在 #modal 之下、pointer-events:none：
-     它只盖画面，不吞开场独白、不拦交互；任意键 / 点击即可跳过，跳过的键照旧落到引擎手里。 -->
-<div id="chapter-intro" aria-hidden="true">
-  <canvas id="ci-cv" width="960" height="672"></canvas>
-  <div id="ci-title"><div id="ci-ch"></div><div id="ci-rule"></div><div id="ci-sub"></div></div>
 </div>
 </body>
 </html>
