@@ -365,14 +365,23 @@
         rect(c, dx + dw / 2 - 5, dy + dh / 2 - 2, 10, 5, P.copper);
         rect(c, dx + dw / 2 - 5, dy + dh / 2 - 2, 10, 1, P.copperLit);
         rect(c, dx + dw / 2 - 5, dy + dh / 2 + 2, 10, 1, P.copperDark);
-        /* 匣面一张褪色的签 */
-        rect(c, dx + 10, dy + 8, 26, 14, P.paperDark);
-        rect(c, dx + 10, dy + 8, 26, 1, P.paper);
-        rect(c, dx + 13, dy + 12, 20, 1, P.ink);
-        rect(c, dx + 13, dy + 16, 14, 1, P.ink);
+        /* 匣面：木作线脚 + 一枚菱形雕花。**没有名牌槽、没有纸签**（硬规矩：
+           记忆容器上不许出现任何"能写、能改"的视觉暗示 —— 原来这里贴着一张纸签，已去掉） */
+        rect(c, dx + 3, dy + 3, dw - 6, 1, P.woodDeep);
+        rect(c, dx + 3, dy + dh - 4, dw - 6, 1, 'rgba(255,240,214,.08)');
+        carve(c, dx + R(dw / 2), dy + R(dh * 0.42), 5, P);
         dx += dw + 4; col++;
       }
     }
+  }
+  /* 木作线脚上的菱形雕花：纯花纹，**装不了名字**（硬规矩用） */
+  function carve(c, cx, cy, r, P) {
+    var i;
+    for (i = 0; i < r; i++) {
+      rect(c, cx - (r - i), cy - i, (r - i) * 2, 1, 'rgba(0,0,0,.20)');
+      rect(c, cx - (r - i), cy + i, (r - i) * 2, 1, 'rgba(0,0,0,.13)');
+    }
+    rect(c, cx - 1, cy, 3, 1, 'rgba(255,240,214,.10)');
   }
   /* 三种形制 + 五种陶色 + 三种盖 —— 一柜子货不能是 26 份拷贝（近景自审抓到过） */
   var PROF = {
@@ -386,7 +395,8 @@
   var CLAY = ['#7a6650', '#8a5a44', '#62705c', '#4a4038', '#9a8a6a'];
   /* 一只粗陶罐：形制 / 陶色 / 盖 / 崩口 都按格号定死（刷新不变），但一柜子看过去是 26 只 */
   function jar(c, x, by, w, h, P, seed, letter, wax, sealed, shape, clay, lid) {
-    var r = rng(x, by, seed + 17);
+    /* 这里**一个 rng 都不用**：函数纯到 (w,h,letter,wax,sealed) 决定，两只罐子只要
+       格号一样就逐像素一样（判据拿这个当"同款"的硬证据）。 */
     var prof = PROF[shape] || PROF.round;
     var base = CLAY[clay % CLAY.length];
     var lit = mixOf(base, P.potLit, 0.58), dark = mixOf(base, P.potDark, 0.78), deep = P.potDeep;
@@ -394,7 +404,7 @@
     rect(c, x + 3, by - 1, w - 6, 2, 'rgba(0,0,0,.34)');
     dith(c, x + 1, by - 2, w - 2, 3, 'rgba(0,0,0,.22)', 1);
     var top = by - h, i, row;
-    var chip = r() > 0.72 ? (r() > 0.5 ? 1 : -1) : 0;            /* 崩口在哪一侧 */
+    var chip = 0;                                                /* 崩口＝区分个体，不做 */
     for (row = 0; row < h; row++) {
       var f = prof[Math.min(prof.length - 1, R(row / h * (prof.length - 1)))];
       var ww = Math.max(4, R(w * f / 100));
@@ -421,8 +431,8 @@
     else { rect(c, x + R(w * 0.36), top + 1, R(w * 0.28), 2, '#160f0c'); }     /* 敞口：往里是黑的 */
     /* 铜牌刻号（铜有新旧：一柜子铜牌不该一个色） */
     var pw = 13, ph = 9, px = x + R((w - pw) / 2), py = by - 15;
-    var old = (clay + seed) % 4 === 0;
-    var cop = old ? mixOf(P.copper, '#5f6a52', 0.45) : P.copper;
+    var old = false;                                             /* 铜牌新旧＝区分个体，不做 */
+    var cop = P.copper;
     rect(c, px - 1, py - 1, pw + 2, ph + 2, P.woodDeep);
     rect(c, px, py, pw, ph, cop);
     rect(c, px, py, pw, 1, old ? mixOf(cop, '#8a946a', 0.4) : P.copperLit);
@@ -441,25 +451,36 @@
       rect(c, sx + 1, sy + 5, 2, 2, wax);
     }
   }
-  /* 一排罐：13 只，格号从 start 起 */
+  /* 一排罐：13 只，格号从 start 起。
+     **硬规矩落在这三行上**（中枢转用户原话：记忆容器不许重命名，第 3 条）：
+       · 26 只罐子**同形制、同陶色、同尺寸、同盖** —— 逐像素同一个模子，格与格之间
+         **只有铜牌刻的格号不同**（外加封条色＝批次、以及"空着/有货"这个状态）。
+       · 所以认格子只能靠**记住格号**：把眼睛闭上，你手上那些长得一模一样的罐子，
+         谁也帮不了你 —— 这正是"玩家记忆力得好"这条规矩要的样子。
+       · 封条色按三格一批（floor(格号/3)%4）：同批同色，颜色只表批次、不当识别手段。
+     任何"让某格好认"的装饰（不同陶色/花纹/记号/崩口）都属于违规，别加。 */
   function jarRow(c, x0, y0, w, h, P, seed, start, opts) {
-    var o = opts || {}, n = 13, pitch = (w - 12) / n, i;
-    var SH = ['round', 'tall', 'jar', 'round', 'round', 'tall', 'jar', 'round', 'tall', 'round', 'jar', 'round', 'tall'];
-    var LD = ['knob', 'knob', 'flat', 'open', 'knob', 'flat', 'knob', 'knob', 'flat', 'open', 'knob', 'knob', 'flat'];
+    var o = opts || {}, n = 13, pitch = (w - 12) / n, i, out = [];
     for (i = 0; i < n; i++) {
-      var r = rng(x0 + i, y0, seed + i * 3);
-      var sh = SH[(i + start) % SH.length];
-      var jw = (sh === 'tall' ? 31 : sh === 'jar' ? 35 : 34) + R(r() * 3) - 1;
-      var jh = (sh === 'tall' ? 40 : sh === 'jar' ? 33 : 36) + R(r() * 4) - 2;
+      var k = start + i;                                /* 全库第几格（0..25） */
+      var jw = 34, jh = 36;                             /* 全库同尺寸，不给任何格子做区分 */
       var jx = x0 + 6 + R(i * pitch + (pitch - jw) / 2);
       var by = y0 + h - 7;
-      var ch = String.fromCharCode(65 + start + i);
+      var ch = String.fromCharCode(65 + k);
       var sealed = o.sealed ? o.sealed[i] : false;
-      var clay = (i * 2 + start + (r() > 0.5 ? 1 : 0)) % CLAY.length;
-      var lid = (LD[(i + start) % LD.length]);
-      if (lid === 'flat' && sh === 'tall') lid = 'knob';
-      jar(c, jx, by, jw, jh, P, seed + i * 11, ch, WAX[(o.wax ? o.wax[i] : 0) % 4], sealed, sh, clay, lid);
+      var wax = WAX[Math.floor(k / 3) % 4];             /* 封条色＝入库批次（三格一批） */
+      jar(c, jx, by, jw, jh, P, seed, ch, wax, sealed, 'round', 0, 'knob');
+      out.push({ k: k, letter: ch, x: jx, by: by, w: jw, h: jh,
+                 wax: wax, sealed: !!sealed, plate: plateBox(jx, by, jw) });
     }
+    CELLS = CELLS.concat(out);
+    return out;
+  }
+  var CELLS = [];
+  /* 铜牌（刻格号的那块）在格子里的位置 —— 判据拿它当"允许不同的那一小块" */
+  function plateBox(jx, by, jw) {
+    var pw = 13, ph = 9;
+    return { x: jx + R((jw - pw) / 2), y: by - 15, w: pw, h: ph };
   }
 
   /* ============================================================
@@ -606,10 +627,9 @@
     /* ---- 26 只罐：中排 A–M / 下排 N–Z ---- */
     var sealMid = [1, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0];
     var sealLow = [1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1];
-    var waxMid = [0, 0, 1, 1, 2, 2, 3, 3, 0, 0, 1, 1, 2];
-    var waxLow = [2, 0, 1, 3, 0, 2, 1, 3, 0, 2, 1, 3, 0];
-    jarRow(c, 192, 232, 576, 56, P, 101, 0, { sealed: sealMid, wax: waxMid });
-    jarRow(c, 192, 376, 576, 56, P, 211, 13, { sealed: sealLow, wax: waxLow });
+    CELLS = [];                                        /* 每次烘焙重数一遍（供判据逐格对拍） */
+    jarRow(c, 192, 232, 576, 56, P, 101, 0, { sealed: sealMid });
+    jarRow(c, 192, 376, 576, 56, P, 211, 13, { sealed: sealLow });
     /* ---- 靠门那半间的潮气：下排架底泛潮 + 门边一层薄雾 ---- */
     dith(c, 192, 336, 576, 46, 'rgba(158,182,208,.045)', 1);
     dith(c, 48, 448, 300, 176, 'rgba(158,182,208,.050)', 0);
@@ -651,9 +671,8 @@
     rect(c, x, y, w, h, mixOf(P.woodDark, P.wood, 0.35));
     rect(c, x, y, w, 1, P.woodLit);
     rect(c, x, y + h - 1, w, 1, P.woodDeep);
-    rect(c, x + 4, y + 5, w - 8, 14, mixOf(P.paperDark, P.paper, 0.35));
-    rect(c, x + 7, y + 9, w - 14, 1, 'rgba(42,32,24,.55)');
-    rect(c, x + 7, y + 13, w - 18, 1, 'rgba(42,32,24,.45)');
+    rect(c, x + 4, y + 5, w - 8, 1, P.woodDeep);              /* 线脚，不是名牌槽 */
+    carve(c, x + R(w / 2), y + 14, 5, P);
     rect(c, x + w / 2 - 4, y + 26, 8, 5, P.copper);
     rect(c, x + w / 2 - 4, y + 26, 8, 1, P.copperLit);
     rect(c, x + w, y + 6, 6, h - 12, 'rgba(0,0,0,.22)');
@@ -780,9 +799,8 @@
   function box(c, x, y, P) {
     rect(c, x, y, 40, 42, mixOf(P.woodDark, P.wood, 0.45));
     rect(c, x, y, 40, 1, P.woodLit);
-    rect(c, x + 6, y + 6, 28, 12, mixOf(P.paperDark, P.paper, 0.4));
-    rect(c, x + 9, y + 10, 20, 1, 'rgba(42,32,24,.6)');
-    rect(c, x + 9, y + 14, 14, 1, 'rgba(42,32,24,.5)');
+    rect(c, x + 6, y + 6, 28, 1, P.woodDeep);
+    carve(c, x + 20, y + 15, 5, P);
     rect(c, x, y + 41, 40, 1, P.woodDeep);
   }
   function barrel(c, x, y, P) {
@@ -826,6 +844,7 @@
     VAULT: V, install: install, installed: function () { return !!(global.ART31 && global.ART31.__ch2vaultArt); },
     paintFloor: paintFloor, paintRoom: paintRoom, jar: jar, palette: palOf,
     WAX: WAX, FONT: FONT, VW: VW, VH: VH, CELL: CELL,
+    cells: function () { return CELLS.slice(); },
     /* 自检用：装载成功没 */
     loadedAt: ok
   };
