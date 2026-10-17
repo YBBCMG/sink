@@ -222,7 +222,11 @@
     sfx('door');
     var act = sc.act || 1;
     if (!opts || !opts.silent) addLog('【' + sc.name + '】' + sc.sub);
-    if (act > S.maxAct) {
+    /* 2026-10-17 中枢新单：二章那张图上**一章的幕卡 / 幕开场白 / 灯油加一**一律不许演 ——
+       二章的幕由 js/ch2 自己算（顶栏「第 N 幕」+ 任务页），跟一章的 act 不是一回事。
+       （二章三个场景都写着 act:6，进一出就会闪一张「第 6 幕」的幕卡 —— 实拍逮到过。） */
+    var inCh2Now = /^ch2_/.test(String(sid));
+    if (act > S.maxAct && !inCh2Now) {
       S.maxAct = act; S.act = act;
       saveCheckpoint();
       actCard(act);
@@ -231,7 +235,7 @@
       if (open.length) say(open, null);
       music('m' + Math.min(act, 5));
       S.oil = (S.oil || 0) + 1;      /* 新的一幕：柜上再给一罐灯油 */
-    } else {
+    } else if (!inCh2Now) {
       S.act = Math.max(S.act, act);
     }
     if (SCENE_FLAG[sid] && !(opts && opts.silent)) markFlag(SCENE_FLAG[sid]);
@@ -263,6 +267,9 @@
     }).join(' → ');
   }
   function runLegs(quiet) {
+    /* 2026-10-17 中枢新单：站在二章那张图上，一章的跑腿/差事结算整个不跑 ——
+       它会在二章弹「差事推进 · 进镇：接着去 盐埕镇」这种一章的台词（实拍逮到过）。 */
+    if (/^ch2_/.test(String(S.scene))) return;
     if (!S.legs) S.legs = {};
     var changed = false;
     D.TASKS.forEach(function (t) {
@@ -1591,8 +1598,10 @@
         /* 顶栏那几颗按钮在二章照样有用（主界面 / 存档点 / 全屏 / DEV）—— 只隐字段，不隐按钮 */
         if (/^(btn-restart|btn-bgm|btn-home|btn-fs|btn-dev)$/.test(k.id)) continue;
         /* 「目标」这一位在二章**留着**：玩家要的"主线任务引导"就靠它（refreshHUD 写二章下一步）。
-           —— 2026-10-17 中枢新单，用户："目前没有主线任务引导啊" */
-        if (k.id === 'hud-goal') { k.style.display = ''; continue; }
+           ⚠️ 目标是裹在一颗 `.hitem` 里的（index.html:1171 `<span class="hitem">目标 <b id="hud-goal">`），
+           只认 id 就会把**父级那个 span** 隐掉 —— 字面 display:inline、实际 0×0 不占位（实拍逮到过）。
+           所以这里按"这个 hitem 里有没有 hud-goal"认，连壳一起留。 */
+        if (k.id === 'hud-goal' || (k.querySelector && k.querySelector('#hud-goal'))) { k.style.display = ''; continue; }
         k.style.display = on ? 'none' : '';
       }
     }
