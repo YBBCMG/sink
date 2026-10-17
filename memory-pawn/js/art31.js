@@ -1646,11 +1646,16 @@
     /* 腿 + 靴：先铺 1px 描边，再铺本色 */
     var LEG = F.legRows || 11;                       /* 腿长（从脚底往上数） */
     for (i = 0; i < 2; i++) {
-      var sg = i ? 1 : -1, off = sg * (2 + wide) + (mv ? sw * sg * 2 : 0);
-      R(c, px + off - 2, gy - LEG, 5, LEG - 2, oc);
-      R(c, px + off - 1, gy - LEG + 1, 3, LEG - 3, F.trouser || shade(F.boot, 0.26));
-      R(c, px + off - 3, gy - 4, 6, 4, oc);
-      R(c, px + off - 2, gy - 3, 4, 3, F.boot);
+      var sg = i ? 1 : -1;
+      /* 走路改成**抬脚**，不再左右平移：
+         平移那版在 sw=-1 的两帧上两条腿会挪到同一点（腿本来只有 5px 宽），
+         量出来的"腿粗"从 16 掉到 8 —— 那就是中枢说的"走路四帧糊"。抬脚不会撞。 */
+      var off = sg * (3 + wide);
+      var step = mv && (sw * sg > 0) ? 2 : 0;
+      R(c, px + off - 2, gy - LEG + step, 5, LEG - 2 - step, oc);
+      R(c, px + off - 1, gy - LEG + 1 + step, 3, LEG - 3 - step, F.trouser || shade(F.boot, 0.26));
+      R(c, px + off - 3, gy - 4 + step, 6, 4, oc);
+      R(c, px + off - 2, gy - 3 + step, 4, 3, F.boot);
       made += 4;
     }
     /* 身子：一行一行铺（下摆比肩宽），左亮右暗 + 右侧 2×2 抖过渡 */
