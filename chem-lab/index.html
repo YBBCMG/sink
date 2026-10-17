@@ -35,7 +35,18 @@ header {
   height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 14px;
   border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #122330, #0d1a22);
 }
-header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
+header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; flex: 0 0 auto; }   /* 标题不许被按钮挤成竖排 */
+/* 第十七个按钮（📖 作品说明）加进来后顶栏变挤：窄一点的笔记本先把小标题和统计让位 */
+@media (max-width: 1460px) {
+  header { gap: 8px; padding: 0 10px; }
+  header h1 small { display: none; }
+  header button { padding: 4px 7px; font-size: 12px; }
+  header .stat { font-size: 11px; }
+}
+@media (max-width: 1300px) {
+  header .stat { display: none; }
+  header button { padding: 4px 6px; font-size: 11.5px; }
+}
 header h1 small { color: var(--dim); font-weight: 400; font-size: 11px; margin-left: 6px; }
 header .stat { color: var(--dim); font-size: 12px; }
 header .stat b { color: var(--acc); }
@@ -482,6 +493,87 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
   animation: onbpulse 1.4s ease-in-out infinite; }
 @keyframes onbpulse { 0%, 100% { outline-color: #7fd4ffcc; } 50% { outline-color: #7fd4ff44; } }
 
+/* ============================================================================
+ * 第十七轮：参赛级适配
+ *   ① 作品说明页（评委 10 秒看懂：这是什么、真在哪、教什么、怎么带走）
+ *   ② 实验完成小结（教学闭环：验证了什么 → 课本哪一节 → 带走哪几个概念）
+ *   ③ 手机 / 平板可用（顶栏单行横滑 + 三栏改标签页，一屏只放一栏）
+ * ==========================================================================*/
+
+/* ---- ① 作品说明页 ---- */
+#modal .card.wide { width: min(880px, 94vw); max-height: 86vh; overflow: auto; }
+.ab-hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.ab-hero h3 { margin: 0; font-size: 20px; color: #eafcff; letter-spacing: .5px; }
+.ab-hero em { font-style: normal; color: var(--dim); font-size: 12px; }
+.ab-lead { font-size: 13px; line-height: 1.8; color: #d5e8f4; margin: 10px 0 4px;
+  background: linear-gradient(180deg, #0f2530, #0c1a22); border: 1px solid #23424f;
+  border-left: 3px solid var(--acc); border-radius: 8px; padding: 10px 12px; }
+.ab-lead b { color: #fff; }
+.ab-sec { margin: 16px 0 7px; font-size: 12.5px; color: var(--acc); font-weight: 600; letter-spacing: .8px; }
+.ab-sec span { color: var(--dim); font-weight: 400; letter-spacing: 0; margin-left: 6px; font-size: 11px; }
+.ab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 7px; }
+.ab-kpi { background: #0d1b24; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
+.ab-kpi b { display: block; font-size: 20px; color: #eafcff; line-height: 1.25; }
+.ab-kpi span { font-size: 10.5px; color: var(--dim); line-height: 1.3; }
+.ab-ul { margin: 4px 0 0; padding: 0; list-style: none; }
+.ab-ul li { font-size: 12.5px; line-height: 1.75; color: #cfe3ef; padding-left: 17px; position: relative; }
+.ab-ul li::before { content: '✓'; position: absolute; left: 0; color: var(--ok); font-size: 11px; top: 1px; }
+.ab-ul li b { color: #fff; }
+.ab-ul li i { font-style: normal; color: var(--dim); }
+.ab-try { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 7px; }
+.ab-try button { text-align: left; padding: 9px 10px; font-size: 12px; line-height: 1.5;
+  border-color: #2b6d70; background: linear-gradient(180deg, #123039, #0d222a); }
+.ab-try button b { display: block; color: #d8fffa; font-size: 12.5px; margin-bottom: 2px; }
+.ab-try button i { font-style: normal; color: var(--dim); }
+.ab-foot { margin-top: 14px; font-size: 11px; color: var(--dim); line-height: 1.7;
+  border-top: 1px solid var(--line); padding-top: 9px; }
+.ab-row { display: flex; gap: 8px; margin-top: 14px; }
+.ab-row button { flex: 1; padding: 9px; }
+
+/* ---- ② 实验完成小结 ---- */
+#modal .card.done { width: min(560px, 94vw); max-height: 86vh; overflow: auto; }
+.dn-badge { font-size: 11.5px; color: var(--warm); letter-spacing: 1.5px; }
+.dn-title { margin: 3px 0 2px; font-size: 19px; color: #eafcff; }
+.dn-grp { font-size: 11.5px; color: var(--dim); margin-bottom: 10px; }
+.dn-goal { font-size: 12.5px; line-height: 1.8; color: #cfe3ef; background: #0d1b24;
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+.dn-lbl { margin-top: 12px; font-size: 11.5px; color: var(--acc); letter-spacing: .5px; }
+.dn-terms { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.dn-terms span { font-size: 11.5px; background: #0f232b; border: 1px solid #2b6d70;
+  border-radius: 20px; padding: 3px 10px; color: #bfe9ff; }
+.dn-terms span i { font-style: normal; color: #7fd4ff; }
+
+/* ---- ③ 手机 / 平板：一屏一栏 ---- */
+#mtabs { display: none; }
+@media (max-width: 900px) {
+  body { display: flex; flex-direction: column; height: 100dvh; }
+  header { height: 46px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 8px; padding: 0 8px; }
+  header::-webkit-scrollbar { height: 0; }
+  header h1 { font-size: 14px; white-space: nowrap; }
+  header h1 small { display: none; }
+  header .stat, header .spacer { display: none; }
+  main { display: block; flex: 1 1 auto; height: auto; min-height: 0; padding: 6px; }
+  main .pane { height: 100%; min-height: 0; }
+  #mtabs { display: flex; gap: 6px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line); background: #0b1620; }
+  #mtabs button { flex: 1; padding: 10px 4px; font-size: 12px; }
+  #mtabs button.on { border-color: var(--acc); color: #d8fffa; background: #12303a; }
+  body.mtab-left #center, body.mtab-left #right { display: none; }
+  body.mtab-center #left, body.mtab-center #right { display: none; }
+  body.mtab-right #left, body.mtab-right #center { display: none; }
+  #workrow { flex-direction: column; }
+  #guide { flex: 0 0 auto; max-height: 38vh; }
+  #modal .card.wide, #modal .card.done { width: 94vw; padding: 12px; }
+  /* 提示气泡别压住底部标签栏 */
+  #toast { bottom: 76px; max-width: 78vw; font-size: 12px; line-height: 1.45; text-align: center; padding: 8px 14px; }
+  .ab-hero h3 { font-size: 17px; }
+  .ab-lead { font-size: 12.5px; }
+}
+.onbwelcome .onbnote a { color: var(--acc); text-decoration: none; border-bottom: 1px dashed #4fd1c5aa; }
+.onbwelcome .onbnote a:hover { color: #d8fffa; }
+/* 从新手欢迎页点开「作品说明」时，说明页必须盖在欢迎页上面（欢迎页自身 z-index 比通用弹窗高） */
+body.aboutTop .onbwelcome { z-index: 40; }
+
 </style>
 </head>
 <body>
@@ -497,6 +589,7 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
   <button id="pauseBtn" title="空格键：暂停 / 继续（暂停时物理不再推进，画面照常）">⏸ 暂停</button>
   <button id="fsBtn" title="全屏（F 键）：把实验台铺满屏幕">⛶ 全屏</button>
   <button id="onbBtn" title="新手教程：7 个小动作带你上手（随时可重看）">👋 新手教程</button>
+  <button id="aboutBtn" title="作品说明：这是什么、真在哪、教什么、怎么用（评委向）">📖 作品说明</button>
   <button id="guideToggle">🎓 引导 开/关</button>
   <button id="paneLeftBtn" class="paneTgl on" title="元素周期表：显示 / 收起">🧪</button>
   <button id="paneObsBtn" class="paneTgl on" title="俯视观察窗：显示 / 收起">🔍</button>
@@ -531,6 +624,11 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
     <div id="tasks"></div>
   </aside>
 </main>
+<nav id="mtabs">
+  <button data-mtab="left">🧪 元素</button>
+  <button data-mtab="center" class="on">🔬 工作台</button>
+  <button data-mtab="right">🧫 试剂台</button>
+</nav>
 <div id="tutorial"></div>
 <div id="pauseMask"><b>⏸ 已暂停</b><span>实验台定格：物理/化学都不再推进（按 <kbd>空格</kbd> 或点右上「▶ 继续」）</span></div>
 <div id="modal"></div>
@@ -6675,7 +6773,12 @@ function tutTick(dt) {
     k: 'task', at: Lab.time,
     text: '✅ ' + exp.no + ' 第 ' + Lab.tut.step + ' 步完成：' + st.t + (last ? '　🎉 实验完成！' : ''),
   });
-  if (last) { Lab.tut.expDone[exp.id] = true; toast('🎉 ' + exp.title + ' 全部完成'); }
+  if (last) {
+    Lab.tut.expDone[exp.id] = true; toast('🎉 ' + exp.title + ' 全部完成');
+    /* 第十七轮：教学闭环 —— 完成时弹「你验证了什么 / 课本哪一节 / 带走哪几个概念」。
+       界面由 15-showcase.js 提供；这里只负责通知，弹窗出不来也绝不影响判定。 */
+    if (typeof window.chemExpDone === 'function') { try { window.chemExpDone(exp); } catch (e) { } }
+  }
   else toast('✅ 第 ' + Lab.tut.step + ' 步完成');
   tutSave(); tutRender(true);
 }
@@ -8867,11 +8970,17 @@ function onbWelcomeEl() {
     + '<li>烧杯这类玻璃器皿不碰明火：铁架台 + 石棉网 + 酒精灯，缺一样都不给热</li></ul>'
     + '<div class="onbbtns"><button id="onbGo" class="onbprimary">🎓 来，带我上手</button>'
     + '<button id="onbSkip0">跳过，直接开玩</button></div>'
-    + '<div class="onbnote">随时能从顶栏「👋 新手教程」重新打开；跳过不影响任何进度。</div>'
+    + '<div class="onbnote">随时能从顶栏「👋 新手教程」重新打开；跳过不影响任何进度。'
+    + '　<a href="#" id="onbAbout">📖 这是什么？先看作品说明</a></div>'
     + '</div>';
   document.body.appendChild(el);
   el.querySelector('#onbGo').addEventListener('click', () => { onbHideWelcome(); onbStart(0); });
   el.querySelector('#onbSkip0').addEventListener('click', () => { onbHideWelcome(); onbSkip('welcome'); });
+  /* 评委 / 家长点开只想先知道"这是什么" —— 别逼他先玩起来 */
+  el.querySelector('#onbAbout').addEventListener('click', (ev) => {
+    ev.preventDefault();
+    if (window.CHEM && typeof window.CHEM.about === 'function') window.CHEM.about();
+  });
   return el;
 }
 function onbShowWelcome() { onbWelcomeEl().classList.add('show'); }
@@ -9019,6 +9128,219 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* 供套件/探针直接调 */
 window.CHEM.onbOnb = ONB;
+
+
+/* ================= 15-showcase.js ================= */
+/* ============================================================================
+ * 15-showcase.js —— 第十七轮：参赛级适配（作品说明 / 教学闭环 / 手机平板可用）
+ *
+ *   这一份加的三样东西，全部冲着"评委自己点开链接"这个场景：
+ *     ① 📖 作品说明：10 秒讲清 这是什么 / 真在哪 / 教什么 / 怎么带走
+ *     ② 实验完成小结：教学闭环 —— 验证了什么 → 课本哪一节 → 带走哪几个概念
+ *     ③ 手机 / 平板：顶栏单行横滑 + 三栏改标签页，一屏只放一栏（桌面布局一个字不动）
+ *
+ *   规矩：**页面上的数字一律运行时现读**（元素数、反应数、实验数、步数、课时），
+ *   谁敢在文案里写死一个数，过两轮就会变成假话。
+ * ==========================================================================*/
+(function showcaseModule() {
+  'use strict';
+
+  const q = (s, r) => (r || document).querySelector(s);
+  const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+  const arr = (v) => (Array.isArray(v) ? v : []);
+
+  /* ---------------------------- 运行时读来的规模 --------------------------- */
+  function scale() {
+    const E = arr(typeof ELEMENTS !== 'undefined' ? ELEMENTS : null);
+    const R = arr(typeof RXNS !== 'undefined' ? RXNS : null);
+    const T = arr(typeof TUT !== 'undefined' ? TUT : null);
+    const C = arr(typeof CURRICULUM !== 'undefined' ? CURRICULUM : null);
+    const RT = arr(typeof ROUTES !== 'undefined' ? ROUTES : null);
+    const steps = T.reduce((s, e) => s + arr(e.steps).length, 0);
+    const eExp = T.filter((e) => /^e/.test(String(e.id))).length;      // 教材实验（e*）
+    const cExp = T.length - eExp;                                      // 拓展课程（c*）
+    const lessons = C.reduce((s, u) => s + arr(u.lessons).length, 0);
+    const covered = new Set();
+    C.forEach((u) => arr(u.lessons).forEach((l) => arr(l.exps).forEach((x) => covered.add(x))));
+    const todo = C.reduce((s, u) => s + arr(u.lessons).reduce((t, l) => t + arr(l.todo).length, 0), 0);
+    return { elem: E.length, rxs: R.length, exp: T.length, eExp, cExp, steps, units: C.length, lessons, covered: covered.size, todo, routes: RT.length, T };
+  }
+
+  /* ------------------------------ ① 作品说明 ------------------------------ */
+  function aboutHTML() {
+    const s = scale();
+    const kpi = (b, t) => '<div class="ab-kpi"><b>' + b + '</b><span>' + t + '</span></div>';
+    const unitLine = (typeof CURRICULUM !== 'undefined' ? CURRICULUM : []).map((u) => u.book + '·' + u.unit).join('　/　');
+    const pick = (id, title, note) => {
+      const e = s.T.find((x) => x.id === id);
+      if (!e) return '';
+      return '<button data-exp="' + e.id + '"><b>' + title + '</b><i>' + note + '</i></button>';
+    };
+    return '<div class="card wide">'
+      + '<div class="ab-hero"><h3>🧪 元素实验室</h3><em>真实物理 · 真实化学 —— 一个"会算"的化学实验室</em></div>'
+      + '<div class="ab-lead">这不是动画演示。你加的每一克试剂、烧到的每一度温度、集到的每一毫升气体，'
+      + '都是引擎<b>现算</b>出来的：ΔT 由「功率 × 热效率 × 时间 ÷（质量 × 比热）」算出；pH 由电离与水解平衡算出；'
+      + '方程式自动配平并核对原子守恒；明火必须真的架起来才给热量。'
+      + '<br><b>因为每一步都真算，它才能被用来验证课本上的结论</b> —— 而不是把结论做成特效演给你看。</div>'
+
+      + '<div class="ab-sec">规模<span>下面每个数字都是打开页面时现读的，不是文案</span></div>'
+      + '<div class="ab-grid">'
+      + kpi(s.elem, '种元素（真实原子量 / 熔点 / 沸点 / 密度 / 电负性）')
+      + kpi(s.rxs, '条反应（自动配平 + 守恒核对）')
+      + kpi(s.eExp, '个教材实验（人教版九年级，逐步判定）')
+      + kpi(s.cExp, '节拓展课程（实验课之外的自主探究）')
+      + kpi(s.steps, '步操作判定（每一步都要真动手）')
+      + kpi(s.lessons, '个教材课题（' + s.units + ' 个单元，已挂 ' + s.covered + ' 个实验）')
+      + kpi(s.routes, '条化合物合成路线')
+      + '</div>'
+
+      + '<div class="ab-sec">四个"真"<span>每一条都能当场验，不是自我评价</span></div>'
+      + '<ul class="ab-ul">'
+      + '<li><b>真热力学</b>：酒精灯 250 W / 本生灯 900 W / 喷灯 1500 W，火焰温度 850–1600 K，各有真实传热效率与散热；'
+      + '温度按比热容逐帧积分，到沸点才开始汽化 —— 所以"多久烧开"是算出来的，不是掐表演的。</li>'
+      + '<li><b>真化学计量</b>：摩尔数 → 质量 / 体积 → 限量试剂 → 产物量，全程按 n = m / M 走；'
+      + '多加一份盐酸，剩下的碳酸钙就是不反应。<i>用量写错了，结果就跟着错。</i></li>'
+      + '<li><b>真操作规范</b>：烧杯 / 锥形瓶 / 集气瓶不许直接上明火 —— 必须铁架台 + 石棉网 + 下格灯，三件缺一样'
+      + '<b>一点热都不给</b>（卡片上直接写缺什么）；要读数必须把温度计 / 量筒 / pH 计插进容器；'
+      + '集气分排水法（耐溶气体才收得纯）与排空气法（密度决定瓶口朝上还是朝下）。</li>'
+      + '<li><b>真现象</b>：沉淀、气泡、变色、放热、爆鸣、炸裂都来自反应本身的状态变化 —— '
+      + '氢气验纯进了 4%–75% 的爆炸极限就真的会"砰"，集气瓶当场炸碎。</li>'
+      + '</ul>'
+
+      + '<div class="ab-sec">教材对应<span>人教版九年级化学（2024 新版单元名，旧版名一并给出）</span></div>'
+      + '<div class="hint" style="font-size:11.5px;line-height:1.7">' + unitLine
+      + '<br>表里每一个课题都挂着已经做进游戏的实验；教材里有、我们还没做的，列成「待收录」（当前 ' + s.todo + ' 项）—— 不装作有。</div>'
+
+      + '<div class="ab-sec">怎么用<span>三个场景，点一下就开</span></div>'
+      + '<div class="ab-try">'
+      + pick('e39', '🔥 铁丝在氧气中燃烧', '火星四射 · 课前 3 分钟演示')
+      + pick('e7', '⚡ 电解水：水的组成', '两极气体 2:1 · 课中探究')
+      + pick('e5', '💨 制取二氧化碳并检验', '排水 / 排空气法 · 课后自测')
+      + '</div>'
+
+      + '<div class="ab-sec">可推广<span>发给任何人，点开就能用</span></div>'
+      + '<ul class="ab-ul">'
+      + '<li>单文件网页，<b>零安装、零依赖、零网络请求</b> —— 断网、机房、U 盘拷走都能跑</li>'
+      + '<li>电脑 / 平板 / 手机都能开（窄屏自动切成「元素 / 工作台 / 试剂台」三个标签）</li>'
+      + '<li>老师一台电脑投屏即可演示；学生各自打开各自做，互不干扰</li>'
+      + '</ul>'
+
+      + '<div class="ab-foot">全部数据与规则都在这一个文件里，没有后端、没有埋点、不联网。'
+      + '反应与常数取自公开化学数据；凡是用估算值的地方（例如部分 ΔfH°）界面上都会标「估算」，不冒充实测。</div>'
+
+      + '<div class="ab-row"><button class="primary" id="abClose">知道了，开玩 ▶</button>'
+      + '<button id="abTut">👋 先走 7 步新手教程</button></div>'
+      + '</div>';
+  }
+
+  function openAbout() {
+    const m = q('#modal');
+    if (!m) return;
+    m.innerHTML = aboutHTML();
+    m.classList.add('show');
+    /* 新手欢迎页 z-index 比通用弹窗高（60 > 50）—— 从欢迎页点进来时必须把它压下去，
+       否则"我点了作品说明，屏幕没反应"。关掉说明页后欢迎页原样回来，第一次来的人还有路走。 */
+    document.body.classList.add('aboutTop');
+    const close = () => { m.classList.remove('show'); m.innerHTML = ''; document.body.classList.remove('aboutTop'); };
+    const c1 = q('#abClose', m); if (c1) c1.addEventListener('click', close);
+    const c2 = q('#abTut', m);
+    if (c2) c2.addEventListener('click', () => {
+      close();
+      const b = q('#onbBtn'); if (b) b.click();
+    });
+    m.querySelectorAll('[data-exp]').forEach((b) => b.addEventListener('click', () => {
+      const id = b.dataset.exp;
+      close();
+      const start = (window.CHEM && window.CHEM.tutStart) || window.tutStart;
+      if (typeof start === 'function') start(id);
+      else {
+        const tb = q('#tutBtn'); if (tb) tb.click();
+      }
+    }));
+    m.addEventListener('click', (ev) => { if (ev.target === m) close(); });
+  }
+
+  /* --------------------------- ② 实验完成小结 --------------------------- */
+  function showDone(exp) {
+    if (!exp) return;
+    const m = q('#modal');
+    if (!m) return;
+    const names = arr(exp.terms).slice(0, 6);
+    /* 一条概念 = 带下标的化学式 + 名字 + 类别（subFull 自己就带名字，别再加前缀，会重复） */
+    const chips = names.map((t) => {
+      const label = arr(t)[0] || '', formula = arr(t)[1] || '';
+      if (!formula) return '<span>' + label + '</span>';
+      let full = formula;
+      try { full = subFull(formula); } catch (e) { full = formula; }
+      return '<span>' + full + '</span>';
+    }).join('');
+    const all = arr(typeof TUT !== 'undefined' ? TUT : null);
+    const i = all.indexOf(exp);
+    const next = all[i + 1];
+    m.innerHTML = '<div class="card done">'
+      + '<div class="dn-badge">🎉 实验完成 · ' + (exp.no || '') + '</div>'
+      + '<div class="dn-title">' + (exp.title || '') + '</div>'
+      + '<div class="dn-grp">' + (exp.grp || '') + '　·　每一步都真的动手了，不是点"下一步"</div>'
+      + '<div class="dn-goal"><b>你刚刚验证的：</b>' + (exp.goal || '') + '</div>'
+      + (chips ? '<div class="dn-lbl">带走这几个概念</div><div class="dn-terms">' + chips + '</div>' : '')
+      + '<div class="ab-row"><button class="primary" id="dnClose">继续自由探究</button>'
+      + '<button id="dnCourse">📚 看它在教材哪一节</button></div>'
+      + (next ? '<div class="ab-row" style="margin-top:8px"><button id="dnNext">下一节：' + next.title + ' ▶</button></div>' : '')
+      + '</div>';
+    m.classList.add('show');
+    const close = () => { m.classList.remove('show'); m.innerHTML = ''; };
+    const bind = (id, fn) => { const b = q(id, m); if (b) b.addEventListener('click', fn); };
+    bind('#dnClose', close);
+    bind('#dnCourse', () => { close(); const b = q('#courseBtn'); if (b) b.click(); });
+    if (next) bind('#dnNext', () => {
+      close();
+      const start = (window.CHEM && window.CHEM.tutStart) || window.tutStart;
+      if (typeof start === 'function') start(next.id); else { const b = q('#tutBtn'); if (b) b.click(); }
+    });
+    m.addEventListener('click', (ev) => { if (ev.target === m) close(); });
+  }
+  window.chemExpDone = showDone;
+
+  /* --------------------------- ③ 手机 / 平板标签页 --------------------------- */
+  function tabsInit() {
+    const nav = q('#mtabs');
+    if (!nav) return;
+    const apply = (name) => {
+      if (name !== 'left' && name !== 'center' && name !== 'right') name = 'center';
+      document.body.classList.remove('mtab-left', 'mtab-center', 'mtab-right');
+      document.body.classList.add('mtab-' + name);
+      nav.querySelectorAll('button[data-mtab]').forEach((b) => b.classList.toggle('on', b.dataset.mtab === name));
+      try { localStorage.setItem('chemMtab', name); } catch (e) { }
+      /* 桌面版可能把某栏收起来过 —— 手机上切到它就得叫回来，否则点了没反应 */
+      if (typeof window.chemPanes === 'function') {
+        if (name === 'left') window.chemPanes({ left: false });
+        if (name === 'right') window.chemPanes({ right: false });
+      }
+      if (name === 'center' && typeof renderBench === 'function') { try { renderBench(true); } catch (e) { } }
+    };
+    nav.addEventListener('click', (ev) => {
+      const b = ev.target.closest && ev.target.closest('button[data-mtab]');
+      if (b) apply(b.dataset.mtab);
+    });
+    let saved = 'center';
+    try { saved = localStorage.getItem('chemMtab') || 'center'; } catch (e) { }
+    apply(saved);
+    window.chemMTab = apply;
+  }
+
+  /* -------------------------------- 启动 -------------------------------- */
+  function bootShowcase() {
+    const ab = q('#aboutBtn');
+    if (ab) ab.addEventListener('click', openAbout);
+    tabsInit();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootShowcase);
+  else bootShowcase();
+
+  window.CHEM = window.CHEM || {};
+  window.CHEM.about = openAbout;
+  window.CHEM.scale = scale;
+})();
 
 </script>
 </body>
