@@ -4689,8 +4689,22 @@ window.CHEM = {
  * ==========================================================================*/
 
 /* --------------------------- 判定工具（只看真实状态） ---------------------- */
-const tutApp = (i) => appByUid(Lab.tut.uids[i] || '');
-const tutUid = (i) => (Lab.tut.uids[i] || '');
+const tutApp = (i) => appByUid(tutUid(i));
+/* 这件器材备齐了没有：按 bench 里写的那件（def.id 或 hid）在台面上找 */
+const tutHasTool = (k) => Lab.tools.some((t) => t.def.id === k || t.hid === k);
+/** 还没备的器材清单（本实验 bench 里要求、但台面上没有的） */
+const tutMissTools = () => (Lab.tut.needTools || []).filter((k) => !tutHasTool(k));
+/* uid 解析：开课时只记了容器；器材是玩家后拿的，按 bench 第 i 项现找（拿走了也能找回来） */
+const tutUid = (i) => {
+  const u = Lab.tut.uids[i] || '';
+  if (u && (appByUid(u) || (typeof toolByUid === 'function' && toolByUid(u)))) return u;
+  const k = (Lab.tut.bench || [])[i];
+  if (!k) return u;
+  const it = Lab.tools.find((t) => t.def.id === k || t.hid === k) || Lab.apps.find((a) => a.def.id === k);
+  if (!it) return u;
+  Lab.tut.uids[i] = it.uid;
+  return it.uid;
+};
 const norm2 = (s) => s.split(',').map((x) => x.trim()).sort().join(',');
 /* 注意：判定一律看"工作台当前状态"（容器是开始实验时新建的，所以天然是本次实验的净结果），
    不用 Lab.discovered —— 那是全局积累的，别的实验做过同样的反应会把它提前点亮。 */
@@ -6429,8 +6443,17 @@ function tutStart(id, restart) {
   Lab.apps.length = 0; Lab.tools.length = 0; Lab.selected = null;   // 器材也要清：上个实验点着的酒精灯留在台面上，引导就会指着"一盏已经亮着的灯"让你去点燃，一点反而熄灭
   Lab.tut.added = {};                                              // 本实验的"加料台账"（每次开课清零，避免上个实验的料算到这一步）
   Lab.tut.uids = [];
-  /* 开课摆器材：bench 里写容器就摆容器，写「器材」（玻璃棒、石棉网…）就摆器材 —— 以前只认容器，玻璃棒会静默摆不上 */
-  exp.bench.forEach((k) => { const a = addApparatus(k) || addTool(k); Lab.tut.uids.push(a ? a.uid : ''); });
+  /* 开课摆什么：只摆玻璃器皿（实验桌上本来就有的干净器皿）。
+     器材（铁架台、石棉网、酒精灯、玻璃棒、漏斗、量具…）**一律自己到「器材」行拿** ——
+     真人做实验也是先备仪器、再取药、再操作，这里跟真人一致（第十五轮用户要求「和正常做的时候一样」） */
+  Lab.tut.bench = exp.bench.slice();
+  Lab.tut.needTools = [];
+  exp.bench.forEach((k) => {
+    const a = addApparatus(k);
+    if (a) { Lab.tut.uids.push(a.uid); return; }
+    Lab.tut.needTools.push(k);           // 这件是器材：记进「自己备仪器」清单
+    Lab.tut.uids.push('');
+  });
   Lab.tut.id = id;
   Lab.tut.step = restart ? 0 : (Lab.tut.pos[id] || 0);
   if (Lab.tut.step > exp.steps.length) Lab.tut.step = 0;
@@ -6470,6 +6493,9 @@ function tutTick(dt) {
   if (!exp || !tutActive()) return;
   const st = exp.steps[Lab.tut.step];
   if (!st) return;
+  /* 注意：这里不按「整节课的器材清单」卡步骤 —— 玻璃棒要到过滤那一步才用得上，
+     第 1 步就卡住会让玩家莫名其妙。缺器材时由具体动作自己拒绝并给提示（ensureRod / ensureMeter / 滴管），
+     引导也会在需要它的那一步把它指出来。 */
   let ok = false;
   try { ok = !!st.c(); } catch (e) { ok = false; }
   if (!ok) return;
@@ -6779,7 +6805,17 @@ function guideAmountFor(formula, dflt, unit) {
   try {
     const exp = tutExp();
     if (!exp || !guideOn()) return r;
-    const plan = guidePlan(exp, Lab.tut.step);
+    /* 仪器没备齐 → 先带你去「器材」行拿（这是真人实验的第一步） */
+  if (typeof tutMissTools === 'function') {
+    const miss = tutMissTools()[0];
+    if (miss) {
+      const b = document.querySelector('#addTools button[data-hid="' + miss + '"]')
+        || document.querySelector('#addTools button[data-id="' + miss + '"]');
+      const nm = b ? String(b.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 14) : miss;
+      if (b) return { key: 'needtool:' + miss, el: b, label: '先备仪器：到上面「器材」行点「' + nm + '」—— 这个实验要自己把它拿上台面', kind: 'tool' };
+    }
+  }
+  const plan = guidePlan(exp, Lab.tut.step);
     const it = plan[guidePlanNext(plan)];
     if (it && it.k === 'addReagent' && it.f === formula && Number(it.v) > 0) {
       r.v = it.v; if (it.u) r.u = it.u; r.used = true;
