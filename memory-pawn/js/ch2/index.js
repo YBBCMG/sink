@@ -1,4 +1,4 @@
-﻿/* 记忆当铺 · 第二章（掌柜视角）—— 挂载与接线
+/* 记忆当铺 · 第二章（掌柜视角）—— 挂载与接线
    中枢派单 §一/§七：只求**跑得通**（色块占位、台词大纲级），图片与正文交剧情线 / 美术线。
    本目录（js/ch2/）整目录归"记忆玩法（功能玩法）线"，一章的数据文件（story23 / puzzles23）一个字没碰。
 
@@ -107,17 +107,17 @@
          挂 `to:` 会被一章自己的世界校验判成死门（world-test ①/④ 实测红过）。
          闸门仍是 enterVault（`cleared() || adminEntry()`），一个字节没改。 */
       case 'ch2_vaultdoor': return enterVault(host);
-      case 'ch2_shelf':     return shelf(host);
       case 'ch2_fog':       return fog(host);
       case 'ch2_backalley': return alley(host);
-      /* 2026-10-17：`ch2_tickets`（三份当票）/ `ch2_door`（库房的门）两条 case **删了** ——
-         那两个点位本身已经从场景表里摘掉（js/ch2/scenes.js 里那条注写了理由），
-         这里再留着 case 就是"永远走不到的备用分支"，下一个人会以为还少挂了一个点。 */
-      /* 库房那个『出库房 · 柜上』的点：2026-10-17 中枢派单"撞名先拆 id" ——
-         它从 `ch2_back` 改名成 `ch2_vault_exit`（`ch2_back` 这个名字让给 S3 那间新房）。
-         老名字留成别名：老判据、老存档、老习惯都照旧能走通。 */
-      case 'ch2_vault_exit':
-      case 'ch2_back':      return leave(host);
+      /* 2026-10-17 用户第 2 遍（「这两个东西还留着交互，把这两个能交互的功能也关了」）：
+         `ch2_shelf`（柜上留下的三样）与 `ch2_vault_exit`（出库房）两条 case **跟着点位一起删了**
+         —— 点没了还留着 case，就是"永远走不到的备用分支"，下一个人会以为还漏挂了一个点。
+         库房里现在能按 E 的只有 26 只罐（走 js/ch2/vault.js 那条 CH2_OPEN 包装）。 */
+      /* 主界面第一本册子那颗「回岛上去」到这里来（game23.js:4101 把 `go !== 'ch2'` 那条路
+         喂成 `{ id: 'ch2_back' }`）。**它是合成 id、不是点位**：账房那个场景也叫 `ch2_back`，
+         但场景 id 不进这张分发表（场景由引擎的 portal/to 走）。
+         这条必须留着：删了它 = 二章里再也回不到一章（主界面上那颗按钮变成死键）。 */
+      case 'ch2_back':      return backToCh1(host);
       /* S3 账房（`ch2_back` 那间房）里的点位：每个点都给一句正经话。
          引擎那边的顺序是 say（点位自己的话）→ CH2.open（这里）⇒ 我这里是**第二句**，
          不抢第一句、也不吞掉它；没这一条的话默认分支返回 false，玩家按 E 只出半截话。 */
@@ -155,24 +155,19 @@
     host.say((T('enterLead').length ? T('enterLead') : []).slice(), null, { title: T('sub') || '记忆库' });
     return true;
   }
-  /* 2026-10-17 用户第 4 遍：「我要的就是这两张彻底隔开，不要有出去和进来的方法。」
-     ---- 库房那个出口（ch2_vault_exit）现在回**主界面**，不落一章当铺那张图 ----
-     为什么不能再用 `to:'pawnshop'`：那是"从库房走出去直接进第一章那张图、接着就能玩第一章"
-     —— 用户指着这一条说了四遍。切章只走主界面那条老规矩（v46 定的），
-     所以出口只负责"把人从库房里带出来"，带回到主界面那两本册子前面，由玩家自己挑。
-     **引擎零改动**：点的是顶栏那颗本来就有的「主界面」按钮（game23.js:4507 → showHome()）——
-     等于替玩家点了一下他自己能点的按钮。
-     ⚠️ 顺序要紧：`say()` 里那段话点完之后才轮到回调（game23.js:499-501：行数走完 → closeModal
-     → done()）；showHome() 有闸（game23.js:4039：`if (modalOpen)` 就拒绝并 toast）——
-     先说完再点，不然菜单会被那道闸挡下来、玩家还以为按钮坏了。 */
-  function leave(host) {
-    host.say(T('backOut').slice(), function () {
-      var doc = global.document || null;
-      var btn = doc && doc.getElementById ? doc.getElementById('btn-home') : null;
-      if (btn && btn.click) { btn.click(); return; }
-      var G = global.GAME23;
-      if (G && typeof G.showHome === 'function') G.showHome();
-    }, { title: '外间' });
+  /* 2026-10-17 中枢派单（用户第 2 遍追问「新地图怎么进、在哪进」+ 两句实拍）：
+     **从二章回一章**这条唯一的入口 = 主界面第一本册子那颗「回岛上去」（game23.js:3982/4101）。
+     ---- 为什么不再"替玩家点一下顶栏主界面按钮" ----
+     那条老做法（leave()）只把人带回主界面，人是**没有换场景**的：主界面再渲染一次，
+     第一本册子还是「回岛上去」⇒ 玩家点一次、菜单弹回来一次、人还在二章里 —— 原地打转。
+     （verify-ch2 ㉜ 的案底：修之前场景一直是 ch2_vault、home 一直开着。）
+     现在直接换场景回一章当铺；换场景那一下引擎自己会把二章的外壳摘掉
+     （game23.js:215 `applyCh2Chrome(inCh2Scene())`）⇒ 右栏页签与顶栏字段跟着复原。
+     ⚠️ 切章只走主界面那条老规矩没破：这条路**只能**由主界面那颗按钮触发
+        （`CH2.open({id:'ch2_back'})` 只有 game23.js:4101 一处调用），地图上没有任何门通到这里。 */
+  function backToCh1(host) {
+    host.enterScene('pawnshop', 10, 11);
+    host.dirty(); host.save();
     return true;
   }
   /* ---------- S3 账房（`ch2_back`）：每个点位点下去各有一句"经手"的话 ----------
@@ -197,37 +192,16 @@
     return true;
   }
 
-  /* ---------- 柜上留下的三样（道具 = 钥匙，取走不要钱；每件带效果声明） ---------- */
-  function shelf(host) {
-    var box = global.CH2_ITEMS.list, taken = [], left = [];
-    box.forEach(function (it) { (flag(host.S, 'ch2_it_' + it.id) ? taken : left).push(it); });
-    host.setTitle(T('shelf').title || '柜上留下的三样');
-    var html = '<p class="pz-tip">' + (T('shelf').lead || []).join('</p><p class="pz-tip">') + '</p>';
-    if (left.length) {
-      html += left.map(function (it) {
-        return '<div class="arc-item">' + it.name + ' —— ' + it.desc +
-          '<br><span class="pz-tip">' + it.how + '</span>' +
-          '<br><button class="pz-btn" data-ch2take="' + it.id + '">取走</button></div>';
-      }).join('');
-    } else html += '<div class="arc-lock">三样都拿齐了。</div>';
-    host.setBody(html);
-    host.setBtns([{ label: '合上', fn: host.closeModal }]);
-    host.openModal();
-    var root = host.body ? host.body() : document.getElementById('m-body');
-    if (root) root.querySelectorAll('[data-ch2take]').forEach(function (el) {
-      el.onclick = function () {
-        var id = el.getAttribute('data-ch2take');
-        host.markFlag('ch2_it_' + id);
-        host.markFlag('ch2_shelf_taken');
-        host.sfx('coin');
-        host.addLog('（库房）你取走了' + (global.CH2_ITEMS.byId(id) || {}).name + '。');
-        host.dirty(); host.save(); host.closeModal();
-        shelf(host);
-      };
-    });
-    return true;
-  }
-  /* 这一面原来是「旧账本 · 损失清单」（列你献出去的那几段记）—— 献忆整套退役之后它没东西可列，
+  /* ---------- 柜上留下的三样：**已整块退役**（2026-10-17 中枢派单 · 用户第 2 遍）----------
+     用户原话：「这两个东西还留着交互，把这两个能交互的功能也关了」＋「这玩意就是这个地图
+     本来就用来放记忆的」⇒ 那个点连同这张"取走"面板一起删掉，道具（封蜡/空签/小秤/旧账本）
+     随之退役（js/ch2/items.js 现在只剩一块墓碑）：
+       · 没有点 = 没有取得渠道，留着"要交道具"的任务就是**取不到却要交**的死账；
+       · 献忆那三处（门/票/雾）早就随散点退役了，道具原本只服务它们。
+     所以这一段不留代码、不留面板、不留任务、不留 DEV 节点（devNodes 里那条也删了）。
+     ⚠️ 别凭"以前这里有四件好东西"把面板加回来：加回来 = 用户第 3 遍骂的那堆东西。
+
+     下面这面是「旧账本 · 损失清单」—— 献忆整套退役之后它没东西可列，
      连带那段"读一章记表"的代码也一起删了（二章不读一章的记）。 */
 
   /* ---------- 库房里货存进去了没有（雾那道门的门控，二章自己的状态） ---------- */
@@ -311,7 +285,6 @@
     var f = (s && s.flags) || {}, used = jarUsed(s);
     var list = [
       { name: '进库房（主界面选「第二章」那本册子）', done: !!f.ch2_entered, hint: '顶栏 ▤ 主界面' },
-      { name: '收下柜上留下的三样', done: !!f.ch2_shelf_taken, hint: '库房角上 (6,11) 按 E' },
       { name: '在柜台上收一段记', done: pendingN(s) + carryN(s) + used > 0, hint: '柜台 · 开秤 (10,5)' },
       { name: '把记存进罐子（站到罐前按 E）', done: used > 0, hint: '库房 A–Z 二十六格' },
       { name: '让十三只罐都上过货', done: used >= 13, hint: '在册 ' + used + '/26' }
@@ -374,12 +347,10 @@
       if (hit.need !== 'back_ok') errs.push('挂点门控不对：' + h.id);
       if (!hit.ch2) errs.push('挂点没打 ch2 记号：' + h.id);
     });
-    /* 道具：每件都得答得出「没有它卡在哪」 */
-    (global.CH2_ITEMS.list || []).forEach(function (it) {
-      if (!it.stuck) errs.push('道具没写"没有它卡在哪"：' + it.id);
-      if (!it.how) errs.push('道具没写效果声明 how：' + it.id);
-    });
-    if ((global.CH2_ITEMS.list || []).length < 3) errs.push('道具不足三件');
+    /* 道具：**已整块退役**（2026-10-17 用户第 2 遍：取道具那张面板跟着点位一起删了）。
+       这里原来钉"每件都得答得出没有它卡在哪 + 至少三件" —— 那套验收口径随道具一起作废：
+       现在二章没有道具，CH2_ITEMS.list 必须是空的（`verify-ch2` ④ 钉死这一点）。
+       留一句在这儿，免得下一个人以为"检查漏写了"。 */
     /* 每个点各有各的模型名（一章回归套 ㊶ 的同一口径，ch2 的点自己也要满足） */
     Object.keys(d.SCENES).forEach(function (sid) {
       var seen = {};
@@ -410,8 +381,9 @@
   }
 
   /* ---------- 给开发者面板的节点表（面板不抄第二份 ch2 数据）----------
-     ch2 现在**没有谜题节点**（献忆散点删了）：面板只列三样 —— 取道具 / 进库房 / 26 格。
-     verify-ch2 ㉒ 钉住"面板列出的节点数 = ch2 实际节点数"，数量这一头跟着这里走。 */
+     ch2 现在**没有谜题节点、也没有取道具的节点**（献忆散点与柜上三样都删了）：
+     面板只列一条 —— 进库房。`ch2_vaultdoor` 是合成 id（主界面那本册子用的那个），不是点位。
+     verify-ch2 钉住"面板列出的节点数 = ch2 实际节点数"，数量这一头跟着这里走。 */
   var NODE_PLACE = {};
   function devNodes() {
     var out = [];
@@ -421,7 +393,6 @@
       out.push({ key: k, puzzle: true, sid: where[0], pid: where[1], name: (T(k).title || k),
         flag: P.flag, item: P.needItem, answer: P.answer });
     });
-    out.push({ key: 'shelf', puzzle: false, sid: VAULT, pid: 'ch2_shelf', name: '柜上留下的三样（取道具）', flag: 'ch2_shelf_taken' });
     out.push({ key: 'enter', puzzle: false, sid: VAULT, pid: 'ch2_vaultdoor', name: '进记忆库（主界面选第二章）', flag: 'ch2_entered' });
     return out;
   }
@@ -440,7 +411,9 @@
       return {
         entered: !!f.ch2_entered,
         admin: adminEntry(s),
-        items: ['wax', 'slip', 'scale', 'ledger'].filter(function (i) { return !!f['ch2_it_' + i]; }),
+        /* 道具已退役（2026-10-17）：字段留着但是恒空 —— 老调用方读它不会炸，
+           值也不再变（DEV 面板那个"给全套道具"的按钮写进去的 ch2_it_* 没人认了）。 */
+        items: [],
         fog: !!f.ch2_fog_ok, end: !!f.ch2_end,
         used: jarUsed(s), act: actOf(s)
       };
