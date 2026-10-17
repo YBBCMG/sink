@@ -406,6 +406,112 @@
     rect(c, x + 3, y + h + 3, w - 6, 1, P.brassLit);
   }
 
+  /* ============================ 两扇门（新单） ============================
+     库房西墙「出库房」与柜台那头「进柜台」，同一套画法、镜像关系，**只有门楣上的刻纹不同**：
+       opt.side    'right' = 门朝画面右开（库房西墙用）；'left' = 镜像（柜台东侧用）
+       opt.emblem  'jar' 罐（库房）/ 'scale' 秤（柜台）—— 匾额上那块刻纹就是两头的字
+       opt.lit     true 时多一层暖框（玩家走近时由 overlay() 每帧补画，见 doorGlow()）
+     尺寸固定 48×96 —— 1 格宽 × 2 格高，**底边对齐墙脚**（锚点见 DOOR_SPEC）。
+     ⚠ 门楣上不写汉字：这工程的世界美术一律不往画布上写字（本文件第 22 行那条规矩，
+       一章也一样），字交给 DOM/交互提示；两头靠**刻纹**区分（罐 / 秤），远看也分得出。
+     ============================================================================ */
+  var DOOR_SPEC = {
+    w: 48, h: 96,                 /* 1 格 × 2 格（CELL = 48） */
+    anchor: 'bottom-center',      /* 底边贴在墙脚线上，横向取格子中点 */
+    wall: { stone: ['#b28b5b', '#957149', '#c69e69'], joint: '#6f5537',
+            wood: '#ae8658', woodDark: '#6d5133', metal: '#fec458' },
+    from: 'tools/_out-wall-palette.json（真机截图逐像素频次统计，库房西墙那一段）'
+  };
+  function doorWallPal() { return DOOR_SPEC.wall; }
+  /* 一块石砖：三色里挑一色作面、上沿提亮、下沿压暗 —— 砖感全靠这三道 */
+  function sblock(c, x, y, w, h, P, tone) {
+    var face = tone === 2 ? '#c69e69' : tone === 1 ? '#957149' : '#b28b5b';
+    rect(c, x, y, w, h, '#3a2c1c');                       /* 缝（砖与砖之间那条暗） */
+    rect(c, x + 1, y + 1, w - 2, h - 2, face);
+    rect(c, x + 1, y + 1, w - 2, 1, mixOf(face, '#ffffff', 0.22));
+    rect(c, x + 1, y + h - 2, w - 2, 1, mixOf(face, '#000000', 0.28));
+    dith(c, x + 2, y + 3, w - 4, h - 5, 'rgba(0,0,0,.10)', 1);
+  }
+  /* 门楣匾额上的两块刻纹：罐 / 秤（各 14×9，只用方块） */
+  function emblem(c, x, y, kind) {
+    rect(c, x, y, 14, 9, '#2a1f12');                      /* 匾底 */
+    rect(c, x + 1, y + 1, 12, 7, '#8a6a3a');
+    rect(c, x + 1, y + 1, 12, 1, '#c8a468');
+    if (kind === 'jar') {                                 /* 罐：小口 + 鼓腹 + 一道封条 */
+      rect(c, x + 3, y + 2, 8, 1, '#3a2c1c');
+      rect(c, x + 4, y + 3, 6, 1, '#efe6d0');
+      rect(c, x + 3, y + 3, 1, 3, '#efe6d0');
+      rect(c, x + 10, y + 3, 1, 3, '#efe6d0');
+      rect(c, x + 3, y + 6, 8, 1, '#efe6d0');
+      rect(c, x + 6, y + 3, 2, 4, '#a8322a');
+    } else {                                              /* 秤：横梁 + 提钮 + 两只盘 */
+      rect(c, x + 2, y + 3, 10, 1, '#efe6d0');
+      rect(c, x + 6, y + 2, 2, 2, '#efe6d0');
+      rect(c, x + 3, y + 5, 3, 2, '#efe6d0');
+      rect(c, x + 8, y + 5, 3, 2, '#efe6d0');
+    }
+  }
+  function doorSprite(c, x, y, opt) {
+    var o = opt || {}, W = DOOR_SPEC.w, H = DOOR_SPEC.h, i;
+    var flip = o.side === 'left';
+    function R2(x2, y2, w2, h2, col) {
+      if (flip) x2 = x + W - (x2 - x) - w2;
+      rect(c, x2, y2, w2, h2, col);
+    }
+    DOORS[o.key || 'doorSprite'] = { x: x, y: y, w: W, h: H };
+    /* ---- 底：整块先铺石缝，再砌龛 ---- */
+    R2(x, y, W, H, '#241a10');
+    sblock(c, x + 1, y + 1, W - 2, 11, null, 2);                   /* 龛顶横楣石（受光最亮） */
+    sblock(c, x + 1, y + 12, 5, H - 18, null, 0);                  /* 左立石 */
+    sblock(c, x + W - 6, y + 12, 5, H - 18, null, 1);              /* 右立石 */
+    /* ---- 门楣：木 + 匾额（刻纹就是两头的"字"） ---- */
+    R2(x + 3, y + 13, W - 6, 12, '#6d5133');
+    R2(x + 3, y + 13, W - 6, 10, '#ae8658');
+    R2(x + 3, y + 13, W - 6, 1, '#d8b183');                        /* 上沿受光 */
+    R2(x + 3, y + 22, W - 6, 1, '#3a2c1c');
+    emblem(c, flip ? x + W - 33 : x + 9, y + 15, o.emblem || 'jar');
+    /* ---- 门洞：凹龛（左边是墙厚受光、右边是墙厚背光 ⇒ 3/4 的纵深全靠这两条） ---- */
+    R2(x + 6, y + 25, W - 12, H - 25 - 14, '#1a1209');             /* 洞底（深褐，不是纯黑） */
+    R2(x + 6, y + 25, 3, H - 25 - 14, '#8a6a45');                  /* 左墙厚：受光的那一面 */
+    R2(x + W - 9, y + 25, 3, H - 25 - 14, '#3d2d1c');              /* 右墙厚：背光 */
+    R2(x + 6, y + 25, W - 12, 2, '#0f0a06');                       /* 洞口上檐的暗 */
+    /* ---- 门板：竖板缝 + 上下横档 + 门钉（**不许整块矩形当门扇**） ---- */
+    var dx = x + 10, dw = 27, dy = y + 28, dh = H - 28 - 16;
+    R2(dx, dy, dw, dh, '#3d2d1c');
+    R2(dx, dy, dw, dh, '#5c4326');
+    R2(dx, dy, dw, 2, '#6d5133');
+    for (i = 5; i < dw - 1; i += 5) R2(dx + i, dy + 2, 1, dh - 4, '#3d2d1c');
+    R2(dx + 2, dy + 8, dw - 4, 2, '#6d5133');
+    R2(dx + 2, dy + dh - 12, dw - 4, 2, '#6d5133');
+    for (i = 0; i < 4; i++) R2(dx + 4 + i * 6, dy + 3, 2, 2, '#fec458');
+    /* ---- 门缝暖光：门虚掩着，开着的那条缝在右（镜像后在左），三级硬边 ---- */
+    var sx = x + 37, sw = 3;
+    R2(sx - (flip ? 0 : 0), dy, sw, dh, '#140e08');
+    R2(dx + dw, dy, 1, dh, 'rgba(255,206,132,.55)');
+    R2(dx + dw + 1, dy + 4, 1, dh - 8, 'rgba(255,226,170,.72)');
+    R2(dx + dw + 2, dy + 14, 1, dh - 28, 'rgba(255,246,214,.86)');
+    /* 铜活：铰链两枚（在开缝的对面）+ 拉手 */
+    var hx = x + 11;
+    R2(hx, dy + 14, 2, 7, '#a5792f');
+    R2(hx, dy + dh - 22, 2, 7, '#a5792f');
+    R2(hx, dy + dh - 22, 2, 1, '#f0d68c');
+    R2(dx + dw - 4, dy + Math.round(dh * 0.46), 3, 3, '#f0d68c');
+    /* ---- 门槛：木槛 + 铜踏板 + 门前那道影（底边 y+H 就是墙脚线） ---- */
+    R2(x + 3, y + H - 15, W - 6, 9, '#3a2c1c');
+    R2(x + 4, y + H - 14, W - 8, 6, '#6d5133');
+    R2(x + 6, y + H - 13, W - 12, 2, '#fec458');
+    R2(x + 6, y + H - 12, W - 12, 1, '#f0d68c');
+    R2(x + 2, y + H - 5, W - 4, 5, 'rgba(0,0,0,.34)');
+    /* ---- 走近：龛沿整圈提亮一档 ---- */
+    if (o.lit) {
+      R2(x + 1, y + 1, W - 2, 2, 'rgba(255,226,170,.50)');
+      R2(x, y + 2, 2, H - 8, 'rgba(255,226,170,.38)');
+      R2(x + W - 2, y + 2, 2, H - 8, 'rgba(255,226,170,.38)');
+      R2(x + 4, y + H - 16, W - 8, 2, 'rgba(255,214,140,.46)');
+    }
+    return DOORS[o.key || 'doorSprite'];
+  }
+
   /* 库里那道**矮门** —— 中枢 2026-10-17 追加单钉死：「门就画在那个位置（右墙那侧）」。
      它画在点位 ch2_door 那一格 (16,11) 上（js/ch2/scenes.js:111），三条硬约束：
        ① **只画这一格**：这格本身就是障碍（story23.js:1408「非 look/portal/jobs 的点所在格算墙」）
@@ -786,11 +892,11 @@
     /* ---- 左墙那道：**出库房那道**（虚掩、透着外间的灯 ⇒ 站在屋里一眼看得见出口）。
             右墙那道矮门**不在这条墙带上** —— 中枢 2026-10-17 追加单把它钉在点位 ch2_door
             那一格 (16,11) 上（见 lowDoor()：门画在哪一格，碰撞就在哪一格，两件事得是同一件事）。---- */
-    exitDoor(c, 5, 428, 43, 162, P, { key: 'vaultExit', dir: 'left' });
-    sconce(c, 27, 396, P);                                     /* 门楣上加一盏壁灯：出口自己会发光 */
+    doorSprite(c, 0, 480, { side: 'right', emblem: 'jar', key: 'vaultExit' });
+    sconce(c, 27, 448, P);                                     /* 门楣上加一盏壁灯：出口自己会发光 */
     /* 门里那道楔形光：四级**硬边**，从门槛一路铺进屋（点位 ch2_back@(2,10) 那格就踩在最亮那段上） */
     var WG = [['rgba(255,226,170,.30)', 0], ['rgba(255,214,150,.20)', 1], ['rgba(255,206,132,.13)', 0], ['rgba(255,206,132,.07)', 1]];
-    for (var wi = 0; wi < 4; wi++) dith(c, 52 + wi * 30, 436 + wi * 8, 150 - wi * 26, 164 - wi * 16, WG[wi][0], WG[wi][1]);
+    for (var wi = 0; wi < 4; wi++) dith(c, 52 + wi * 30, 486 + wi * 8, 150 - wi * 26, 96 - wi * 16, WG[wi][0], WG[wi][1]);
     rect(c, 52, 474, 44, 62, 'rgba(255,226,170,.24)');
     rect(c, 56, 480, 22, 34, 'rgba(255,246,214,.34)');
     dith(c, 860, 470, 52, 140, 'rgba(255,206,132,.045)', 1);    /* 右门那侧只留一点环境光 */
@@ -1900,6 +2006,9 @@
       return;
     }
     kickTries = 0;
+    /* 走近那道出库房的门（门在格 10..11 的西墙上）：门框整圈亮一档。
+       **每帧补画**，烘好的底图里没有这层 —— 玩家一走近就"亮起来"，走开就没了。 */
+    if (tx <= 2 && ty >= 9 && ty <= 13) doorSprite(c, 0, 480, { side: 'right', emblem: 'jar', lit: true });
     var hit = highlightAt(tx, ty);
     if (!hit) return;
     var G2 = global.GAME23, t = (G2 && G2.S && G2.S.t) || 0;
@@ -2136,6 +2245,8 @@
     paintShopFloor: paintShopFloor, paintShopRoom: paintShopRoom,
     BACK: BACK_ID, paintBackFloor: paintBackFloor, paintBackRoom: paintBackRoom,
     fig: figOwn, FIG: CH2_FIG,
+    /* 两扇门（新单）：贴图画法 + 规格 + 墙面色板，生成器 tools/gen-door-sprites.mjs 直接调 */
+    doorSprite: doorSprite, DOOR_SPEC: DOOR_SPEC, doorWallPal: doorWallPal,
     WAX: WAX, FONT: FONT, VW: VW, VH: VH, CELL: CELL,
     BACK: BACK_ID, paletteBack: BACK_PAL,
     lowDoorTile: { tx: LOW_DOOR.tx, ty: LOW_DOOR.ty },
