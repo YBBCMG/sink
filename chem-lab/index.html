@@ -2238,6 +2238,8 @@ const ITEMS = [
     desc: '一滴 0.05 mL —— 加入量小于 0.5 mL 时会自动取来滴加（酚酞、石蕊、试液都靠它）' },
   { id: 'splint', name: '木条', icon: '🪵', kind: 'item',
     desc: '点着后伸进集气瓶检验气体：氧气 → 木条复燃；二氧化碳 → 木条熄灭' },
+  { id: 'deliver', name: '导管', icon: '〰️', kind: 'item',
+    desc: '把发生装置的气引到集气瓶（集气必须有一根）：排水法伸到瓶口，排空气法要把导管伸到瓶底才纯' },
 ];
 const TOOL_DEFS = HEATERS.concat(METERS, ITEMS);
 
@@ -2293,6 +2295,12 @@ function repackBench() {
 
 /** 催化剂（不消耗，只开门） */
 const CATALYSTS = new Set(['MnO2', 'Fe', 'V2O5']);
+
+/* ---- 气体收集的真实规矩（第十四轮：导管 / 排水法 / 排空气法 / 验纯） ----
+ *   空气平均相对分子质量 29：比空气重的用向上排空气（瓶口朝上），轻的用向下排空气（瓶口朝下）。
+ *   能溶于水的气体排水法收不干净 —— 现实里必须换排空气法。 */
+const AIR_M = 29;
+const WATER_BAD = new Set(['NH3', 'SO2', 'HCl', 'CO2', 'Cl2', 'H2S']);
 
 /* 台面容量：容器和器材各自最多这么多件（第十三轮从 6 提到 12 —— 用户问为什么有上限） */
 const BENCH_MAX = 12;
@@ -2731,7 +2739,7 @@ function ignite(uid) {
  *  —— 自由玩的时候一律自己拿，缺就是缺。 */
 /* allowAutoTool：允许「程序替你取器材」的三种情形 —— ① 程序自己的自动演示（_tutAuto）；② 玩家点的正是引导高亮的那个控件（_gGuided）；③ 手把手课程进行中（引导要用玻璃棒引流/量具插入时不该让玩家卡死）。自由玩一律自己拿。 */
 const allowAutoTool = () => {
-  if (window._tutAuto || window._gGuided || window._onbAuto) return true;
+  if (window._tutAuto || window._gGuided || window._onbAuto || window._gDryRun) return true;
   try { return !!(typeof tutActive === 'function' && tutActive()); } catch (e) { return false; }   // 手把手课程进行中（面板开着或引导条在跑）
 };
 function ensureRod(app, why) {
@@ -2762,6 +2770,7 @@ function clearApp(uid) {
   const app = appByUid(uid); if (!app) return;
   app.contents.length = 0; app.gasBubbles.length = 0; app.bubbles.length = 0; app.ppts.length = 0;
   app.temp = PHYS.T0; app.iceMol = 0; app.dryWarn = false;
+  app.airFrac = 1; app.inverted = false; app.tested = null; app.testText = null;   // 倒空洗净 = 又灌满一瓶空气
   Lab.log.push({ k: 'clear', text: '倒空并洗净 ' + app.def.name, at: Lab.time });
 }
 /** 倾倒：把 from 的液体（含溶质）全部转移到 to */
@@ -2786,7 +2795,7 @@ function pour(fromUid, toUid) {
 }
 
 /** 导气：把 a 气相里的气体通入 b（导管/排气法）。装不下的从 b 逸出；b 里有液体则冒泡穿过 */
-function feedGas(fromUid, toUid) {
+function feedGas(fromUid, toUid, quiet) {
   const a = appByUid(fromUid), b = appByUid(toUid);
   if (!a || !b || a === b) return { ok: false, why: '无效的导气目标' };
   if (a.broken || b.broken) return { ok: false, why: '炸裂的容器接不了导管' };
@@ -2811,19 +2820,60 @@ function feedGas(fromUid, toUid) {
   const gases = a.contents.filter((c) => c.phase === 'g' && c.mol > 1e-9);
   if (!gases.length) return { ok: false, why: a.def.name + ' 里没有气体可导出（先让它产生气体）' };
   const names = gases.map((c) => c.formula);
+  /* 收集的真实规矩：往集气瓶里集气必须有导管（真实实验里没导管根本接不上） */
+  const isJar = !!(b.def && b.def.id === 'gasjar');
+  if (isJar && !tubePresent() && !allowAutoTool()) {
+    return { ok: false, need: 'deliver',
+      why: '集气要有 〰️ 导管 —— 先到上面「器材」行拿一根导管，再点「💨 导气」把气引到集气瓶' };
+  }
+  const notes = [];
   gases.forEach((c) => {
-    const keep = putGas(b, c.formula, c.mol);
-    if (keep > 1e-12 && waterMol(b) > 1e-9) b.gasBubbles.push({ f: c.formula, mol: keep });   // 气体穿过液体 → 冒泡
+    const M = gasM(c.formula);
+    if (isJar && b.inTrough) {
+      /* 排水法：瓶里灌满了水，收进来的是纯气体；但能溶于水的气体会被瓶里的水溶掉一截 */
+      let mol = c.mol;
+      if (WATER_BAD.has(c.formula)) {
+        const k = c.formula === 'NH3' ? 0.12 : c.formula === 'SO2' ? 0.28 : c.formula === 'CO2' ? 0.5 : c.formula === 'Cl2' ? 0.6 : 0.45;
+        notes.push(c.formula + ' 能溶于水，排水法只收到约 ' + Math.round(k * 100) + '% —— 化学上应该改用「排空气法」');
+        mol = c.mol * k;
+      }
+      const keep = putGas(b, c.formula, mol);
+      if (keep > 1e-12 && waterMol(b) > 1e-9) b.gasBubbles.push({ f: c.formula, mol: keep });   // 气体穿过液体 → 冒泡
+      b.airFrac = 0;                                  // 水把空气顶光了：瓶里是纯气体
+    } else if (isJar) {
+      /* 排空气法：比空气重的要瓶口朝上（向上排空气），比空气轻的要瓶口朝下（向下排空气） */
+      const wantDown = M > 1 && M < AIR_M - 1;
+      const okDir = !!b.inverted === wantDown;
+      const before = gasInApp(b);
+      const keep = putGas(b, c.formula, okDir ? c.mol : c.mol * 0.1);
+      if (keep > 1e-12) b.gasBubbles.push({ f: c.formula, mol: keep });
+      const added = Math.max(0, gasInApp(b) - before);
+      if (!okDir) {
+        notes.push(c.formula + '（M≈' + Math.round(M) + '）比空气' + (wantDown ? '轻' : '重')
+          + '，瓶口方向反了，气直接跑掉 —— 集气瓶应该' + (wantDown ? '瓶口朝下' : '正放瓶口朝上'));
+        b.airFrac = Math.max(0.8, airFracOf(b));
+      } else {
+        const addedML = added * 24.5 * 1000 * (Math.max(200, b.temp) / 298.15);
+        b.airFrac = Math.max(0, airFracOf(b) * (1 - Math.min(1, addedML / b.def.cap)));   // 进来的气按比例把空气顶出去
+        notes.push((wantDown ? '向下' : '向上') + '排空气法：瓶内空气已置换掉约 ' + Math.round((1 - b.airFrac) * 100) + '%');
+      }
+    } else {
+      const keep = putGas(b, c.formula, c.mol);
+      if (keep > 1e-12 && waterMol(b) > 1e-9) b.gasBubbles.push({ f: c.formula, mol: keep });   // 气体穿过液体 → 冒泡
+    }
     c.mol = 0;
   });
   a.contents = a.contents.filter((c) => c.mol > 1e-9);
+  if (isJar) { b.collectFrom = a.uid; b.collectFromAt = Lab.time; }   // 导管还插着：后面产的气继续收（真实实验要收到瓶子满）
+  if (quiet) return { ok: true, moved: names, notes: notes, quiet: true };
   Lab.gasFeedCount++;
   Lab.log.push({
     k: 'pour', at: Lab.time,
     text: '导气：' + a.def.name + ' 中的 ' + names.join('、') + ' 通入 ' + b.def.name
-      + (waterMol(b) > 1e-9 ? '（气泡穿过液体）' : ''),
+      + (waterMol(b) > 1e-9 ? '（气泡穿过液体）' : '')
+      + (notes.length ? ' —— ' + notes.join('；') : ''),
   });
-  return { ok: true, moved: names };
+  return { ok: true, moved: names, notes: notes };
 }
 
 /* 过滤：把液相滤到另一个容器，未溶固体留在原容器（初中「粗盐提纯」核心操作） */
@@ -2902,6 +2952,17 @@ function refreshTasks() {
 function labStep(dt) {
   const envs = [];
   Lab.time += dt;
+  /* 导管插着 = 持续收集：瓶没满、气还纯/还在出气，就继续往里送（真实实验里不会收一半就拔管子） */
+  Lab.apps.forEach((jar) => {
+    if (!jar.collectFrom || jar.broken) return;
+    const src = appByUid(jar.collectFrom);
+    if (!src || src.broken) { jar.collectFrom = null; return; }
+    const room = headspaceMol(jar) - gasInApp(jar);
+    const air = airFracOf(jar);
+    if (jar.def.id === 'gasjar' && !jar.inTrough && (room <= 1e-6 || air <= 0.01)) { jar.collectFrom = null; return; }
+    if (jar.def.id === 'gasjar' && jar.inTrough && waterMol(jar) * 18.015 < 1) { jar.collectFrom = null; return; }
+    if (gasInApp(src) > 1e-9) feedGas(src.uid, jar.uid, true);
+  });
   syncHeaters();                                    // 先把"谁架在什么器材上、点着没有"翻译成热源，再跑物理
   Lab.tools.forEach((t) => { t.t = (t.t || 0) + dt; t.flame = Math.max(0, (t.flame || 0) - dt * 0.8); });
   Lab.apps.forEach((app) => {
@@ -2961,6 +3022,8 @@ function submergeJar(jarUid, troughUid) {
   removeWater(tr, cap / 18.015);
   addContent(jar, 'H2O', cap / 18.015, 'l', false);
   jar.inTrough = tr.uid;
+  jar.airFrac = 0;                                        // 瓶里灌满水，一点空气都没有
+  jar.inverted = false;
   Lab.submergeCount = (Lab.submergeCount || 0) + 1;
   Lab.log.push({ k: 'place', at: Lab.time, text: '把集气瓶倒扣进水槽，瓶里灌满了水（' + round(cap, 0) + ' mL）—— 现在可以导气收集气体了' });
   pushMsg('⤵ 集气瓶倒扣在水槽里（排水法）：点发生装置的「💨 导气」→ 选集气瓶，气体会把瓶里的水顶出来');
@@ -2971,6 +3034,7 @@ function liftJar(jarUid) {
   const jar = appByUid(jarUid);
   if (!jar || !jar.inTrough) return { ok: false, why: '这个集气瓶没倒扣在水槽里' };
   jar.inTrough = null;
+  if (typeof jar.airFrac !== 'number') jar.airFrac = 0;   // 排水法取出 = 纯气体
   const ml = gasVolumeML(jar);
   jar.gasML = ml;                                        // 取出来后仍按"收集到的气体体积"读数
   const names = jar.contents.filter((c) => c.phase === 'g').map((c) => subName(c.formula)).join('、');
@@ -2985,6 +3049,63 @@ function lightSplint(uid, on) {
   Lab.log.push({ k: 'ignite', at: Lab.time, text: (t.lit ? '点着木条 🪵（可以用它检验气体了）' : '吹灭木条') });
   return { ok: true, lit: t.lit };
 }
+/** 导管在台面上吗（集气必须有一根导管） */
+const tubePresent = () => Lab.tools.some((t) => !t.lampStand && t.hid === 'deliver');
+const gasM = (formula) => { try { return molarMass(formula) || 0; } catch (e) { return 0; } };
+/** 集气瓶里"空气占比"：新瓶子是空的 = 一瓶空气；倒扣在水槽里灌满水 = 0 */
+function airFracOf(app) {
+  if (!app) return 0;
+  if (typeof app.airFrac === 'number') return Math.max(0, Math.min(1, app.airFrac));
+  return app.def && app.def.id === 'gasjar' && !app.inTrough ? 1 : 0;
+}
+/** 集气瓶里的有效成分（把混进来的空气按 21% 氧 / 78% 氮算进去） */
+function mixFrac(app, formula) {
+  const tot = gasInApp(app);
+  const jar = !!(app.def && app.def.id === 'gasjar');
+  const air = jar ? airFracOf(app) : 0;
+  const col = tot > 1e-9 ? gasInApp(app, formula) / tot : 0;
+  const fromAir = formula === 'O2' ? 0.21 * air : formula === 'N2' ? 0.78 * air : 0;
+  return col * (1 - air) + fromAir;
+}
+/** 集气瓶正放 / 倒置（排空气法靠它选方向：重的向上排空气=正放，轻的向下排空气=瓶口朝下） */
+function stopCollect(uid) {
+  const jar = appByUid(uid);
+  if (!jar || !jar.collectFrom) return { ok: false, why: '这根导管现在没在收集' };
+  jar.collectFrom = null;
+  Lab.log.push({ k: 'place', at: Lab.time, text: '把导管从 ' + jar.def.name + ' 里拔出来，停止收集' });
+  return { ok: true };
+}
+function invertJar(uid) {
+  const jar = appByUid(uid);
+  if (!jar || !jar.def || jar.def.id !== 'gasjar') return { ok: false, why: '只有集气瓶能倒置 —— 排空气法要用集气瓶' };
+  if (jar.inTrough) return { ok: false, why: '集气瓶还倒扣在水槽里，先点「⬆ 取出集气瓶」' };
+  jar.inverted = !jar.inverted;
+  Lab.log.push({ k: 'place', at: Lab.time,
+    text: jar.inverted ? '把集气瓶瓶口朝下扣好（向下排空气法：比空气轻的气体用这个）' : '把集气瓶正放、瓶口朝上（向上排空气法：比空气重的气体用这个）' });
+  return { ok: true, inverted: !!jar.inverted };
+}
+/** 氢气验纯：纯氢安静燃烧，混了空气就尖锐爆鸣（真实实验里会炸碎瓶子） */
+function popTest(uid) {
+  const jar = appByUid(uid);
+  if (!jar || !jar.def || jar.def.id !== 'gasjar') return { ok: false, why: '验纯要用集气瓶：拿燃着的木条靠近瓶口试' };
+  if (jar.broken) return { ok: false, why: '这个集气瓶已经炸裂了' };
+  if (gasInApp(jar) <= 1e-9) return { ok: false, why: jar.def.name + ' 里没有气体 —— 先导气收一瓶' };
+  const h2 = mixFrac(jar, 'H2');
+  if (h2 <= 0.02) return { ok: false, why: '瓶里几乎没有氢气（H₂ 只有 ' + round(h2 * 100, 1) + '%），点不着' };
+  let res, broken = false;
+  if (h2 >= 0.75) res = { k: 'pure', text: '安静地燃烧，淡蓝色火焰 —— 氢气已经验纯，可以安全点燃' };
+  else {
+    res = { k: 'boom', text: '「砰」的一声尖锐爆鸣 —— 氢气里混着空气（H₂ 约 ' + Math.round(h2 * 100)
+      + '%，落在 4%~75% 的爆炸极限里）：真实实验里这一下会把集气瓶炸碎' };
+    broken = true; jar.broken = true;
+  }
+  jar.tested = res.k; jar.testText = res.text;
+  Lab.popCount = (Lab.popCount || 0) + 1;
+  Lab.log.push({ k: 'test', at: Lab.time, text: '【验纯 ' + jar.def.name + ' ' + jar.uid + '】' + res.text });
+  pushMsg((broken ? '💥 ' : '🔥 ') + res.text);
+  return { ok: true, k: res.k, text: res.text, broken: broken, h2: h2 };
+}
+
 /** 把木条伸进容器检验气体：氧气 → 复燃；二氧化碳 → 熄灭 */
 function probeGas(toolUid, appUid) {
   const t = toolByUid(toolUid), app = appByUid(appUid);
@@ -2992,13 +3113,28 @@ function probeGas(toolUid, appUid) {
   if (!app) return { ok: false, why: '先选一个装着气体的容器' };
   if (!t.lit) return { ok: false, why: '木条还没点着 —— 点它卡片上的「🔥 点着木条」' };
   const total = gasInApp(app);
-  if (total <= 1e-9) return { ok: false, why: app.def.name + ' 里没有气体（先制气，再用「💨 导气」收集起来）' };
+  if (total <= 1e-9) {
+    /* 空集气瓶 = 一瓶空气：木条伸进去本来就"没变化"，这不是报错，是真实结果 */
+    if (app.def && app.def.id === 'gasjar' && airFracOf(app) >= 0.9) {
+      const res0 = { k: 'air', text: '木条在瓶里烧得和在空气里一样 —— 这瓶就是一瓶空气，还没收集任何气体' };
+      app.tested = res0.k; app.testText = res0.text;
+      Lab.probeCount = (Lab.probeCount || 0) + 1;
+      Lab.log.push({ k: 'test', at: Lab.time, text: '【木条检验 ' + app.def.name + ' ' + app.uid + '】' + res0.text });
+      pushMsg('🪵 ' + res0.text);
+      return { ok: true, k: res0.k, text: res0.text };
+    }
+    return { ok: false, why: app.def.name + ' 里没有气体（先制气，再用「💨 导气」收集起来）' };
+  }
   const o2 = gasInApp(app, 'O2') / total, co2 = gasInApp(app, 'CO2') / total;
+  const airN = app.def && app.def.id === 'gasjar' ? Math.round(airFracOf(app) * 100) : 0;
+  const airNote = airN >= 15 ? '（瓶里还混着约 ' + airN + '% 空气，所以不算纯）' : '';
   let res;
   if (o2 >= 0.30) res = { k: 'O2', text: '带火星的木条「啪」地复燃、烧得更旺 —— 瓶里是氧气（O₂ 支持燃烧）' };
   else if (co2 >= 0.50) res = { k: 'CO2', text: '燃着的木条伸进去立刻熄灭 —— 瓶里是二氧化碳（CO₂ 不燃烧、也不支持燃烧）' };
-  else if (o2 >= 0.12) res = { k: 'mix', text: '木条烧得比在空气里旺一点 —— 气体里含氧，但不纯' };
+  else if (o2 >= 0.17) res = { k: 'air', text: '木条烧得和在空气里差不多 —— 瓶里主要是空气，不是氧气' };
+  else if (o2 >= 0.12) res = { k: 'mix', text: '木条烧得比在空气里弱、含氧但远不到纯氧 —— 这瓶气不纯' };
   else res = { k: 'none', text: '木条没有明显变化 —— 不是氧气' };
+  if (airN >= 15) res = { k: res.k, text: res.text + airNote };
   app.tested = res.k; app.testText = res.text; t.lit = false;
   Lab.probeCount = (Lab.probeCount || 0) + 1;
   Lab.log.push({ k: 'test', at: Lab.time, text: '【木条检验 ' + app.def.name + ' ' + app.uid + '】' + res.text });
@@ -3894,9 +4030,19 @@ function mkAppCard(app) {
     + '</div><div class="ops ops3">'
     + '<button data-op="conc"' + (app.acidConc === 'conc' ? ' class="on"' : '') + '>🧪 酸浓度：' + (app.acidConc === 'conc' ? '浓' : '稀') + '</button>'
     + (t ? '<button data-op="unmount">⬇ 放回台面</button>' : '')
-    + (app.def.id === 'gasjar' ? (app.inTrough ? '<button data-op="liftjar">⬆ 取出集气瓶</button>' : '<button data-op="submerge">⤵ 倒扣进水槽</button>') : '')
+    + (app.def.id === 'gasjar' ? (app.inTrough
+      ? '<button data-op="liftjar">⬆ 取出集气瓶</button>'
+      : '<button data-op="submerge">⤵ 倒扣进水槽</button>'
+        + '<button data-op="invert">🔄 瓶口' + (app.inverted ? '朝下（向下排空气）' : '朝上（向上排空气）') + '</button>'
+        + (gasInApp(app) > 1e-9 ? '<button data-op="pop">🔥 验纯（爆鸣）</button>' : '')) : '')
     + '</div>'
-    + (app.inTrough ? '<div class="jarnote">⤵ 倒扣在水槽里（排水集气法）· 瓶内气体 ' + round(gasVolumeML(app), 1) + ' mL · 已顶出 ' + round(app.drainedML || 0, 1) + ' mL 水</div>' : '')
+    + (app.collectFrom ? '<div class="jarnote collecting">〰️ 导管插着，正在持续收集' + (app.inTrough ? '（排水法）' : '（排空气法）') + ' —— 收到瓶子满或气用光为止' + ' <button data-op="stopcollect">⏹ 拔导管</button></div>' : '')
+    + (app.inTrough
+      ? '<div class="jarnote">⤵ 倒扣在水槽里（排水集气法）· 瓶内气体 ' + round(gasVolumeML(app), 1) + ' mL · 已顶出 ' + round(app.drainedML || 0, 1) + ' mL 水 · 瓶里没空气，收进来的是纯气</div>'
+      : (app.def.id === 'gasjar'
+        ? '<div class="jarnote">' + (app.inverted ? '⤵ 瓶口朝下（向下排空气法 · 比空气轻的气体）' : '⤴ 瓶口朝上（向上排空气法 · 比空气重的气体）')
+          + ' · 瓶内气体 ' + round(gasVolumeML(app), 1) + ' mL · 空气占比 ' + Math.round(airFracOf(app) * 100) + '%</div>'
+        : ''))
     + '<div class="heatrow"></div>';
   card.addEventListener('click', (ev) => {
     if (ev.target.closest('button')) return;
@@ -4263,6 +4409,22 @@ function opClick(app, op) {
   else if (op === 'submerge') {
     const r = submergeJar(app.uid, (troughApp() || {}).uid);
     if (!r.ok) toast(r.why);
+    renderBench(true);
+  }
+  else if (op === 'stopcollect') {
+    const r = stopCollect(app.uid);
+    if (!r.ok) toast(r.why);
+    renderBench(true);
+  }
+  else if (op === 'invert') {
+    const r = invertJar(app.uid);
+    toast(r.ok ? (app.inverted ? '瓶口朝下扣好了 —— 比空气轻的气体（H₂、NH₃）用向下排空气法' : '瓶口朝上放正了 —— 比空气重的气体（CO₂、O₂、Cl₂）用向上排空气法') : r.why);
+    renderBench(true);
+  }
+  else if (op === 'pop') {
+    const r = popTest(app.uid);
+    if (!r.ok) toast(r.why);
+    else toast(r.text);
     renderBench(true);
   }
   else if (op === 'liftjar') {
@@ -4670,6 +4832,7 @@ window.CHEM = {
   ELEM_REAGENT, molarMass, balanceReaction, verifyBalance, matchReactions, computePH, atomTally,
   addApparatus, addReagent, setHeater, ignite, stir, clearApp, pour, measure, worldStep, labStep,
   setPower, filterApp, feedGas, gasInApp, headspaceMol, K2C,
+  submergeJar, liftJar, probeGas, invertJar, popTest, stopCollect, mixFrac, airFracOf, tubePresent, WATER_BAD, AIR_M,
   addTool, lightTool, placeOn, delTool, removeApp, syncHeaters, toolByUid, standOf, occupantOf, litTools,
   assembleRig,
   ITEM_W, TOOL_TOP, renderBench, updateReadouts,
@@ -6454,6 +6617,10 @@ function tutStart(id, restart) {
     Lab.tut.needTools.push(k);           // 这件是器材：记进「自己备仪器」清单
     Lab.tut.uids.push('');
   });
+  /* 要集气的课：导管也得自己拿（真实实验没有导管接不上发生装置） */
+  if ((exp.bench.indexOf('gasjar') >= 0 || exp.bench.indexOf('trough') >= 0) && Lab.tut.needTools.indexOf('deliver') < 0) {
+    Lab.tut.needTools.push('deliver');
+  }
   Lab.tut.id = id;
   Lab.tut.step = restart ? 0 : (Lab.tut.pos[id] || 0);
   if (Lab.tut.step > exp.steps.length) Lab.tut.step = 0;
@@ -6784,7 +6951,9 @@ function guideDryRun(exp, idx) {
   Lab.apps = real.map((a) => Object.assign({}, a, { contents: a.contents.slice(), gasOut: Object.assign({}, a.gasOut) }));
   const rec = [];
   gDry = rec; gDryTools = {};
+  window._gDryRun = true;                 // 干跑：只推导"该点哪些按钮"，不受"器材必须自己拿"的拦截（否则推导不出计划）
   try { st.auto(); } catch (e) { /* 推导失败不算错，退化成"只给文字提示" */ }
+  window._gDryRun = false;
   gDry = null;
   Lab.apps = real; Lab.selected = realSel; benchSig = realSig;   // 台面签名也还原，避免白刷一帧
   return rec.map(guideNorm);
@@ -6919,6 +7088,16 @@ function guideTarget() {
   if (a.k === 'liftJar') {
     const b = gOpBtn(a.uid, 'liftjar');
     return b ? { key: 'liftjar', el: b, label: '点「⬆ 取出集气瓶」把收集好气体的瓶子取出来', kind: 'op' } : null;
+  }
+  if (a.k === 'probeGas') {
+    /* 导管还插在集气瓶上、发生装置里还在冒气 → 先等它把瓶子收满再检验
+       （真实实验里不会拿半瓶气去验；半瓶气混着一堆空气，木条当然不会熄灭） */
+    const jar = appByUid(a.to);
+    const src = jar && jar.collectFrom ? appByUid(jar.collectFrom) : null;
+    /* 等到"管子插着不超过 15 秒模拟时间、瓶里还大半是空气"为止；再等下去就是反应产气慢，让玩家先检验 */
+    if (jar && src && airFracOf(jar) > 0.3 && (Lab.time - (jar.collectFromAt || 0)) < 15) {
+      return { key: 'waitfill', el: speedBtn, label: '导管还插着，' + gAppName(jar.uid) + '正在继续收集 —— 等气出完再检验（想快点就点「⏩ 时间」）', kind: 'wait' };
+    }
   }
   if (a.k === 'lightSplint' || a.k === 'probeGas') {
     const sp = Lab.tools.find((x) => x.hid === (a.hid || 'splint')) || null;      // 干跑摆的是影子器材，按种类找真器材
