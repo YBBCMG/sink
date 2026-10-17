@@ -254,17 +254,29 @@
      §六 二章自己的幕表与待办（**只读 js/ch2 这一份**）
      ------------------------------------------------------------
      用户：「而且这个任务他还是按第一章看的。」⇒ 二章的任务页不许再吃一章的 TASKS / S.act。
-     这里三幕、五个条目，判据条件全落在 `ch2_` 前缀的旗标上（二章自己的档里），
-     一章的 62 条任务、第 6 幕、相簿 4/4 一个都不出现。 */
+     2026-10-17 中枢新单（用户：「那任务呢任务在哪？目前没有主线任务引导啊」）：
+     一张表贴到底不算引导 —— 改成**五幕各自一张表**，幕推进时上一幕的条目收起、下一幕的换上来。
+     · 每条都得有真判定（`ch2_` 旗标 / 在册格数 / 柜台收没收到），**不许光挂文案永远不打勾**；
+     · 幕由"真做到哪一步"推出来（stageOf），不是自己往上数；
+     · 一章的 62 条任务、第 6 幕、相簿 4/4 一个字都不出现在这儿。 */
   var ACTS = [
-    { n: 1, name: '收货', goal: '在柜台开一秤，收一段记下来' },
-    { n: 2, name: '上架', goal: '走到某只罐前按 E，把身上那段记存进去' },
-    { n: 3, name: '出货', goal: '按格号把记取出来，交割给客人' }
+    { n: 1, name: '收货', goal: '到柜台开秤，把门外那位请进来，收下他的第一段记' },
+    { n: 2, name: '上架', goal: '回库房，把身上那段记存进 A–Z 里的一只罐' },
+    { n: 3, name: '取货', goal: '从有货的那一格取一段出来（满格先取，再存新的）' },
+    { n: 4, name: '回头客', goal: '再接一位客人，把第二段记也收进来' },
+    { n: 5, name: '立账', goal: '让十三只罐都上过货，这间库房才算立住' }
   ];
+  function fnum(s, k) { var v = Number((s && s.flags) ? s.flags[k] : 0); return isFinite(v) ? v : 0; }
   function jarUsed(s) {
     var raw = String((s && s.flags && s.flags.ch2_vault) || '');
     var n = 0;
-    raw.split('|').forEach(function (p) { if (p && p.split(':')[5] === '11') n++; });
+    /* 第六个字段是两位：`(串味?1:0) + (占格?1:0)`（vault.js:100 encode）——
+       **看右位**才是"这一格有没有货"。⚠️ 2026-10-17 逮到的老家贼：这里原先写 `=== '11'`，
+       只数得中"带串味"的格子 ⇒ 正常入库的罐子一格都不算，顶栏永远「罐 0/26」。 */
+    raw.split('|').forEach(function (p) {
+      if (!p) return;
+      if ((p.split(':')[5] || '0').charAt(1) === '1') n++;
+    });
     return n;
   }
   function pendingN(s) {
@@ -275,22 +287,77 @@
     var raw = String((s && s.flags && s.flags.ch2_carry) || '');
     return raw.split(',').filter(function (x) { return x !== ''; }).length;
   }
-  function actOf(s) {
-    if (jarUsed(s) > 0) return 3;
-    if (pendingN(s) > 0 || carryN(s) > 0) return 2;
-    return 1;
+  /* 现在到第几幕：**由真做到哪一步推出来**（单调，不会倒回去） */
+  function stageOf(s) {
+    var recv = fnum(s, 'ch2_recv_n'), used = jarUsed(s), take = fnum(s, 'ch2_take_n');
+    if (recv < 1) return 1;          /* 还没在柜台上收下过东西 */
+    if (used < 1) return 2;          /* 收下了，还没上架 */
+    if (take < 1) return 3;          /* 上过架，还没取过 */
+    if (recv < 2) return 4;          /* 取过了，第二位客人还没接到 */
+    return 5;                        /* 立账：把 13 格堆起来 */
+  }
+  /* 五幕各自的条目表：`done(s)` 全落在二章自己的真账上 */
+  function specOf(act) {
+    if (act === 1) return [
+      { name: '进库房（顶栏 ▤ 主界面 → 第二本册子）', hint: '主界面两颗册子，右边那本',
+        done: function (s) { return flag(s, 'ch2_entered'); } },
+      { name: '到柜台前按 E，把门外的客人让进来', hint: '库房西墙那道门 → 柜台 · 门口',
+        done: function (s) { return flag(s, 'ch2_guest_in'); } },
+      { name: '验成色 → 问来路 → 定价，点「收下」', hint: '柜台 · 开秤（有货才有价）',
+        done: function (s) { return fnum(s, 'ch2_recv_n') >= 1; } }
+    ];
+    if (act === 2) return [
+      { name: '收下的记挂在「待上架」——得自己搬去库房', hint: '身上 / 待上架那两笔数在这儿看得见',
+        done: function (s) { return pendingN(s) + carryN(s) > 0; } },
+      { name: '站到某只空罐前按 E 开罐', hint: '库房 A–Z，一格一只',
+        done: function (s) { return flag(s, 'ch2_jar_open'); } },
+      { name: '选「第 N 段」存进去，在册 +1', hint: '罐的面板只有序号，不写名字',
+        done: function (s) { return jarUsed(s) >= 1; } }
+    ];
+    if (act === 3) return [
+      { name: '点开在册的那一格看一眼（格号 / 封条 / 重量档）', hint: '格号就是唯一的线索',
+        done: function (s) { return jarUsed(s) >= 1; } },
+      { name: '按 E 把这一段取出来（满格必须先取）', hint: '有货的那只罐',
+        done: function (s) { return fnum(s, 'ch2_take_n') >= 1; } },
+      { name: '取出来的记回到身上', hint: '身上 +1 段，格空着、号还留着',
+        done: function (s) { return carryN(s) >= 1; } }
+    ];
+    if (act === 4) return [
+      { name: '柜台上再接一位客人（他还会来）', hint: '回柜台 · 门口，再开一次秤',
+        done: function (s) { return fnum(s, 'ch2_recv_n') >= 2; } },
+      { name: '第二段也上架（在册 2 格）', hint: '库房 · 随便哪只空罐',
+        done: function (s) { return jarUsed(s) >= 2; } },
+      { name: '让在册上到三格', hint: '在册就是这一章的进度条',
+        done: function (s) { return jarUsed(s) >= 3; } }
+    ];
+    return [
+      { name: '在册过六格', hint: '柜台上一直有生意',
+        done: function (s) { return jarUsed(s) >= 6; } },
+      { name: '十三只罐都上过货', hint: '库房 A–Z 里挑十三格',
+        done: function (s) { return jarUsed(s) >= 13; } },
+      { name: '收口：待上架清空、身上清空', hint: '账要平 —— 东西都在格子里',
+        done: function (s) { return pendingN(s) === 0 && carryN(s) === 0; } }
+    ];
+  }
+  /* 某一幕的条目（`done` 现算 —— 旗标一变，屏上就跟着打勾） */
+  function tasksOf(act, s) {
+    s = s || state0();
+    return specOf(Number(act) || 1).map(function (x) {
+      return { name: x.name, hint: x.hint, done: !!(s && x.done(s)) };
+    });
   }
   function tasks(s) {
     s = s || state0();
-    var f = (s && s.flags) || {}, used = jarUsed(s);
-    var list = [
-      { name: '进库房（主界面选「第二章」那本册子）', done: !!f.ch2_entered, hint: '顶栏 ▤ 主界面' },
-      { name: '在柜台上收一段记', done: pendingN(s) + carryN(s) + used > 0, hint: '柜台 · 开秤 (10,5)' },
-      { name: '把记存进罐子（站到罐前按 E）', done: used > 0, hint: '库房 A–Z 二十六格' },
-      { name: '让十三只罐都上过货', done: used >= 13, hint: '在册 ' + used + '/26' }
-    ];
-    var act = actOf(s), A = ACTS[act - 1];
-    return { act: act, actName: A.name, goal: A.goal, list: list, used: used };
+    var act = stageOf(s), A = ACTS[act - 1], list = tasksOf(act, s);
+    var todo = list.filter(function (x) { return !x.done; });
+    var now = todo.length ? todo[0].name
+      : (act < ACTS.length ? '这一幕做完了 —— 下一步：' + ACTS[act].name : '这一章到头了');
+    return {
+      act: act, actName: A.name, goal: A.goal,
+      list: list, now: now,
+      done: list.length - todo.length, total: list.length,
+      used: jarUsed(s), pending: pendingN(s), carry: carryN(s)
+    };
   }
   function state0() {
     return (global.PAWN_DEBUG && global.PAWN_DEBUG.api ? global.PAWN_DEBUG.api.state : null);
@@ -305,6 +372,7 @@
       ch: T('title') || '第二章',
       scene: sceneName || '记忆库',
       act: t.act, actName: t.actName, goal: t.goal,
+      next: t.now,
       used: t.used, total: (V.COUNT || 26), pending: pendingN(s), carry: carryN(s)
     };
   }
@@ -404,7 +472,7 @@
     /* §〇 两套档隔离：引擎只在 save/load 两处调这两个 */
     persist: persist, hydrate: hydrate, ch2Flags: ch2Flags, inCh2: inCh2,
     /* §六 二章自己的幕表（右栏「任务」页 + 顶栏用它） */
-    ACTS: ACTS, tasks: tasks, hud: hud, memPage: memPage, jarUsed: jarUsed,
+    ACTS: ACTS, tasks: tasks, tasksOf: tasksOf, stageOf: stageOf, hud: hud, memPage: memPage, jarUsed: jarUsed,
     state: function (s) {
       s = s || state0();
       var f = (s && s.flags) || {};
@@ -415,7 +483,7 @@
            值也不再变（DEV 面板那个"给全套道具"的按钮写进去的 ch2_it_* 没人认了）。 */
         items: [],
         fog: !!f.ch2_fog_ok, end: !!f.ch2_end,
-        used: jarUsed(s), act: actOf(s)
+        used: jarUsed(s), act: stageOf(s), tasks: tasksOf(stageOf(s), s)
       };
     }
   };
