@@ -226,6 +226,14 @@
        二章的幕由 js/ch2 自己算（顶栏「第 N 幕」+ 任务页），跟一章的 act 不是一回事。
        （二章三个场景都写着 act:6，进一出就会闪一张「第 6 幕」的幕卡 —— 实拍逮到过。） */
     var inCh2Now = /^ch2_/.test(String(sid));
+    /* 进二章那张图时，把一章残留在屏上的提示**当场抹掉** ——
+       玩家从一章走过来，屏幕上往往还挂着「差事推进 · 进镇：接着去 盐埕镇」那种一句一章的话，
+       站在库房里读它就像"任务还是按第一章看的"（2026-10-17 实拍逮到）。 */
+    if (inCh2Now) {
+      var _to = $('toast');
+      if (_to) { _to.classList.remove('show'); _to.textContent = ''; }
+      toastT = 0;
+    }
     if (act > S.maxAct && !inCh2Now) {
       S.maxAct = act; S.act = act;
       saveCheckpoint();
