@@ -210,6 +210,10 @@
      跟 js/ch2/scenes.js 里的 SHOP_SCENE 一一对应：solids [1,1,3,2] / [16,1,3,2] / [3,6,14,2]，
      柜台 3..16 格 × 6..7 格 = 144..816 × 288..384。 */
   var SHOP_ID = 'ch2_shop';
+  /* 柜台这张图的 id：**两种叫法都认**。
+     记忆玩法 那条线按中心的意思把它叫 ch2_counter，我这张已经落在 ch2_shop 上（scenes.js 里那条 SHOP_SCENE）。
+     谁先上线都行：isShop() 两个 id 都算，画法和碰撞都是同一套，不会出现"场景叫 ch2_counter 就白屏"。 */
+  var SHOP_IDS = ['ch2_shop', 'ch2_counter'];
   var SHOP = {
     counter: { tx: 3, ty: 6, tw: 14, th: 2, x: 144, y: 288, w: 672, h: 96 },
     farDoor: { x: 432, y: 8, w: 144, h: 40 },
@@ -1015,7 +1019,7 @@
      ── 要调**包一层之前存下来的原件**（ORIG）：调 A.paintGround 会转回我自己、递归。
      ============================================================ */
   function isBack(sc) { return !!sc && sc.id === BACK_ID; }
-  function isShop(sc) { return !!sc && sc.id === SHOP_ID; }
+  function isShop(sc) { return !!sc && SHOP_IDS.indexOf(sc.id) >= 0; }
   function isCh2(sc) { return isVault(sc) || isBack(sc) || isShop(sc); }
 
   /* ============================================================
@@ -1355,7 +1359,11 @@
        · keeper 祁掌柜：账房那位 —— 墨绿长衫 + 灰白须发
      外加只在前厅用的 guest（上门的客人）：暗紫褐短打 + 斗笠，跟"两个人"不混。 */
   var CH2_FIG = {
-    you:    { coat: '#2c4468', sash: '#8a6a3c', skin: '#e8c49e', hair: '#1f160f', build: 'slim', apron: '#cbb691' },
+    /* 二章主角也用同一把尺子（tools/shot-hero.mjs 量的）：
+       原值 头 12 行 / 总 43 行 = 28%（1:3.6）、腿只露 1~2 行（全被短褂下摆盖住）。
+       改：头 12→9 行、宽 12→10；腿 11→14（多露 9 行）。只有 you 带这三个字段。 */
+    you:    { coat: '#2c4468', sash: '#8a6a3c', skin: '#e8c49e', hair: '#1f160f', build: 'slim', apron: '#cbb691',
+              headW: 8, headH: 8, legRows: 14 },
     keeper: { coat: '#2f4a3c', sash: '#7a5a34', skin: '#e3c09a', hair: '#d2ccc2', build: 'stout', beard: '#ded9cf' },
     guest:  { coat: '#5a4a68', sash: '#8a7448', skin: '#eccba6', hair: '#2a1f18', build: 'slim',
               hat: '#5f5645', pack: '#6e6653' }
@@ -1377,14 +1385,16 @@
     var cr = rampOf(F.coat), sr = rampOf(F.skin), hr = rampOf(F.hair);
     var oc = mixOf(F.coat, '#0b0e14', 0.68), hc = mixOf(F.hair, '#0a0c11', 0.46);
     var i, sg, off, by, bw, aoff, aw;
+    var HW = F.headW || 12, HH = F.headH || 12, LEG = F.legRows || 11;
+    var hx0 = px - (HW >> 1);
     /* 影子：三层硬边（不画椭圆） */
     rect(c, px - 9 - wide, gy + 1, 18 + wide * 2, 3, 'rgba(0,0,0,.30)');
     rect(c, px - 7 - wide, gy - 1, 14 + wide * 2, 3, 'rgba(0,0,0,.15)');
     /* 腿 + 靴 */
     for (i = 0; i < 2; i++) {
       sg = i ? 1 : -1; off = sg * (3 + wide) + (mv ? sw * sg * 2 : 0);
-      rect(c, px + off - 3, gy - 11, 6, 10, oc);
-      rect(c, px + off - 2, gy - 10, 4, 8, '#3b2c22');
+      rect(c, px + off - 3, gy - LEG, 6, LEG - 1, oc);
+      rect(c, px + off - 2, gy - LEG + 1, 4, LEG - 3, '#3b2c22');
       rect(c, px + off - 3, gy - 3, 6, 3, '#241a13');
       rect(c, px + off - 2, gy - 3, 4, 1, '#4a3728');
     }
@@ -1403,9 +1413,9 @@
     rect(c, px - R(bw / 2), gy - 15, bw, 1, mixOf(F.sash, '#ffffff', 0.24));
     /* 围裙（前厅当值的记号） */
     if (F.apron) {
-      rect(c, px - 4, gy - 15, 8, 9, F.apron);
-      rect(c, px - 4, gy - 15, 8, 1, mixOf(F.apron, '#ffffff', 0.22));
-      rect(c, px - 4, gy - 7, 8, 1, shadeOf(F.apron, -0.24));
+      rect(c, px - 3, gy - 17, 7, 9, F.apron);
+      rect(c, px - 3, gy - 17, 7, 1, mixOf(F.apron, '#ffffff', 0.22));
+      rect(c, px - 3, gy - 9, 7, 1, shadeOf(F.apron, -0.24));
     }
     /* 下摆 */
     rect(c, px - R(bw / 2) - 1, gy - 11, bw + 2, 2, cr[1]);
@@ -1418,20 +1428,28 @@
       rect(c, px + aoff - 2, by + 12 + aw, 4, 3, sr[1]);
     }
     /* 头：脖子 + 脸 + 发 */
-    rect(c, px - 2, by - 4, 4, 4, sr[0]);
-    rect(c, px - 6, by - 15, 12, 12, oc);
-    rect(c, px - 5, by - 14, 10, 11, sr[2]);
-    rect(c, px - 5, by - 14, 10, 1, sr[3]);
-    rect(c, px - 5, by - 6, 10, 1, sr[1]);
-    rect(c, px - 6, by - 16, 12, 4, hc);
-    rect(c, px - 5, by - 15, 10, 3, hr[1]);
-    rect(c, px - 6, by - 12, 2, 5, hc);
-    rect(c, px + 4, by - 12, 2, 5, hc);
-    rect(c, px - 5 + (dir > 0 ? 1 : 0), by - 12, (dir > 0 ? 1 : dir < 0 ? 3 : 2), 6, hr[1]);
-    rect(c, px + (dir > 0 ? 4 : dir < 0 ? 2 : 3), by - 12, 1, 6, hr[1]);
-    /* 眼：朝哪边看画哪边那一点 */
-    if (dir >= 0) rect(c, px + 1, by - 10, 1, 2, '#241a14');
-    if (dir <= 0) rect(c, px - 2, by - 10, 1, 2, '#241a14');
+    /* 头：**一块壳 + 三行顶发 + 脸 + 1px 鬓角 + 2px 眼**。
+       上一版是按老常数硬扳的，扳完脸被鬓角啃掉一半（实拍一看像个"口"字）。
+       这版全部由 hTop / HW / HH 推出来，HH 改成 9 就是九行脑袋，换谁都不会错位。 */
+    var hTop = by - HH - 4;
+    rect(c, px - 2, by - 4, 4, Math.min(4, HH - 4), sr[0]);           /* 脖子 */
+    rect(c, hx0 - 1, hTop, HW + 2, HH + 2, hc);                       /* 头壳（含描边） */
+    rect(c, hx0, hTop + 1, HW, HH, hr[1]);                            /* 发色打底 */
+    rect(c, hx0, hTop + 1, HW, 3, hr[2]);                             /* 顶发亮一档 */
+    rect(c, hx0, hTop + 1, HW, 1, hr[3]);
+    /* 脸 6px 宽（不是 8）：8 宽的脸加上只有 3 行顶发，远看就是"一张白面具挂着一个洞"。
+       左右各留 2px 鬓角，脸窄下来，眼睛才落在两侧头发中间。 */
+    rect(c, hx0 + 2, hTop + 4, HW - 4, HH - 3, sr[2]);                /* 脸 */
+    rect(c, hx0 + 2, hTop + 4, HW - 4, 1, sr[3]);
+    rect(c, hx0 + 2, hTop + HH, HW - 4, 1, sr[1]);                    /* 下巴那道暗 */
+    rect(c, hx0, hTop + 4, 2, HH - 3, hr[1]);                         /* 鬓角（2px） */
+    rect(c, hx0 + HW - 2, hTop + 4, 2, HH - 3, hr[0]);
+    rect(c, hx0 + (dir > 0 ? 1 : 0), hTop + 4, (dir > 0 ? 2 : dir < 0 ? 2 : 1), 3, hr[1]);
+    /* 眼：2px 宽一道，位置由 HH 推（约在脸上 60% 处），朝哪边就看哪边 */
+    var eyeRow = hTop + HH - 3;
+    if (dir >= 0) rect(c, px + 1, eyeRow, 2, 2, '#241a14');
+    if (dir <= 0) rect(c, px - 3, eyeRow, 2, 2, '#241a14');
+    if (dir === 0) { rect(c, px - 3, eyeRow, 2, 2, '#241a14'); rect(c, px + 2, eyeRow, 2, 2, '#241a14'); }
     /* 斗笠（客人）/ 须（掌柜） */
     if (F.hat) {
       rect(c, px - 5, by - 14, 10, 11, shadeOf(F.skin, -0.30));   /* 笠檐压在脸上的那道暗 */
@@ -2092,7 +2110,27 @@
   global.CH2_ART = {
     VAULT: V, install: install, installed: function () { return !!(global.ART31 && global.ART31.__ch2vaultArt); },
     paintFloor: paintFloor, paintRoom: paintRoom, jar: jar, palette: palOf,
-    SHOP: SHOP_ID, shopAnchor: SHOP, shopPal: shopPal,
+    SHOP: SHOP_ID, SHOP_IDS: SHOP_IDS.slice(), shopAnchor: SHOP, shopPal: shopPal,
+    /* 柜台那张图的**占位色块 + 尺寸**（给记忆玩法直接抄去建场景用；不含任何画法）：
+       W/H 是整张图的逻辑像素，counter 是柜台那块占位方块的像素矩形与配色。 */
+    counterSpec: function () {
+      var P = shopPal({ palette: {} }, {});
+      return {
+        imageId: 'ch2_counter', alias: ['ch2_shop'],
+        scene: { w: 20, h: 14, cell: CELL, px: VW, py: VH },
+        counter: { x: SHOP.counter.x, y: SHOP.counter.y, w: SHOP.counter.w, h: SHOP.counter.h,
+                   tx: SHOP.counter.tx, ty: SHOP.counter.ty, tw: SHOP.counter.tw, th: SHOP.counter.th },
+        farDoor: { x: SHOP.farDoor.x, y: SHOP.farDoor.y, w: SHOP.farDoor.w, h: SHOP.farDoor.h },
+        shelf: { x: SHOP.shelf.x, y: SHOP.shelf.y, w: SHOP.shelf.w, h: SHOP.shelf.h },
+        tickets: { x: SHOP.tickets.x, y: SHOP.tickets.y, w: SHOP.tickets.w, h: SHOP.tickets.h },
+        guests: SHOP.guests.map(function (g) { return { tx: g.tx, ty: g.ty }; }),
+        palette: {
+          counterTop: P.counterLit, counterTopHi: P.counterHi, counterFront: P.counter,
+          counterDeep: P.counterDeep, copper: P.copper, brassHi: P.brassLit,
+          floor: P.floorBase, floorLit: P.floorLit, wall: P.wallBase, rug: '#93392c'
+        }
+      };
+    },
     paintShopFloor: paintShopFloor, paintShopRoom: paintShopRoom,
     BACK: BACK_ID, paintBackFloor: paintBackFloor, paintBackRoom: paintBackRoom,
     fig: figOwn, FIG: CH2_FIG,
