@@ -1392,11 +1392,13 @@
     rect(c, px - 7 - wide, gy - 1, 14 + wide * 2, 3, 'rgba(0,0,0,.15)');
     /* 腿 + 靴 */
     for (i = 0; i < 2; i++) {
-      sg = i ? 1 : -1; off = sg * (3 + wide) + (mv ? sw * sg * 2 : 0);
-      rect(c, px + off - 3, gy - LEG, 6, LEG - 1, oc);
-      rect(c, px + off - 2, gy - LEG + 1, 4, LEG - 3, '#3b2c22');
-      rect(c, px + off - 3, gy - 3, 6, 3, '#241a13');
-      rect(c, px + off - 2, gy - 3, 4, 1, '#4a3728');
+      sg = i ? 1 : -1; off = sg * (3 + wide);
+      /* 跟一章同一套：走路抬脚，别左右挪（挪到同一点就是"腿糊成一坨"） */
+      var st2 = mv && (sw * sg > 0) ? 2 : 0;
+      rect(c, px + off - 3, gy - LEG + st2, 6, LEG - 1 - st2, oc);
+      rect(c, px + off - 2, gy - LEG + 1 + st2, 4, LEG - 3 - st2, '#3b2c22');
+      rect(c, px + off - 3, gy - 3 + st2, 6, 3, '#241a13');
+      rect(c, px + off - 2, gy - 3 + st2, 4, 1, '#4a3728');
     }
     /* 袍身：上宽下略收，1px 描边立住 */
     by = gy - 27; bw = 13 + wide * 2;
