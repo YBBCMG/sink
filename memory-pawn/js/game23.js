@@ -35,7 +35,20 @@
   }
   function save() {
     var st = store(); if (!st) return;
-    try { st.setItem(SAVE_KEY, JSON.stringify(pack())); } catch (e) { /* ignore */ }
+    try {
+      var p = pack();
+      /* 2026-10-17 用户：「这第一章和第二章你可以理解成两个游戏来做，不要让他们有任何关系。」
+         ⇒ 一章档里**零 ch2_ 旗标**：落盘前把 ch2_ 前缀整片剥下来，交还给二章自己的键
+            （mp23-ch2-v1，见 js/ch2/index.js 的 persist/hydrate）。一章的旗标 / 记 / 相簿一个字节不动。 */
+      var f = p.flags || {}, clean = {};
+      Object.keys(f).forEach(function (k) {
+        if (k.indexOf('ch2_') === 0) return;      /* 二章的东西不进一章的档 */
+        clean[k] = f[k];
+      });
+      p.flags = clean;
+      st.setItem(SAVE_KEY, JSON.stringify(p));
+      if (global.CH2 && global.CH2.persist) global.CH2.persist(S);   /* 二章那一片写它自己的键 */
+    } catch (e) { /* ignore */ }
   }
   function pack() {
     return { v: 23, scene: S.scene, x: S.x, y: S.y, act: S.act, maxAct: S.maxAct, gold: S.gold,
@@ -56,6 +69,9 @@
       /* v44：旧档整份没有 ch2 / 或只写了半个对象 —— 补默认，别让 adminEntry 读成 undefined */
       if (!s.ch2 || typeof s.ch2 !== 'object') s.ch2 = { adminEntry: false };
       if (typeof s.ch2.adminEntry !== 'boolean') s.ch2.adminEntry = !!s.ch2.adminEntry;
+      /* v48：二章那一片**不在这个档里**（一章档零 ch2_ 旗标）—— 从它自己的键垫回来。
+         没装 js/ch2 时这一步什么都不做，一章照旧一条路走到底。 */
+      if (global.CH2 && global.CH2.hydrate) global.CH2.hydrate(s);
       return s;
     } catch (e) { return null; }
   }
@@ -194,6 +210,9 @@
   function enterScene(sid, x, y, opts) {
     var sc = D.SCENES[sid]; if (!sc) return;
     S.scene = sid;
+    /* v48：二章/一章的外壳（右栏页签 · 顶栏字段）跟着**换场景这一下**立刻切，
+       不等下一帧的 refreshPanels —— 玩家从主界面点进二章，落地那一屏就得是二章的样子。 */
+    try { applyCh2Chrome(inCh2Scene()); } catch (e) { /* 外壳挂了也不许卡住换场景 */ }
     S.x = S.tx = (x == null ? sc.spawn.x : x);
     S.y = S.ty = (y == null ? sc.spawn.y : y);
     S.mx = S.x; S.my = S.y; bgDirty = true;   /* 换场景重烘焙底图，显示坐标直接对齐 */
@@ -1536,7 +1555,60 @@
   function doneCount() { return D.TASKS.filter(taskDone).length; }
 
   /* ---------- 侧栏 ---------- */
+  /* ===== 2026-10-17 二章自有外壳（用户第 3 遍点单）=====
+     「日志这个东西你就删了吧，日志没什么用，相薄也是右边只有一个记忆和任务就可以。
+       而且这个任务他还是按第一章看的。」
+     ⇒ 站在二章那张图上时：① 右栏只留「记」+「任务」（日志 / 相簿 隐掉）
+                       ② 顶栏不显示一章的字段（当金 / 相簿 / 灯油 / 归潮屿·望归灯 / 第 N 幕）
+                       ③ 换上二章自己的那一格：章名 · 幕 · 账房状态（在册几格 / 身上 / 待上架）
+     一章一个字都不动：这套只在 `scene` 以 `ch2_` 开头时生效，切回一章立刻还原（判据 ㉕/㉖）。
+     **index.html 不动**：二章那一格是运行时插进 #hud 的（hud-ch2），一章的 DOM 原样留着只隐不删。 */
+  var CH2_HUD_EL = null;
+  function inCh2Scene() { return /^ch2_/.test(String((S && S.scene) || '')); }
+  function ch2HudEl() {
+    var hud = $('hud'); if (!hud) return null;
+    if (!CH2_HUD_EL || !CH2_HUD_EL.parentNode) {
+      CH2_HUD_EL = document.createElement('span');
+      CH2_HUD_EL.id = 'hud-ch2';
+      CH2_HUD_EL.className = 'hitem';
+      CH2_HUD_EL.style.color = 'var(--gold2)';
+      hud.insertBefore(CH2_HUD_EL, hud.firstChild);
+    }
+    return CH2_HUD_EL;
+  }
+  function applyCh2Chrome(on) {
+    var hud = $('hud');
+    if (hud) {
+      var kids = hud.children;
+      for (var i = 0; i < kids.length; i++) {
+        var k = kids[i];
+        if (k.id === 'hud-ch2') { k.style.display = on ? '' : 'none'; continue; }
+        /* 顶栏那几颗按钮在二章照样有用（主界面 / 存档点 / 全屏 / DEV）—— 只隐字段，不隐按钮 */
+        if (/^(btn-restart|btn-bgm|btn-home|btn-fs|btn-dev)$/.test(k.id)) continue;
+        k.style.display = on ? 'none' : '';
+      }
+    }
+    var small = document.querySelector('#logo small');
+    if (small) small.style.display = on ? 'none' : '';
+    ['log', 'album'].forEach(function (t) {
+      var b = $('tab-' + t), p = $('pane-' + t);
+      if (b) { b.style.display = on ? 'none' : ''; if (on) b.classList.remove('on'); }
+      if (p) p.style.display = on ? 'none' : '';
+    });
+    if (on) {
+      var mem = $('tab-mem');
+      if (mem && !mem.classList.contains('on')) mem.click();   /* 二章默认落在「记」 */
+    }
+  }
   function refreshHUD() {
+    var on2 = inCh2Scene();
+    applyCh2Chrome(on2);
+    if (on2 && global.CH2 && global.CH2.hud) {
+      var c = global.CH2.hud(S), el = ch2HudEl();
+      if (el) el.innerHTML = (c.ch || '第二章') + ' · ' + c.scene + ' · 第 ' + c.act + ' 幕 ' + c.actName +
+        ' · 罐 ' + c.used + '/' + c.total + (c.carry ? ' · 身上 ' + c.carry : '') + (c.pending ? ' · 待上架 ' + c.pending : '');
+      if (el) el.style.display = '';
+    }
     $('hud-gold').textContent = S.gold;
     $('hud-tasks').textContent = doneCount() + '/' + D.TASKS.length;
     $('hud-act').textContent = S.act;
@@ -1564,8 +1636,25 @@
      口径改过两回：① 以前把五幕 46 条一次摊开 —— 后面的幕次既剧透又干扰，看到的是目录不是待办；
      ② 2026-10-11 用户拍板「只显示目前要做的是什么」：同幕其余项**标题和线索都不再列**，
         只留一行报数（另有 N 项在雾里）。**后面几幕的标题一个字都不出现**（有测试钉着）。 */
+  /* 二章自己的任务页（数据源只有 js/ch2/index.js 的 tasks()）：一章的幕表 62 条、第 6 幕、
+     「跑了…第 2/3 段」这些**一个字都不许出现在这儿**（判据 ㉗ 拿屏上文字钉）。 */
+  function ch2Tasks(p) {
+    var t = global.CH2.tasks(S);
+    var html = '<div class="arc-h">第二章 · 第 ' + t.act + ' 幕 · ' + t.actName + '</div>' +
+      '<div class="arc-item">' + t.goal + '</div>' +
+      '<div class="arc-h">要做的事</div>' +
+      t.list.map(function (x) {
+        return '<div class="arc-item">' + (x.done ? '✓ ' : '· ') + x.name +
+          '<br><span class="pz-tip">' + x.hint + '</span></div>';
+      }).join('') +
+      '<div class="arc-h">账房状态</div>' +
+      '<div class="arc-item">在册 <b>' + t.used + '/26</b> 格 · 身上 <b>' + (global.CH2.hud(S).carry || 0) + '</b> 段 · 待上架 <b>' +
+      (global.CH2.hud(S).pending || 0) + '</b> 段</div>';
+    p.innerHTML = html;
+  }
   function refreshTasks() {
     var p = $('pane-tasks'); if (!p) return;
+    if (inCh2Scene() && global.CH2 && global.CH2.tasks) { ch2Tasks(p); return; }
     var list = D.tasksOfAct(S.act);
     var todo = list.filter(function (t) { return !taskDone(t); });
     var done = list.filter(function (t) { return taskDone(t); });
@@ -1664,6 +1753,8 @@
   }
   function refreshMem() {
     var p = $('pane-mem'); if (!p) return;
+    /* 二章的「记」页不吃一章那 38 段（两个游戏、两个人的账）：只写格号与在册数，**没有名字**。 */
+    if (inCh2Scene() && global.CH2 && global.CH2.memPage) { p.innerHTML = global.CH2.memPage(S); return; }
     var all = D.MEM23, held = [], pawned = [];
     all.forEach(function (m) {
       var st = S.mem[m.id] || { state: 'held', pawns: 0 };
@@ -4081,8 +4172,11 @@
     else if (k === 'd') keys.right = 0;
   }
   function cycleTab() {
-    /* v47：少了一颗按钮（世界档案那张页签摘了）也得转得动 —— 先滤掉不在 DOM 里的 */
-    var tabs = ['tab-log', 'tab-mem', 'tab-tasks', 'tab-album', 'tab-archive'].filter(function (t) { return $(t); });
+    /* v47：少了一颗按钮（世界档案那张页签摘了）也得转得动 —— 先滤掉不在 DOM 里的；
+       v48：二章里「日志 / 相簿」是隐藏的（display:none），Tab 也不许转到隐掉的那两页上去。 */
+    var tabs = ['tab-log', 'tab-mem', 'tab-tasks', 'tab-album', 'tab-archive'].filter(function (t) {
+      var b = $(t); return b && b.style.display !== 'none';
+    });
     var cur = tabs.filter(function (t) { return $(t).classList.contains('on'); })[0] || tabs[0];
     var i = (tabs.indexOf(cur) + 1) % tabs.length;
     $(tabs[i]).click();
@@ -4133,10 +4227,12 @@
       '<div class="pz-row"><button class="pz-btn" data-ch2jump="vault">跳到第二章（记忆库）</button>' +
       '<button class="pz-btn" data-ch2jump="fog">跳到第二章结局（码头雾里）</button>' +
       '<button class="pz-btn" data-dev="ch2prep">补齐第二章前置</button></div>' +
-      '<div class="dv-sec">第二章 · 献忆直达（' + ch2Nodes().filter(function (n) { return n.puzzle; }).length + ' 处）</div>' +
+      /* 2026-10-17：献忆散点全删 ⇒ 这一栏没有谜题节点可列。**空栏不许留着装样子**：
+         0 处就整栏不出（留个空壳，下一个人会以为"少挂了一个点"，中枢那条小账说的就是这个）。 */
+      (ch2PuzzleNodes() ? '<div class="dv-sec">第二章 · 献忆直达（' + ch2PuzzleNodes() + ' 处）</div>' +
       '<div class="dv-list">' + devCh2Rows() + '</div>' +
       '<div class="dv-sec">第二章 · 献忆状态（点一下：在身上 ⇄ 已献）</div>' +
-      '<div class="dv-list">' + devCh2MemRows() + '</div>' +
+      '<div class="dv-list">' + devCh2MemRows() + '</div>' : '') +
       '<div class="arc-h">状态</div><div class="arc-item">' + JSON.stringify({ scene: S.scene, act: S.act, gold: S.gold, oil: S.oil == null ? 2 : S.oil, tasks: doneCount(), photos: D.photoCount(S), flags: Object.keys(S.flags).length }) + '</div>' +
       '<div class="dv-sec">谜题直达（自动补齐前置）</div>' +
       '<div class="dv-list">' + devPuzzleRows() + '</div>' +
@@ -4287,6 +4383,8 @@
      判据 ㉒ 的"面板列出的节点数 = ch2 实际谜题数"就是这么钉住的。跳关补的是**正常存档字段**
      （任务 / 旗标 / 四件道具 / ch2 进门旗标），DEVM 一个字节没动（v34 B5 口径照旧）。 */
   function ch2Nodes() { var C = global.CH2; try { return (C && C.devNodes) ? C.devNodes() : []; } catch (e) { return []; } }
+  /* 二章现在有几处献忆节点（0 —— 散点删了）。DEV 面板靠它决定那一栏出不出现。 */
+  function ch2PuzzleNodes() { return ch2Nodes().filter(function (n) { return n.puzzle; }).length; }
   function devCh2Prep() {
     S.flags.back_ok = 1;                                        /* ch2 三个挂点都 need: 'back_ok' */
     S.flags.ch2_entered = 1;
