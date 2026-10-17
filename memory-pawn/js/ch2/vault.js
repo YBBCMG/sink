@@ -1,4 +1,4 @@
-﻿/* 《记忆当铺》二章 · 记忆库 26 容器（A–Z）＋ 当金收支 —— 逻辑层
+/* 《记忆当铺》二章 · 记忆库 26 容器（A–Z）＋ 当金收支 —— 逻辑层
    ── B 线（玩法）出，中枢 2026-10-17 解禁 · 期 1「只库房」。判据：tools/verify-ch2vault.mjs（29 条）。
 
    ── 用户原话（逐字，不改一个字）：
@@ -688,12 +688,25 @@
     function repaint(next) { host.__ch2Counter = next; return counterPanel(host, next); }
     var id = host.__ch2RecvId || ("ch2_r" + (num(fget(s, "ch2_recv_n"), 0) + 1));
     var btns = [], body = "";
-    if (step === 0) {
-      host.setTitle("柜台 · 收当");
-      body = "<p class=\"pz-tip\">" + GUEST.lead[1] + "</p>"
-           + "<p class=\"pz-tip\">（收当四步：验成色 → 问来路 → 定价 → 收下。收下的先记在「待上架」，得你亲手走到库里那只罐子前面才存得进去。）</p>";
-      btns.push({ label: "验一验（看痛感）", fn: function () { return repaint(1); } });
-    } else if (step === 1) {
+    /* ---- 动线第一拍：**客人在门外等**（2026-10-17 中枢派单第 3 条）----
+       用户要的是一条完整的接待动线：门外等 → 进来 → 验物 → 问话 → 定价 → 收当/赎回 → 走人。
+       原来这里一按 E 就是「柜台 · 收当」，人已经站在屋里了 —— 门口那一段根本不存在。
+       现在 step 0 = 门口：开门才把人让进来（落 `ch2_guest_in`）。
+       ⚠️ 这个旗标是**二章自己的**（走 fset ⇒ lib 那个键），不进一章存档。 */
+    if (step === 0 && !fget(s, "ch2_guest_in")) {
+      host.setTitle("柜台 · 门口");
+      body = "<p class=\"pz-tip\">门外有人站着，肩上背着渔网，网是空的。他敲了两下门框：「掌柜的在吗？」</p>"
+           + "<p class=\"pz-tip\">（开秤的动线：开门引入 → 验成色 → 问来路 → 定价 → 收下 / 让他回去再想想。）</p>";
+      btns.push({ label: "开门（让他进来）", fn: function () { fset(host, "ch2_guest_in", 1); return repaint(1); } });
+      btns.push({ label: "先不开", fn: host && host.closeModal ? host.closeModal : function () {} });
+      host.setBody(body);
+      host.setBtns(btns);
+      host.openModal();
+      return { ok: true, opened: true, step: 0, door: true, guest: GUEST.id };
+    }
+    /* 客人已经在屋里（门口那一步过过了）⇒ step 0 当成"验成色"用，不用再点一次开门 */
+    if (step === 0) step = 1;
+    if (step === 1) {
       var w = weightOf(s, id);
       host.setTitle("收当 · 验");
       body = "<p class=\"pz-tip\">" + weightOf(s, id) + " 档的痛感 —— " + tierOf(w) + "。"
@@ -715,12 +728,17 @@
       btns.push({ label: "收下（" + price + " 枚）", fn: function () {
         var r = receive(host, { src: src });
         if (host && host.closeModal) host.closeModal();
-        if (r && r.ok && host && host.say) host.say(["（东西收下了，暂记在待上架 —— 走到库房里那只罐子前面，再决定它进哪一格。）"]);
+        /* 动线最后一拍：**走人**（中枢派单第 3 条 "…→ 收当/赎回 → 走人"）。
+           以前只有一句"东西收下了"，人还杵在柜台外头 —— 玩家不知道这一段收完没有。 */
+        if (r && r.ok && host && host.say) host.say([
+          "（阿海把渔网背回肩上，走之前在柜台上按了一下帽檐，没再多说。）",
+          "（东西收下了，暂记在待上架 —— 走到库房里那只罐子前面，再决定它进哪一格。）"
+        ]);
         return r;
       } });
       btns.push({ label: "让他回去再想想", fn: function () {
         if (host && host.closeModal) host.closeModal();
-        if (host && host.say) host.say(["（他把渔网背回肩上，说改天再来。）"]);
+        if (host && host.say) host.say(["（他把渔网背回肩上，走了 —— 临出门撂一句「改天再来」。）"]);
         return { ok: true, left: true };
       } });
     }
