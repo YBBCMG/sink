@@ -1576,7 +1576,12 @@
     }
     return CH2_HUD_EL;
   }
+  /* 二章外壳换过一次没有 —— 换的那一下要把「任务 / 记」两页强制重画，
+     否则从一章走进来、右栏还留着上一张图那 62 条（用户就是这么看见一章任务的）。 */
+  var CH2_CHROME_ON = null;
   function applyCh2Chrome(on) {
+    var changed = (CH2_CHROME_ON !== on);
+    CH2_CHROME_ON = on;
     var hud = $('hud');
     if (hud) {
       var kids = hud.children;
@@ -1585,6 +1590,9 @@
         if (k.id === 'hud-ch2') { k.style.display = on ? '' : 'none'; continue; }
         /* 顶栏那几颗按钮在二章照样有用（主界面 / 存档点 / 全屏 / DEV）—— 只隐字段，不隐按钮 */
         if (/^(btn-restart|btn-bgm|btn-home|btn-fs|btn-dev)$/.test(k.id)) continue;
+        /* 「目标」这一位在二章**留着**：玩家要的"主线任务引导"就靠它（refreshHUD 写二章下一步）。
+           —— 2026-10-17 中枢新单，用户："目前没有主线任务引导啊" */
+        if (k.id === 'hud-goal') { k.style.display = ''; continue; }
         k.style.display = on ? 'none' : '';
       }
     }
@@ -1599,6 +1607,7 @@
       var mem = $('tab-mem');
       if (mem && !mem.classList.contains('on')) mem.click();   /* 二章默认落在「记」 */
     }
+    if (changed) { dirty.tasks = 1; dirty.mem = 1; }
   }
   function refreshHUD() {
     var on2 = inCh2Scene();
@@ -1618,7 +1627,10 @@
     var bar = $('hud-album-bar'); if (bar) bar.style.width = Math.round(n / 4 * 100) + '%';
     var nt = nextMainTask();
     var lg = nt ? legHintOf(nt) : '';
-    $('hud-goal').textContent = nt ? (nt.title + (lg ? ' · ' + lg : '')) : '都做完了';
+    /* 二章里「目标」写二章自己的下一步（一章那条主线一个字都不许借过来） */
+    $('hud-goal').textContent = (on2 && global.CH2 && global.CH2.hud)
+      ? ('现在：' + (global.CH2.hud(S).next || '二章 · 第 ' + global.CH2.hud(S).act + ' 幕'))
+      : (nt ? (nt.title + (lg ? ' · ' + lg : '')) : '都做完了');
     var ho = $('hud-oil'); if (ho) ho.textContent = (S.oil == null ? 2 : S.oil);
     var hw = $('hud-hurt-wrap'), hn = damagedMem().length;
     if (hw) {
@@ -1640,16 +1652,24 @@
      「跑了…第 2/3 段」这些**一个字都不许出现在这儿**（判据 ㉗ 拿屏上文字钉）。 */
   function ch2Tasks(p) {
     var t = global.CH2.tasks(S);
-    var html = '<div class="arc-h">第二章 · 第 ' + t.act + ' 幕 · ' + t.actName + '</div>' +
-      '<div class="arc-item">' + t.goal + '</div>' +
-      '<div class="arc-h">要做的事</div>' +
-      t.list.map(function (x) {
-        return '<div class="arc-item">' + (x.done ? '✓ ' : '· ') + x.name +
-          '<br><span class="pz-tip">' + x.hint + '</span></div>';
-      }).join('') +
-      '<div class="arc-h">账房状态</div>' +
-      '<div class="arc-item">在册 <b>' + t.used + '/26</b> 格 · 身上 <b>' + (global.CH2.hud(S).carry || 0) + '</b> 段 · 待上架 <b>' +
-      (global.CH2.hud(S).pending || 0) + '</b> 段</div>';
+    var todo = t.list.filter(function (x) { return !x.done; });
+    var html = '<div class="arc-h">第二章 · 第 ' + t.act + ' 幕 · ' + t.actName +
+      '（' + (t.list.length - todo.length) + '/' + t.list.length + '）</div>' +
+      '<div class="arc-item">' + t.goal + '</div>';
+    /* 「现在」只报一条：这一幕先做哪一件（跟一章同一个口径 —— 任务页回答"现在该干什么"） */
+    if (todo.length) {
+      html += '<div class="arc-item task-now"><span class="tn-tag">现在</span><b>' + todo[0].name + '</b>' +
+        '<br><span style="color:var(--dim)">线索：' + todo[0].hint + '</span></div>';
+    }
+    html += '<div class="arc-h">这一幕要做的事</div>' + t.list.map(function (x) {
+      return '<div class="arc-item' + (x.done ? ' done-line' : '') + '">' + (x.done ? '✓ ' : '· ') + x.name +
+        (x.done ? '' : '<br><span class="pz-tip">' + x.hint + '</span>') + '</div>';
+    }).join('');
+    /* 前面几幕的条目**收起**（只报一行数）—— 摊开就是一张目录，不是"现在该干什么" */
+    if (t.act > 1) html += '<div class="arc-note">前 ' + (t.act - 1) + ' 幕已了 —— 条目收起了，往上不再列。</div>';
+    html += '<div class="arc-h">账房状态</div>' +
+      '<div class="arc-item">在册 <b>' + t.used + '/26</b> 罐 · 身上 <b>' + t.carry + '</b> 段 · 待上架 <b>' +
+      t.pending + '</b> 段</div>';
     p.innerHTML = html;
   }
   function refreshTasks() {
