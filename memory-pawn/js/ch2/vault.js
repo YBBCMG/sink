@@ -72,6 +72,9 @@
     if (!s) return v;
     s.flags = s.flags || {};
     s.flags[k] = v;
+    /* 2026-10-17 中枢新单：二章旗标一变，顶栏「目标 / 第几幕」与任务页得当场重画 ——
+       不然收完一段、顶栏还写着上一拍的"把客人让进来"（实拍逮到过）。 */
+    if (h && h.dirty) h.dirty();
     if (h && h.save) h.save();
     return v;
   }
