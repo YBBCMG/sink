@@ -493,6 +493,8 @@
     m.state = 'held';                                      /* 回到身上 */
     memSet(s, map);
     carryPush(s, id);
+    /* 2026-10-17 中枢新单：第 3 幕「按 E 把这一段取出来」拿它打勾（取过一次才算数） */
+    fset(host, 'ch2_take_n', num(fget(s, 'ch2_take_n'), 0) + 1);
     if (host && host.save) host.save();
     if (host && host.addLog) host.addLog('（库房）从 ' + LETTERS[slot] + ' 格把记取回身上。');
     return { ok: true, slot: slot, id: LETTERS[slot], mem: id, gold: r.gold };
@@ -511,6 +513,10 @@
   function actJar(host, slot) {
     var s = S_(host && host.S ? host.S : null);
     if (!(slot >= 0 && slot < COUNT)) return { ok: false, msg: 'bad-slot' };
+    /* 2026-10-17 中枢新单（二章任务引导）：罐前这一按落一个二章自己的旗标 ——
+       第 2 幕「站到某只空罐前按 E 开罐」就是拿它打勾的（真按过才勾，不是摆设）。
+       空罐 / 有货 / 满格三条路都算"走到了罐子面前"，所以记在最前头。 */
+    fset(host, 'ch2_jar_open', 1);
     carryFromMem(s);                                       /* 真机：身上的记随时搬进来（不弹提示） */
     var row = slotRow(s, slot), held = carryIds(s);
     if (row && row.occupied) return jarTakePanel(host, s, slot);
