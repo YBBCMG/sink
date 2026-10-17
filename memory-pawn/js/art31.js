@@ -1561,7 +1561,17 @@
     },
     you: {
       name: '你', role: '替记人', h: 34, skin: '#e8c8a0', hair: '#3a3128',
-      coat: '#f3ead6', trim: '#cdc3ac', boot: '#4a3f33', prop: 'handLamp'
+      coat: '#f3ead6', trim: '#cdc3ac', boot: '#4a3f33', prop: 'handLamp',
+      /* 用户："主角的样子好像有点诡异啊，画的正常一点。"
+         先量后改（量出来的原值见 tools/shot-hero.mjs）：
+           头 10 行 / 总 32 行 = 31%  ⇒ 1:3.2 头身，接近大头娃娃；
+           腿只露 5 行（16%），脚几乎贴着衣摆；胳膊是两根离身的 2px 竖条。
+         改：头 9→7 行宽 8→7、腿 11→18（多露 9 行）、胳膊 2→3px 并贴回躯干、
+             眼 1px→2px 宽带一道眉。头身比落到 1:4.1（下面的数就是这么量出来的）。
+         只有 you 带这五个字段 —— 别的角色（掌柜/客人/雾客…）一个像素都不变。 */
+      topPad: 4, headRows: 7, headW: 7, legRows: 18, armW: 3, eyeW: 2, eyeRow: 5,
+      /* 再补三笔：一块大色板上身在这尺寸下读不出"人"，加门襟 + 腰带 + 高领 */
+      collar: true, placket: true, belt: '#8a6a44', trouser: '#5a4c3e'
     }
   };
   /* 随身物：都在人物右手边，硬边小件 */
@@ -1634,16 +1644,21 @@
     OVAL(c, px, gy + 2, 11 + wide, 3, 'rgba(0,0,0,.34)', 'rgba(0,0,0,.20)', 'rgba(0,0,0,.08)');
     made++;
     /* 腿 + 靴：先铺 1px 描边，再铺本色 */
+    var LEG = F.legRows || 11;                       /* 腿长（从脚底往上数） */
     for (i = 0; i < 2; i++) {
       var sg = i ? 1 : -1, off = sg * (2 + wide) + (mv ? sw * sg * 2 : 0);
-      R(c, px + off - 2, gy - 11, 5, 9, oc);
-      R(c, px + off - 1, gy - 10, 3, 8, shade(F.boot, 0.26));
+      R(c, px + off - 2, gy - LEG, 5, LEG - 2, oc);
+      R(c, px + off - 1, gy - LEG + 1, 3, LEG - 3, F.trouser || shade(F.boot, 0.26));
       R(c, px + off - 3, gy - 4, 6, 4, oc);
       R(c, px + off - 2, gy - 3, 4, 3, F.boot);
       made += 4;
     }
     /* 身子：一行一行铺（下摆比肩宽），左亮右暗 + 右侧 2×2 抖过渡 */
-    var top = gy - F.h + 11, bot = F.robe ? gy - 2 : gy - 7, nrow = bot - top;
+    /* 注意：hy/hh 是在底下"头"那一节才 var 出来的（var 会提升但值是 undefined），
+       所以这里**不能**写 hy + hh —— 一写就是 NaN，整段躯干当场不画（改这版时踩过一次，量出来是"身子凭空少 15 行"）。
+       直接用同一条公式重算一遍。 */
+    var top = gy - F.h + 2 - (F.topPad || 0) + (F.headRows || 9);
+    var bot = F.robe ? gy - 2 : gy - (LEG - 4), nrow = bot - top;
     var shW = 11 + wide * 2;
     for (i = 0; i < nrow; i++) {
       yy = top + i; t = nrow > 1 ? i / (nrow - 1) : 0;
@@ -1665,19 +1680,39 @@
       made += 4;
     }
     if (F.collar) { R(c, px - 5, top - 2, 11, 3, F.trim); R(c, px - 5, top - 2, 11, 1, shade(F.trim, 0.3)); made += 2; }
+    if (F.placket) {                                 /* 门襟：一道竖线 + 两颗扣子，上衣才不是一块板 */
+      var pkTop = top + 4, pkH = nrow - 7;
+      if (pkH > 2) { VL(c, px, pkTop, pkH, shade(F.coat, -0.30)); made++; }
+      R(c, px - 1, pkTop + 2, 3, 1, shade(F.trim, -0.18));
+      R(c, px - 1, pkTop + Math.max(3, pkH - 3), 3, 1, shade(F.trim, -0.18));
+      made += 2;
+    }
+    if (F.belt) {                                    /* 腰带：一条 2px 横带，把人分出上下身 */
+      var bY = bot - 4;
+      R(c, px - (shW >> 1) - 1, bY, shW + 2, 2, oc);
+      R(c, px - (shW >> 1), bY, shW, 2, F.belt);
+      HL(c, px - (shW >> 1), bY, shW, shade(F.belt, 0.28));
+      R(c, px - 1, bY, 3, 2, shade(F.belt, -0.34));
+      made += 4;
+    }
     if (F.robe) { VL(c, px, top + 4, bot - top - 6, mid); made++; }
     /* 手：袖子跟身子之间留一道描边，别糊成一坨 */
-    var armY = top + 2, armH = (F.robe ? 14 : 11);
-    var ax = px - (shW >> 1) - 3, bx = px + (shW >> 1) + 2;
-    R(c, ax - 1, armY - 1, 4, armH + 3, oc);
-    R(c, ax + (mv && sw > 0 ? 0 : 0), armY, 2, armH, mid);
-    R(c, ax, armY + armH, 2, 2, sr[2]);
-    R(c, bx - 1, armY - 1, 4, armH + 3, oc);
-    R(c, bx, armY, 2, armH, dark);
-    R(c, bx, armY + armH, 2, 2, sr[1]);
-    made += 6;
+    /* 袖子收到衣摆上沿就停：手臂比衣摆还长 5 行，看着像"袖子拖到膝盖"（实拍自测逮到的） */
+    var armY = top + 2, armH = Math.max(7, bot - armY - 1);
+    var aw = F.armW || 2;
+    /* gap：胳膊和躯干之间不再空一格 —— 空着就成"两片挂着的板子"（实拍自审逮到的） */
+    var gap = aw >= 3 ? aw : 3;
+    var ax = px - (shW >> 1) - gap, bx = px + (shW >> 1) + gap - 1;
+    R(c, ax - 1, armY - 1, aw + 2, armH + 3, oc);
+    R(c, ax, armY, aw, armH, mid);
+    VL(c, ax, armY, 1, lite);
+    R(c, ax, armY + armH, aw, 2, sr[2]);
+    R(c, bx - 1, armY - 1, aw + 2, armH + 3, oc);
+    R(c, bx, armY, aw, armH, dark);
+    R(c, bx, armY + armH, aw, 2, sr[1]);
+    made += 8;
     /* 头：外描边一块，里面再分头发/脸（8×9，眼睛才读得出来） */
-    var hw = 8, hh = 9, hx = px - 4, hy = gy - F.h + 2;
+    var hw = F.headW || 8, hh = F.headRows || 9, hx = px - (hw >> 1), hy = gy - F.h + 2 - (F.topPad || 0);
     R(c, hx - 1, hy, hw + 2, hh + 2, hc);
     if (F.back) {                                   /* 背对：整颗头都是头发 */
       R(c, hx, hy + 1, hw, hh, hr[1]);
@@ -1693,9 +1728,14 @@
       R(c, hx, hy + 1, hw, 3, hr[1]);               /* 顶发再压一遍（额头齐） */
       VL(c, hx, hy + 4, 4, hr[1]);                  /* 鬓角 */
       VL(c, hx + hw - 1, hy + 4, 4, hr[0]);
+      var ew = F.eyeW || 1, eyY = hy + (F.eyeRow || 6);
       var ex = hx + 2 + (dir > 0 ? 1 : 0);
-      if (dir <= 0) R(c, ex, hy + 6, 1, 2, '#20191a');
-      if (dir >= 0) R(c, ex + 3, hy + 6, 1, 2, '#20191a');
+      if (dir <= 0) R(c, ex, eyY, ew, 2, '#20191a');
+      if (dir >= 0) R(c, ex + 3, eyY, ew, 2, '#20191a');
+      if (ew > 1) {                                 /* 眉毛：一条 1px 暗线，眼就不飘在脸上 */
+        if (dir <= 0) R(c, ex, eyY - 1, ew + 1, 1, shade(F.hair, -0.10));
+        if (dir >= 0) R(c, ex + 3 - 1, eyY - 1, ew + 1, 1, shade(F.hair, -0.10));
+      }
       made += 8;
       if (F.glasses) { R(c, hx + 1, hy + 5, 3, 3, 'rgba(222,234,244,.55)'); R(c, hx + 5, hy + 5, 3, 3, 'rgba(222,234,244,.55)'); made += 2; }
     }
