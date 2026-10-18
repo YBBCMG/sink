@@ -574,6 +574,77 @@ body.guiding main { grid-template-columns: 340px minmax(360px, 1fr) 330px; }
 /* 从新手欢迎页点开「作品说明」时，说明页必须盖在欢迎页上面（欢迎页自身 z-index 比通用弹窗高） */
 body.aboutTop .onbwelcome { z-index: 40; }
 
+/* ============================================================================
+ * ④ 教师投屏模式（📽 / T 键）—— 讲台视角
+ *   只放"要读的字"（日志 / 引导 / 读数 / 器材名），不动台面几何：
+ *   --bw/--bh 那批变量是启动时被 JS 读走算摆放坐标的，运行时改会让卡片互相压住。
+ * ==========================================================================*/
+body.teach { font-size: 15px; }
+body.teach header .stat { display: none; }                 /* 顶栏统计在演示时没人看 */
+/* 顶栏按钮只在够宽的地方放大 —— 1280 的投影上放大就会把 ✕/重置 挤出屏幕（实测 1340 > 1280） */
+@media (min-width: 1500px) {
+  body.teach header h1 { font-size: 18px; }
+  body.teach header button { padding: 6px 11px; font-size: 13.5px; }
+}
+/* 1100 以下的窄投影：顶栏让它自己横滑，别把整页撑出横向滚动条 */
+@media (max-width: 1200px) {
+  header { overflow-x: auto; overflow-y: hidden; }
+  header::-webkit-scrollbar { height: 0; }
+  header h1, header button { flex: 0 0 auto; }
+}
+body.teach .pane h3 { font-size: 15px; }
+body.teach .barlbl { font-size: 12.5px; }
+/* 器材行平时是"横向滚动条"（15 个器材放不下一行）；投屏时没人会去摸那根细滚动条，
+   所以投屏模式下改成换行全铺开 —— 一眼看全所有器材，这是讲台上最实用的一条。
+   但 1120 以下的窄投影（1024×768 那批老投影仪）换行会把台面压矮到装不下卡片，
+   所以窄屏仍保留横滑，只是字号照样放大。 */
+body.teach #addTools { flex-wrap: wrap; overflow-x: visible; }
+@media (max-width: 1120px) { body.teach #addTools { flex-wrap: nowrap; overflow-x: auto; } }
+body.teach #addApparatus button, body.teach #addTools button { padding: 6px 10px; font-size: 13px; }
+body.teach #addApparatus button i, body.teach #addTools button i { font-size: 12px; }
+body.teach .apphead { font-size: 13.5px; }
+body.teach .apphead .uid, body.teach .apphead .cap { font-size: 11.5px; }
+body.teach .readouts { font-size: 12px; }
+body.teach .contents { font-size: 11.5px; }
+body.teach .warn { font-size: 12px; }
+body.teach .appcard .ops button { font-size: 11.5px; padding: 3px 6px; }
+body.teach .toolhead { font-size: 12.5px; }
+body.teach .toolcard .ops button { font-size: 11.5px; padding: 3px 5px; }
+body.teach .toolmeta { font-size: 11px; }
+body.teach .heatrow .lbl { font-size: 12px; }
+body.teach .heatrow i { font-size: 11.5px; }
+body.teach #log { font-size: 15px; }
+body.teach .logrow { padding: 5px 0; }
+body.teach .task { font-size: 14px; }
+body.teach .chip b { font-size: 13px; }
+body.teach .chip span { font-size: 11.5px; }
+body.teach .hint { font-size: 12.5px; }
+/* 引导条：投屏时它是"老师照着念的提示卡"，句子最长的就是它 */
+body.teach #guide { flex: 0 1 330px; }
+body.teach #guide .gtodo { font-size: 15.5px; }
+body.teach #guide .gtgt { font-size: 13px; }
+body.teach #guide .gtitle { font-size: 14px; }
+body.teach #guide .grow1, body.teach #guide .grow3 { font-size: 12.5px; }
+body.teach #guide .gitem { font-size: 13.5px; }
+body.teach #guide button { font-size: 12.5px; padding: 4px 8px; }
+/* 窄一点的投影：投屏按钮跟着顶栏一起收紧，别把顶栏挤爆 */
+@media (max-width: 1320px) { #teachBtn { padding: 4px 6px; font-size: 11.5px; } }
+/* 矮屏（投影仪多数是 720 / 768 / 800 高）：必须整体收一点。
+   实测 1280×720 上，投屏模式把容器卡片撑到 470px，而台面只剩 442px —— 卡片顶就被台面裁掉了。
+   这段必须放在所有 body.teach 规则之后（同特异性下后者胜），否则会被上面的 12px 覆盖掉。 */
+@media (max-height: 820px) {
+  body.teach .readouts, body.teach .contents { font-size: 11px; }
+  body.teach .appcard .ops button { font-size: 11px; }
+}
+@media (max-height: 780px) {
+  body.teach #center > h3 { display: none; }               /* "工作台 一大片空地…"这句在教室里是噪音 */
+  body.teach header { height: 46px; }
+  body.teach main { height: calc(100vh - 46px); }
+  body.teach #addApparatus button, body.teach #addTools button { padding: 4px 7px; font-size: 12px; }
+  body.teach .barlbl { font-size: 12px; }
+  body.teach .apphead { font-size: 12.5px; }
+}
+
 </style>
 </head>
 <body>
@@ -588,6 +659,7 @@ body.aboutTop .onbwelcome { z-index: 40; }
   <button id="speedBtn">⏩ 时间 ×1</button>
   <button id="pauseBtn" title="空格键：暂停 / 继续（暂停时物理不再推进，画面照常）">⏸ 暂停</button>
   <button id="fsBtn" title="全屏（F 键）：把实验台铺满屏幕">⛶ 全屏</button>
+  <button id="teachBtn" title="教师投屏模式（T 键）：字号放大 + 收起元素表，讲台后排也看得清">📽 投屏</button>
   <button id="onbBtn" title="新手教程：7 个小动作带你上手（随时可重看）">👋 新手教程</button>
   <button id="aboutBtn" title="作品说明：这是什么、真在哪、教什么、怎么用（评委向）">📖 作品说明</button>
   <button id="guideToggle">🎓 引导 开/关</button>
@@ -9222,13 +9294,16 @@ window.CHEM.onbOnb = ONB;
       + '<ul class="ab-ul">'
       + '<li>单文件网页，<b>零安装、零依赖、零网络请求</b> —— 断网、机房、U 盘拷走都能跑</li>'
       + '<li>电脑 / 平板 / 手机都能开（窄屏自动切成「元素 / 工作台 / 试剂台」三个标签）</li>'
-      + '<li>老师一台电脑投屏即可演示；学生各自打开各自做，互不干扰</li>'
+      + '<li>老师一台电脑投屏即可演示：顶栏 <b>📽 投屏</b>（或按 <b>T</b>）一键放大字号、收起元素周期表、'
+      + '把 15 种器材铺开显示 —— 坐在后排也看得清，再按一下或 <b>Esc</b> 退出，设好一次下次打开还是这样</li>'
+      + '<li>学生各自打开各自做，互不干扰（单文件，没有账号、没有进度冲突）</li>'
       + '</ul>'
 
       + '<div class="ab-foot">全部数据与规则都在这一个文件里，没有后端、没有埋点、不联网。'
       + '反应与常数取自公开化学数据；凡是用估算值的地方（例如部分 ΔfH°）界面上都会标「估算」，不冒充实测。</div>'
 
       + '<div class="ab-row"><button class="primary" id="abClose">知道了，开玩 ▶</button>'
+      + '<button id="abTeach" title="放大字号 + 收起元素表，讲台视角">📽 投屏模式</button>'
       + '<button id="abTut">👋 先走 7 步新手教程</button></div>'
       + '</div>';
   }
@@ -9247,6 +9322,12 @@ window.CHEM.onbOnb = ONB;
     if (c2) c2.addEventListener('click', () => {
       close();
       const b = q('#onbBtn'); if (b) b.click();
+    });
+    /* 说明页 → 直接进投屏模式：评委/老师看完介绍就能看"讲台上是什么样" */
+    const c3 = q('#abTeach', m);
+    if (c3) c3.addEventListener('click', () => {
+      close();
+      if (typeof window.chemTeach === 'function') window.chemTeach(true);
     });
     m.querySelectorAll('[data-exp]').forEach((b) => b.addEventListener('click', () => {
       const id = b.dataset.exp;
@@ -9340,6 +9421,140 @@ window.CHEM.onbOnb = ONB;
   window.CHEM = window.CHEM || {};
   window.CHEM.about = openAbout;
   window.CHEM.scale = scale;
+})();
+
+
+/* ================= 16-teach.js ================= */
+/* ============================================================================
+ * 16-teach.js —— 第十八轮：教师投屏模式（📽 / T 键）
+ *
+ *   场景：老师在教室用投影仪演示，学生坐在 8–10 米外。
+ *   这时"能点"不重要，"看得清"才重要，所以这个模式只做四件事：
+ *     ① 放大字号：日志、引导、器材按钮、卡片读数这些"要读的字"全部加粗放大
+ *     ② 收起元素周期表：左侧那 118 格在演示时没人看，让位给实验台
+ *     ③ 记住状态：老师把投影设好一次，下次打开还是这个状态（localStorage）
+ *     ④ 给三条退路：再点一下 📽 / 按 Esc / 按 T —— 不会把人锁在这个模式里
+ *
+ *   刻意**不动**台面几何（--bw/--bh 那批 CSS 变量）：JS 的 ITEM_W 是启动时读一次的，
+ *   运行时改会让"看得见的位置"和"算出来的位置"对不上，卡片叠在一起。字号变大而已，
+ *   卡片高度还在台面里，不会把器材顶出台面。
+ * ==========================================================================*/
+(function teachModule() {
+  'use strict';
+
+  const KEY = 'chemTeach';                       // localStorage：上次是不是投屏模式
+  const q = (s, r) => (r || document).querySelector(s);
+  const S = { on: false, prev: null };           // prev = 进模式前的三栏状态，退出时原样还回去
+
+  function paneState() {
+    try { return JSON.parse(localStorage.getItem('chemPaneHide') || '{}') || {}; } catch (e) { return {}; }
+  }
+  function toast2(msg) {
+    if (typeof toast === 'function') { try { toast(msg); return; } catch (e) { } }
+    const t = q('#toast');
+    if (t) { t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1800); }
+  }
+  function redraw() {
+    if (typeof renderBench === 'function') { try { renderBench(true); } catch (e) { } }
+    if (typeof updateReadouts === 'function') { try { updateReadouts(); } catch (e) { } }
+  }
+
+  /* 投屏模式会把卡片撑高（读数/按钮字号都放大），而卡片是可以被拖到任意纵向位置的。
+     于是"原来刚好放得下"的卡片，切到投屏 / 换成更矮的投影之后，顶边会被台面裁掉。
+     这里用**真实矩形**（rect）判定，而不是拿 style.bottom 反推 —— 卡片底边可能是
+     铁架台抬升叠出来的，反推容易算错；rect 是浏览器算好的答案。 */
+  function clampCards() {
+    const bench = q('#bench');
+    const L = (window.CHEM && window.CHEM.Lab) || null;
+    if (!bench || !L || !Array.isArray(L.apps)) return 0;
+    const br = bench.getBoundingClientRect();
+    if (!br.height) return 0;
+    let moved = 0;
+    L.apps.forEach((a) => {
+      const card = bench.querySelector('.appcard[data-uid="' + a.uid + '"]');
+      if (!card) return;
+      const cr = card.getBoundingClientRect();
+      const over = (br.top + 6) - cr.top;        // >0：顶边已经越过台面顶 6px 安全线
+      if (over > 0.5) { a.y = Math.max(0, (a.y || 0) - over); moved++; }
+    });
+    if (moved) redraw();
+    return moved;
+  }
+
+  function setState(on, opts) {
+    on = !!on;
+    const boot = !!(opts && opts.boot);
+    S.on = on;
+    document.body.classList.toggle('teach', on);            // 样式全靠这一个类（style.css 末尾一段）
+    const b = q('#teachBtn');
+    if (b) {
+      b.classList.toggle('on', on);
+      b.textContent = on ? '📽 投屏中' : '📽 投屏';
+      b.title = on
+        ? '教师投屏模式已开：字号放大、元素表已收起 —— 再点一次 / 按 Esc / 按 T 退出（当前状态会被记住）'
+        : '教师投屏模式（T 键）：字号放大 + 收起元素表，讲台后排也看得清';
+    }
+    if (on) {
+      if (!S.prev) S.prev = paneState();                     // 只在"从关闭→打开"时记一次
+      if (typeof window.chemPanes === 'function') window.chemPanes({ left: true });
+    } else if (S.prev) {
+      /* 必须显式写回 false —— chemPanes 是 Object.assign(当前状态, patch)，给个 {} 等于什么都不改，
+         元素表就永远收着回不来了（探针当场抓到：Esc 退出后 #left 宽 0）。 */
+      const pv = S.prev || {};
+      if (typeof window.chemPanes === 'function') {
+        window.chemPanes({ left: !!pv.left, right: !!pv.right, obs: !!pv.obs });
+      }
+      S.prev = null;
+    }
+    redraw();
+    if (on) { try { clampCards(); } catch (e) { } }        // 撑高之后别让卡片顶出台面
+    if (on) setTimeout(() => { try { redraw(); clampCards(); } catch (e) { } }, 170);  // 读数刷新后卡片可能又长高
+    try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) { }
+    if (!boot) {
+      toast2(on ? '投屏模式：字号放大、元素表收起（再点 📽 或按 Esc 退出）'
+        : '已退出投屏模式');
+    }
+    return S.on;
+  }
+
+  /* 说明页里的入口也走这里 */
+  window.chemTeach = (on) => setState(on === undefined ? !S.on : on);
+  window.chemTeachOn = () => S.on;
+
+  function boot() {
+    const b = q('#teachBtn');
+    if (b) b.addEventListener('click', () => setState(!S.on));
+    /* 上次设成投屏模式的话，开机就还原（投影仪场景：插上线就该是能讲的状态） */
+    let saved = '';
+    try { saved = localStorage.getItem(KEY) || ''; } catch (e) { }
+    if (saved === '1') setState(true, { boot: true });
+    document.addEventListener('keydown', (ev) => {
+      const el = ev.target;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      if (ev.key === 't' || ev.key === 'T') { ev.preventDefault(); setState(!S.on); }
+      /* Esc：只负责退出投屏，别抢弹窗的活儿 —— 有弹窗开着时先让弹窗自己处理 */
+      else if (ev.key === 'Escape' && S.on) {
+        const m = q('#modal');
+        if (m && m.classList.contains('show')) return;
+        ev.preventDefault(); setState(false);
+      }
+    });
+    /* 换投影分辨率 / 窗口缩放：台面变矮时卡片会顶出去，投屏模式里自动压回去（防抖） */
+    let rt = 0;
+    window.addEventListener('resize', () => {
+      if (!S.on) return;
+      clearTimeout(rt);
+      rt = setTimeout(() => { try { redraw(); clampCards(); } catch (e) { } }, 180);
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+
+  window.CHEM = window.CHEM || {};
+  window.CHEM.teach = (on) => setState(on);
+  window.CHEM.teachOn = () => S.on;
 })();
 
 </script>
