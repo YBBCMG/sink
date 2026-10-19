@@ -56,7 +56,10 @@
                /* 2026-10-17：二章自己的「记表」（一段一格存进去以后记到哪一格）。
                   以前这一笔是写在一章的 `S.mem[id]` 里 —— 那就是"二章改一章的记"。
                   用户口径：「两个游戏…不要让他们有任何关系」⇒ 二章自己一张表，跟着二章的档走。 */
-               'ch2_mems'];
+               'ch2_mems',
+               /* 2026-10-19：验物 V1（剧情 §15-3）的三笔账 —— 验中 / 半对 / 连错各一笔。
+                  连错两次客人走人那笔单独记（`ch2_verify_left`），**不跟 ch2_salvage_n 串账**。 */
+               'ch2_take_n', 'ch2_verify_n', 'ch2_verify_half', 'ch2_verify_mis', 'ch2_verify_left'];
 
   /* 一格的行字段白名单（判据 C2-a 拿它当尺子）。**没有可命名语义的字段** —— 这是 V7-a。 */
   var FIELDS = ['slot', 'date', 'batch', 'weight', 'owner', 'tainted', 'occupied'];
@@ -763,6 +766,144 @@
   }
 
   /* ============================================================
+     七之五、验物 V1 —— 剧情 §15-3 那套判据，落在**当票架**上
+     ------------------------------------------------------------
+     剧情线 2026-10-15 定下的原句（tools/剧情-二章-设计.md §15-3）：
+       客人口述三样（哪一年 / 封条什么色 / 多重一档），玩家在 A–Z 里点一格，
+       hits = Σ(口供[i] === 手账[i])；**hits ≥ 2 算验中**，= 1 半对，= 0 验错。
+     剧情原本写"新 kind `verify` 落 js/ch2/puzzles.js 的 IMPL" —— 那个文件已经整块退役
+     （献忆整套删掉，只剩一块墓碑），所以判据按**同一套数**搬到这里：
+       账上还是那三个字段（date / batch / weight），**一格都不加、一个名字都不许起**。
+     · 验中 ⇒ 客人把这一段赎回去：格腾出来、号还留着（跟"取"同一条规矩：格号不复用）；
+     · 半对 ⇒ 他压一枚当金，仍然赎走（剧情 §15-2-3「半对：客人自己减 1 枚，本单照办」）；
+     · 验错 ⇒ 怀疑 +1；**连错两次他把东西收回去走人**（今天这单不做），
+       **不动 `ch2_salvage_n`** —— 验物错不算"找错记"，两套账不许串（剧情 §15-3-5 ④）。
+     另一个容易踩的坑：这个面板**不许显示罐子里的名字/原文**，只给日名 / 封条色 / 轻重档，
+     与 26 格那条"格号是唯一线索"是同一口径。 */
+  var DAY3 = ['挂灯', '潮退', '落雪'];       /* 日名 = 入库日 % 3（阿蕊那句「去年挂灯那几天」） */
+  var SEAL3 = ['朱', '赭', '青', '紫'];      /* 封条色名，跟 WAX 同序 */
+  function dayName(d) { return DAY3[((num(d, 0) % 3) + 3) % 3]; }
+  function sealName(b) { return SEAL3[((num(b, 0) % 4) + 4) % 4]; }
+
+  /* 这一单赎哪一段：账上**最靠前**的那格有货的（确定性 —— 判据可复现，不抽盲盒） */
+  function v1Target(s) {
+    var used = rows(s).filter(function (r) { return r.occupied; });
+    if (!used.length) return null;
+    used.sort(function (a, b) { return a.slot - b.slot; });
+    return used[0];
+  }
+  /* 客人的口供＝三样，全部从账上读（不新造数据、不加字段） */
+  function v1Wanted(s) {
+    var r = v1Target(s);
+    if (!r) return null;
+    return { slot: r.slot, id: LETTERS[r.slot], day: dayName(r.date), seal: sealName(r.batch),
+             tier: tierOf(r.weight), weight: r.weight, date: r.date, batch: r.batch };
+  }
+  /* 玩家点的那一格跟口供对上几样（空格 = 0 样） */
+  function v1Hits(s, slot) {
+    var w = v1Wanted(s), r = slotRow(s, slot);
+    if (!w || !r || !r.occupied) return 0;
+    var h = 0;
+    if (dayName(r.date) === w.day) h++;
+    if (sealName(r.batch) === w.seal) h++;
+    if (tierOf(r.weight) === w.tier) h++;
+    return h;
+  }
+  /* 赎走：格腾出来、号留着。**不走 take()** —— 那条路的日志写的是"取货认对"，
+     验物这一单的过程要单独记，两套日志别混。 */
+  function redeemRow(host, slot) {
+    var s = S_(host && host.S ? host.S : null);
+    var row = slotRow(s, slot);
+    if (!row || !row.occupied) return false;
+    row.occupied = false; row.owner = '';
+    putRow(s, row);
+    return true;
+  }
+  /* 当票架那一面：客人口供 + 26 个格号，一格一次判 */
+  function v1Panel(host, out) {
+    if (!host || !host.setTitle || !host.setBody || !host.setBtns) return null;
+    var s = S_(host.S || null), w = v1Wanted(s);
+    host.setTitle('当票架 · 赎当');
+    if (!w) {
+      host.setBody('<p class="pz-tip">（当票架上空着。库里没有货 —— 先收一段记进来，才有人来赎。）</p>');
+      host.setBtns([{ label: '算了', fn: host.closeModal || function () {} }]);
+      if (host.openModal) host.openModal();
+      return { ok: false, empty: true };
+    }
+    var body = '<p class="pz-tip">有人把一张旧当票压在柜台上，铜角磕了一下。<br>'
+      + '「我赎一段记 —— 你听好：」</p>'
+      + '<p class="pz-tip">' + w.day + '那几天当进来的 · 封条是' + w.seal + '的 · ' + w.tier + '一档。</p>'
+      + '<p class="pz-tip">（账上只有三样：日名 / 封条色 / 轻重档。在 A–Z 里点一格 —— 对上两样就算验中；'
+      + '连错两次，他今天就不赎了。）</p>';
+    if (out && out.hits != null) {
+      body += out.hits >= 2
+        ? '<p class="pz-tip">（验中了：' + (out.hits === 3 ? '三样全对' : '对上两样') + '。这一段是他的，物归原主。）</p>'
+        : (out.hits === 1
+          ? '<p class="pz-tip">（只对上一　样。他没争 —— 摸出一枚当金压在你手边：「差一分，我认赔。」）</p>'
+          : '<p class="pz-tip">（一样都没对上。他把当票收回去，指节在柜面上敲了两下 —— 再看一眼，别急。）</p>');
+    }
+    var btns = [];
+    for (var i = 0; i < COUNT; i++) btns.push({ label: LETTERS[i], fn: (function (kk) {
+      return function () { return v1Pick(host, kk); };
+    })(i) });
+    btns.push({ label: '算了', fn: host.closeModal || function () {} });
+    host.setBody(body);
+    host.setBtns(btns);
+    if (host.openModal) host.openModal();
+    return { ok: true, opened: true, wanted: w };
+  }
+  /* 玩家点了一格：判三样 → 交割 → 重开一面 */
+  function v1Pick(host, slot) {
+    var s = S_(host && host.S ? host.S : null);
+    if (!s) return { ok: false, msg: 'no-state' };
+    var w = v1Wanted(s);
+    if (!w) return { ok: false, msg: 'empty' };
+    var hits = v1Hits(s, slot), res;
+    if (hits >= 2) {
+      redeemRow(host, slot);
+      fset(host, 'ch2_take_n', num(fget(s, 'ch2_take_n'), 0) + 1);
+      fset(host, 'ch2_verify_n', num(fget(s, 'ch2_verify_n'), 0) + 1);
+      fset(host, 'ch2_verify_mis', 0);
+      if (host && host.addLog) host.addLog('（柜台）当票架验物：' + LETTERS[slot] + ' 对上 ' + hits + ' 样 —— 物归原主，格空出来、号还留着。');
+      if (host && host.say) host.say([
+        (hits === 3 ? '（三样全对。' : '（对上两样。') + '他把那段记接过去，指头在罐口停了一停。）',
+        '（格空出来了 —— 号还留着。这一排的账，你记的是格号。）']);
+      res = { ok: true, hits: hits, slot: slot, freed: true };
+    } else if (hits === 1) {
+      redeemRow(host, slot);
+      fset(host, 'ch2_take_n', num(fget(s, 'ch2_take_n'), 0) + 1);
+      fset(host, 'ch2_verify_half', num(fget(s, 'ch2_verify_half'), 0) + 1);
+      fset(host, 'ch2_verify_mis', 0);
+      s.gold = num(s.gold, 0) + 1;
+      if (host && host.addLog) host.addLog('（柜台）当票架验物：半对（' + LETTERS[slot] + '，对上一　样），客人压 1 枚，仍赎走。');
+      if (host && host.say) host.say(['（只对上一　样。他没争，压了一枚当金在柜台上。记，还是让他赎走了。）']);
+      res = { ok: true, hits: 1, slot: slot, half: true, freed: true };
+    } else {
+      var mis = num(fget(s, 'ch2_verify_mis'), 0) + 1;
+      fset(host, 'ch2_verify_mis', mis);
+      if (host && host.addLog) host.addLog('（柜台）当票架验物：一样都没对上（连错第 ' + mis + ' 次）。');
+      if (mis >= 2) {
+        fset(host, 'ch2_verify_mis', 0);
+        fset(host, 'ch2_verify_left', num(fget(s, 'ch2_verify_left'), 0) + 1);
+        if (host && host.say) host.say([
+          '（他把当票收回去，看了你一眼 —— 那一眼比骂还重。）',
+          '（「改天再来。」他把东西夹在腋下走了。今天这一单不做了。）']);
+        if (host && host.closeModal) host.closeModal();
+      } else if (host && host.say) {
+        host.say(['（一样都没对上。他把当票收回去，指节在柜面上敲了两下 —— 再看一眼，别急。）']);
+      }
+      res = { ok: true, hits: 0, mis: mis, left: mis >= 2, freed: false };
+    }
+    if (host && host.save) host.save();
+    if (!res.left) v1Panel(host, res);
+    return res;
+  }
+  function v1Open(host) {
+    if (!host || !host.setTitle) { say(host, 'take'); return { ok: false, msg: 'no-host' }; }
+    return v1Panel(host, null);
+  }
+
+  /* ============================================================
      八、自检（判据 C14-a 直接调；挂上去之前先自己照一遍）
      ============================================================ */
   function selfcheck(s) {
@@ -823,6 +964,8 @@
         if (p.id.indexOf('ch2_jar_') === 0) return actJar(host, LETTERS.indexOf(p.id.slice(8)));
         /* V10 柜台待客（一章当铺那张图上的 ch2_counter_guest）：先把 say 读完，回调再落到这儿 */
         if (p.id === 'ch2_counter_guest') return counterOpen(host);
+        /* V1 验物（剧情 §15-3）：柜台里那排当票架 —— 客人凭票来赎，报三样，玩家点格认物 */
+        if (p.id === 'ch2_shop_tickets') return v1Open(host);
       }
       return v0.apply(this, arguments);
     };
@@ -848,6 +991,9 @@
     counterOpen: counterOpen, counterPanel: counterPanel, receive: receive, priceOf: priceOf,
     pendingIds: pendingIds, PENDING: PENDING, GUEST: GUEST, GUEST_W: GUEST_W, SRC_PRICE: SRC_PRICE,
     actTake: actTake, actJar: actJar,
+    /* V1 · 验物（剧情 §15-3）：当票架上客人口述三样 → 玩家在 A–Z 里点一格 → hits 判定 */
+    v1Open: v1Open, v1Panel: v1Panel, v1Pick: v1Pick, v1Wanted: v1Wanted, v1Hits: v1Hits,
+    V1_DAY: DAY3.slice(), V1_SEAL: SEAL3.slice(),
     /* V8 · 逐格交互：身上那串记 / 逐格存 / 逐格取回 / 交割前面 */
     CARRY: CARRY, carryIds: carryIds, carryList: carryList, carryFromMem: carryFromMem,
     carryPush: carryPush, carryDrop: carryDrop, memState: memState,
