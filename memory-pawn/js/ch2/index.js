@@ -306,13 +306,15 @@
       { name: '到柜台前按 E，把门外的客人让进来', hint: '库房西墙那道门 → 柜台 · 门口（门外收着伞那位是阿蕊）',
         done: function (s) { return flag(s, 'ch2_guest_in'); } },
       { name: '验成色 → 问来路 → 定价，点「收下」', hint: '柜台 · 开秤（有货才有价）',
-        done: function (s) { return fnum(s, 'ch2_recv_n') >= 1; } },
-      /* 2026-10-19 夜：K1 阿蕊第一单接进柜台（剧情 §15-2）——
-         她走的时候那句「断当要人证」是 K1 第二段（查旧票 → 码头找证人）的钩子，得让玩家在任务页看见。 */
-      { name: '听她把话说完：她再来，是办断当（断当要人证）', hint: '柜台上收下她那一单 —— 下一单在码头那条路上',
-        done: function (s) { return String(((s && s.flags) || {}).ch2_guest_last || '') === 'aurui'; } }
+        done: function (s) { return fnum(s, 'ch2_recv_n') >= 1; } }
     ];
     if (act === 2) return [
+      /* 2026-10-19 夜：K1 阿蕊第一单接进柜台（剧情 §15-2）——
+         她走的时候那句「断当要人证」是 K1 第二段（查旧票 → 码头找证人）的钩子。
+         ⚠️ 挂**第二幕**不挂第一幕：收下她那一刻幕就推进到"上架"，第一幕的条目当场收起，
+         挂第一幕等于"勾上了但玩家永远看不到"（按 stageOf 的跳幕点核过）。 */
+      { name: '她走时说：等这阵子过了再来办断当（断当要人证）', hint: '柜台上收下她那一单之后 —— 下一段在码头那条路上',
+        done: function (s) { return String(((s && s.flags) || {}).ch2_guest_last || '') === 'aurui'; } },
       { name: '收下的记挂在「待上架」——得自己搬去库房', hint: '身上 / 待上架那两笔数在这儿看得见',
         done: function (s) { return pendingN(s) + carryN(s) > 0; } },
       { name: '站到某只空罐前按 E 开罐', hint: '库房 A–Z，一格一只',
