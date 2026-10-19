@@ -260,10 +260,10 @@
      · 幕由"真做到哪一步"推出来（stageOf），不是自己往上数；
      · 一章的 62 条任务、第 6 幕、相簿 4/4 一个字都不出现在这儿。 */
   var ACTS = [
-    { n: 1, name: '收货', goal: '到柜台开秤，把门外那位请进来，收下他的第一段记' },
+    { n: 1, name: '收货', goal: '到柜台开秤，把门外那位请进来，收下第一段记（开张第一单是阿蕊）' },
     { n: 2, name: '上架', goal: '回库房，把身上那段记存进 A–Z 里的一只罐' },
     { n: 3, name: '取货', goal: '从有货的那一格取一段出来（满格先取，再存新的）' },
-    { n: 4, name: '回头客', goal: '再接一位客人，把第二段记也收进来' },
+    { n: 4, name: '回头客', goal: '阿海背着空渔网又来了 —— 再接一单，把第二段记收进来' },
     { n: 5, name: '立账', goal: '让十三只罐都上过货，这间库房才算立住' }
   ];
   function fnum(s, k) { var v = Number((s && s.flags) ? s.flags[k] : 0); return isFinite(v) ? v : 0; }
@@ -303,10 +303,14 @@
     if (act === 1) return [
       { name: '进库房（顶栏 ▤ 主界面 → 第二本册子）', hint: '主界面两颗册子，右边那本',
         done: function (s) { return flag(s, 'ch2_entered'); } },
-      { name: '到柜台前按 E，把门外的客人让进来', hint: '库房西墙那道门 → 柜台 · 门口',
+      { name: '到柜台前按 E，把门外的客人让进来', hint: '库房西墙那道门 → 柜台 · 门口（门外收着伞那位是阿蕊）',
         done: function (s) { return flag(s, 'ch2_guest_in'); } },
       { name: '验成色 → 问来路 → 定价，点「收下」', hint: '柜台 · 开秤（有货才有价）',
-        done: function (s) { return fnum(s, 'ch2_recv_n') >= 1; } }
+        done: function (s) { return fnum(s, 'ch2_recv_n') >= 1; } },
+      /* 2026-10-19 夜：K1 阿蕊第一单接进柜台（剧情 §15-2）——
+         她走的时候那句「断当要人证」是 K1 第二段（查旧票 → 码头找证人）的钩子，得让玩家在任务页看见。 */
+      { name: '听她把话说完：她再来，是办断当（断当要人证）', hint: '柜台上收下她那一单 —— 下一单在码头那条路上',
+        done: function (s) { return String(((s && s.flags) || {}).ch2_guest_last || '') === 'aurui'; } }
     ];
     if (act === 2) return [
       { name: '收下的记挂在「待上架」——得自己搬去库房', hint: '身上 / 待上架那两笔数在这儿看得见',
@@ -328,7 +332,7 @@
         done: function (s) { return fnum(s, 'ch2_verify_n') >= 1; } }
     ];
     if (act === 4) return [
-      { name: '柜台上再接一位客人（他还会来）', hint: '回柜台 · 门口，再开一次秤',
+      { name: '阿海背着空渔网又来了 —— 再接一单', hint: '回柜台 · 门口，再开一次秤（这回是他）',
         done: function (s) { return fnum(s, 'ch2_recv_n') >= 2; } },
       { name: '第二段也上架（在册 2 格）', hint: '库房 · 随便哪只空罐',
         done: function (s) { return jarUsed(s) >= 2; } },
