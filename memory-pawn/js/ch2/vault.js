@@ -59,7 +59,11 @@
                'ch2_mems',
                /* 2026-10-19：验物 V1（剧情 §15-3）的三笔账 —— 验中 / 半对 / 连错各一笔。
                   连错两次客人走人那笔单独记（`ch2_verify_left`），**不跟 ch2_salvage_n 串账**。 */
-               'ch2_take_n', 'ch2_verify_n', 'ch2_verify_half', 'ch2_verify_mis', 'ch2_verify_left'];
+               'ch2_take_n', 'ch2_verify_n', 'ch2_verify_half', 'ch2_verify_mis', 'ch2_verify_left',
+               /* 2026-10-19 夜：柜台待客接 K1 阿蕊（剧情 §15-2）——
+                  她走的时候那句「断当要人证」是 K1 第二段的钩子，所以要记住"刚才那位是谁"；
+                  `ch2_aurui_pressed` 记玩家有没有压过她的价（K1 第三段码头证人不帮说话要读它）。 */
+               'ch2_guest_last', 'ch2_guest_src', 'ch2_aurui_pressed'];
 
   /* 一格的行字段白名单（判据 C2-a 拿它当尺子）。**没有可命名语义的字段** —— 这是 V7-a。 */
   var FIELDS = ['slot', 'date', 'batch', 'weight', 'owner', 'tainted', 'occupied'];
@@ -633,13 +637,31 @@
   var PENDING = "ch2_pending";
   var SRC_PRICE = { own: 1, other: 1.4, name: 1.8, life: 1.6, unknown: 1 };
   var GUEST_SRC = ["own", "other", "name", "life", "unknown"];
-  /* 客人（设计书 K3 阿海：一章那位渔夫，二章回头客）。**一句话都不进账** —— 只用来演。 */
-  var GUEST = {
-    id: "ahai", name: "阿海", who: "渔夫",
-    lead: ["柜台上那杆秤还没收。外头进来一个人，肩上背着渔网，网是空的。",
-           "「掌柜的，」他说，「我那段记 —— 你还收不收？」"],
-    ask: "「这记是你自己的吗？」"
+  /* 客人两位（剧情 §05B 客人表）：
+     · **K1 阿蕊** —— 盐田的寡妇，**开张第一单**（§15-2 那场戏）：「当一个人最后的那天」，
+       走的时候撂下「断当要人证」—— 那是 K1 第二段「查旧票」的钩子。
+     · **K3 阿海** —— 一章那位渔夫，二章回头客，**能反复接**。
+     台词一律在 `js/ch2/text.js` 的 `guests` 段（屏幕上念的就是那几句），这里只管"按谁演"。
+     **一句话都不进账** —— 客人是戏，不是数据（戏文改了不该动存档）。 */
+  var GUESTS = {
+    aurui: { id: "aurui", name: "阿蕊", who: "盐田的寡妇" },
+    ahai: { id: "ahai", name: "阿海", who: "渔夫" }
   };
+  var GUEST = GUESTS.ahai;                    /* 旧导出照留（外部与判据还按 GUEST 读） */
+  /* 这一单接谁：**收过一单之前是阿蕊，之后是阿海**。
+     阿蕊只来一次 —— 她第二段在码头（§05B K1 T2 查旧票 / T3 找证人），不在柜台反复刷。 */
+  function guestNow(s) { return num(fget(s, "ch2_recv_n"), 0) === 0 ? "aurui" : "ahai"; }
+  function guestBook(id) {
+    var T = global.CH2_TEXT && global.CH2_TEXT.guests;
+    return (T && T[id]) || null;
+  }
+  /* 台词里的 {price} / {seal} 由这里按账上真实值换掉（台词不写账上没有的色名） */
+  function fill(str, vars) {
+    return String(str).replace(/\{(\w+)\}/g, function (m0, k) { return vars && vars[k] != null ? vars[k] : m0; });
+  }
+  function esc(x) { return String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function paras(arr) { return (arr || []).map(function (p) { return "<p class=\"pz-tip\">" + esc(p) + "</p>"; }).join(""); }
+  function lines(host, arr) { if (host && host.say && arr && arr.length) host.say(arr.slice()); }
   function pendingIds(s) {
     return String(fget(s, PENDING) == null ? "" : fget(s, PENDING)).split(",").filter(function (x) { return x !== ""; });
   }
@@ -671,14 +693,16 @@
     return Math.max(1, Math.min(99, v));
   }
   function tierOf(w) { return w >= 13 ? "重" : w >= 7 ? "中" : w >= 4 ? "轻" : "薄"; }
-  /* 收下：进待上架 + 身上；**不进 26 格**。当金当场付给客人（铺子出钱收货）。 */
+  /* 收下：进待上架 + 身上；**不进 26 格**。当金当场付给客人（铺子出钱收货）。
+     `o.guest` 记下"刚才那位是谁"（下一单据此换人）；`o.price` 允许玩家压过价（压价另记一笔）。 */
   function receive(host, o) {
     o = o || {};
     var s = S_(host && host.S ? host.S : null);
     if (!s) return { ok: false, msg: "no-state" };
     var n = num(fget(s, "ch2_recv_n"), 0) + 1;
     var id = "ch2_r" + n;                       /* 只在这儿生成 id：玩家面从头到尾看不见它 */
-    var price = priceOf(id, o.src);
+    var gid = o.guest || guestNow(s);
+    var price = o.price != null ? num(o.price, 0) : priceOf(id, o.src);
     /* 收下的这段记进**二章自己的表**（以前写一章的 S.mem —— 现在一个字节都不碰） */
     var _map = memMap(s);
     _map[id] = { state: "held", w: weightOf(s, id), from: "counter", src: o.src, day: num(fget(s, "ch2_lastday"), 1) };
@@ -686,71 +710,89 @@
     setPending(s, pendingIds(s).concat([id]));
     carryPush(s, id);
     fset(host, "ch2_recv_n", n);
+    fset(host, "ch2_guest_last", gid);
+    fset(host, "ch2_guest_src", o.src || "unknown");
+    if (o.pressed) fset(host, "ch2_aurui_pressed", 1);
     s.gold = num(s.gold, 0) - price; if (s.gold < 0) s.gold = 0;
-    if (host && host.addLog) host.addLog("（柜台）收下阿海那段记，付 " + price + " 枚当金 —— 待上架，还没入库房。");
+    var who = (GUESTS[gid] && GUESTS[gid].name) || "客人";
+    if (host && host.addLog) host.addLog("（柜台）收下" + who + "那段记，付 " + price + " 枚当金 —— 待上架，还没入库房。");
     if (host && host.sfx) host.sfx("coin");
     if (host && host.save) host.save();
     return { ok: true, id: id, price: price, pending: pendingIds(s), carry: carryIds(s), gold: s.gold };
   }
-  /* 柜台那一面：`step` 由按钮自己往下推（host.__ch2Counter），真机上不存额外状态。 */
+  /* 柜台那一面：`step` 由按钮自己往下推（host.__ch2Counter），真机上不存额外状态。
+     四拍对每位客人都一样：门口 → 验 → 问来路 → 定价 + 收下；**台词按客人换**（text.js `guests`）。 */
   function counterPanel(host, step) {
     if (!host || !host.setTitle || !host.setBody || !host.setBtns || !host.openModal) return null;
     var s = S_(host.S || null);
     step = Math.max(0, Math.min(3, num(step, 0)));
     function repaint(next) { host.__ch2Counter = next; return counterPanel(host, next); }
     var id = host.__ch2RecvId || ("ch2_r" + (num(fget(s, "ch2_recv_n"), 0) + 1));
+    var gid = guestNow(s), G = GUESTS[gid] || GUEST, B = guestBook(gid) || {};
+    var he = gid === "aurui" ? "她" : "他";
     var btns = [], body = "";
-    /* ---- 动线第一拍：**客人在门外等**（2026-10-17 中枢派单第 3 条）----
-       用户要的是一条完整的接待动线：门外等 → 进来 → 验物 → 问话 → 定价 → 收当/赎回 → 走人。
-       原来这里一按 E 就是「柜台 · 收当」，人已经站在屋里了 —— 门口那一段根本不存在。
-       现在 step 0 = 门口：开门才把人让进来（落 `ch2_guest_in`）。
-       ⚠️ 这个旗标是**二章自己的**（走 fset ⇒ lib 那个键），不进一章存档。 */
+    /* ---- 第一拍：**客人在门外等**（2026-10-17 中枢派单第 3 条）----
+       开门才把人让进来（落 `ch2_guest_in`）。这个旗标是二章自己的（走 fset ⇒ lib 键）。 */
     if (step === 0 && !fget(s, "ch2_guest_in")) {
       host.setTitle("柜台 · 门口");
-      body = "<p class=\"pz-tip\">门外有人站着，肩上背着渔网，网是空的。他敲了两下门框：「掌柜的在吗？」</p>"
-           + "<p class=\"pz-tip\">（开秤的动线：开门引入 → 验成色 → 问来路 → 定价 → 收下 / 让他回去再想想。）</p>";
-      btns.push({ label: "开门（让他进来）", fn: function () { fset(host, "ch2_guest_in", 1); return repaint(1); } });
+      body = paras(B.door || ["门外有人站着。"]);
+      btns.push({ label: "开门（让" + he + "进来）", fn: function () { fset(host, "ch2_guest_in", 1); return repaint(1); } });
       btns.push({ label: "先不开", fn: host && host.closeModal ? host.closeModal : function () {} });
       host.setBody(body);
       host.setBtns(btns);
       host.openModal();
-      return { ok: true, opened: true, step: 0, door: true, guest: GUEST.id };
+      return { ok: true, opened: true, step: 0, door: true, guest: gid };
     }
-    /* 客人已经在屋里（门口那一步过过了）⇒ step 0 当成"验成色"用，不用再点一次开门 */
+    /* 客人已经在屋里（门口那一步过过了）⇒ step 0 当成"验"用，不用再点一次开门 */
     if (step === 0) step = 1;
     if (step === 1) {
       var w = weightOf(s, id);
       host.setTitle("收当 · 验");
-      body = "<p class=\"pz-tip\">" + weightOf(s, id) + " 档的痛感 —— " + tierOf(w) + "。"
+      body = paras(B.enter || [])
+           + "<p class=\"pz-tip\">" + w + " 档的痛感 —— " + tierOf(w) + "。"
            + "（这段记还带着磨损，离了原主就散。成色看得，来路也得问。）</p>";
-      btns.push({ label: "问他：这记是你自己的吗", fn: function () { return repaint(2); } });
+      btns.push({ label: "问" + he + "：这记是你自己的吗", fn: function () { return repaint(2); } });
     } else if (step === 2) {
       host.setTitle("收当 · 问来路");
-      body = "<p class=\"pz-tip\">" + GUEST.ask + "</p>";
-      [["是别人的", "other"], ["是我的（他自己的）", "own"], ["是一个名字", "name"], ["是一条命", "life"]].forEach(function (p) {
+      body = "<p class=\"pz-tip\">" + esc(B.ask || "「这记是你自己的吗？」") + "</p>";
+      ((B.answers && B.answers.length) ? B.answers : [["是别人的", "other"], ["是我的（他自己的）", "own"]]).forEach(function (p) {
         btns.push({ label: p[0], fn: function () { host.__ch2RecvSrc = p[1]; return repaint(3); } });
       });
       btns.push({ label: "不好说", fn: function () { host.__ch2RecvSrc = "unknown"; return repaint(3); } });
     } else {
       var src = host.__ch2RecvSrc || "unknown";
       var price = priceOf(id, src);
+      var W = B.words || {};
       host.setTitle("收当 · 定价 " + price + " 枚");
-      body = "<p class=\"pz-tip\">你报了 " + price + " 枚当金。他想了很久，把渔网放在柜台上。</p>"
+      body = paras((W.price || []).map(function (x) { return fill(x, { price: price }); }))
+           + paras((B.after && B.after[src]) ? [B.after[src]] : [])
            + "<p class=\"pz-tip\">（给多了铺子赔，给少了人就走 —— 秤在柜上，账在你心里。）</p>";
       btns.push({ label: "收下（" + price + " 枚）", fn: function () {
-        var r = receive(host, { src: src });
+        var r = receive(host, { src: src, guest: gid });
         if (host && host.closeModal) host.closeModal();
-        /* 动线最后一拍：**走人**（中枢派单第 3 条 "…→ 收当/赎回 → 走人"）。
-           以前只有一句"东西收下了"，人还杵在柜台外头 —— 玩家不知道这一段收完没有。 */
-        if (r && r.ok && host && host.say) host.say([
-          "（阿海把渔网背回肩上，走之前在柜台上按了一下帽檐，没再多说。）",
+        /* 动线最后一拍：**走人**。阿蕊那几句就是 §15-2 原文，最后一句是 K1 第二段的钩子。 */
+        if (r && r.ok) lines(host, (W.bye || []).concat([
           "（东西收下了，暂记在待上架 —— 走到库房里那只罐子前面，再决定它进哪一格。）"
-        ]);
+        ]));
         return r;
       } });
-      btns.push({ label: "让他回去再想想", fn: function () {
+      /* 压价（§15-2-3 第三条）：省铺子一枚钱，代价记在 `ch2_aurui_pressed` ——
+         K1 第三段「码头找证人」那一点要她开口，压过价她就不帮你说话（那一段落码时读这个键）。 */
+      if (gid === "aurui" && price > 1) {
+        btns.push({ label: "压到 " + (price - 1) + " 枚", fn: function () {
+          var r = receive(host, { src: src, guest: gid, price: price - 1, pressed: 1 });
+          if (host && host.closeModal) host.closeModal();
+          if (r && r.ok) lines(host, (W.cheap || []).map(function (x) { return fill(x, { price: price - 1 }); }).concat([
+            "（东西收下了，暂记在待上架 —— 走到库房里那只罐子前面，再决定它进哪一格。）"
+          ]));
+          return r;
+        } });
+      }
+      btns.push({ label: "让" + he + "回去再想想", fn: function () {
         if (host && host.closeModal) host.closeModal();
-        if (host && host.say) host.say(["（他把渔网背回肩上，走了 —— 临出门撂一句「改天再来」。）"]);
+        lines(host, gid === "aurui"
+          ? ["（她把伞提起来，站在门口停了一下 —— 没走远。）", "「那我改天再来。伞先搁这儿。」"]
+          : ["（他把渔网背回肩上，走了 —— 临出门撂一句「改天再来」。）"]);
         return { ok: true, left: true };
       } });
     }
@@ -758,7 +800,7 @@
     host.setBody(body);
     host.setBtns(btns);
     host.openModal();
-    return { ok: true, opened: true, step: step, guest: GUEST.id };
+    return { ok: true, opened: true, step: step, guest: gid };
   }
   function counterOpen(host) {
     if (!host || !host.setTitle) { say(host, "store"); return { ok: false, msg: "no-host" }; }
@@ -990,6 +1032,8 @@
     /* V10 · 柜台收当（验 / 问来路 / 定价 / 收下） */
     counterOpen: counterOpen, counterPanel: counterPanel, receive: receive, priceOf: priceOf,
     pendingIds: pendingIds, PENDING: PENDING, GUEST: GUEST, GUEST_W: GUEST_W, SRC_PRICE: SRC_PRICE,
+    /* 2026-10-19 夜：柜台待客接 K1 阿蕊 —— 两位客人、按单换人、台词在 text.js guests 段 */
+    GUESTS: GUESTS, guestNow: guestNow, guestBook: guestBook,
     actTake: actTake, actJar: actJar,
     /* V1 · 验物（剧情 §15-3）：当票架上客人口述三样 → 玩家在 A–Z 里点一格 → hits 判定 */
     v1Open: v1Open, v1Panel: v1Panel, v1Pick: v1Pick, v1Wanted: v1Wanted, v1Hits: v1Hits,
