@@ -291,10 +291,12 @@
   function stageOf(s) {
     var recv = fnum(s, 'ch2_recv_n'), used = jarUsed(s), take = fnum(s, 'ch2_take_n');
     if (recv < 1) return 1;          /* 还没在柜台上收下过东西 */
-    if (used < 1) return 2;          /* 收下了，还没上架 */
+    /* 2026-10-19：验物 V1 落码之后，"取"不一定留在库里 —— 客人赎走那一段，格就空了。
+       所以第二幕的判据改成 used<1 **且** 没取过：取过（含验物赎走）就不再退回第二幕。 */
+    if (used < 1 && take < 1) return 2;   /* 收下了，还没上架 */
     if (take < 1) return 3;          /* 上过架，还没取过 */
     if (recv < 2) return 4;          /* 取过了，第二位客人还没接到 */
-    return 5;                        /* 立账：把 13 格堆起来 */
+    return 5;                        /* 立账：把一排 13 格堆起来 */
   }
   /* 五幕各自的条目表：`done(s)` 全落在二章自己的真账上 */
   function specOf(act) {
@@ -320,7 +322,10 @@
       { name: '按 E 把这一段取出来（满格必须先取）', hint: '有货的那只罐',
         done: function (s) { return fnum(s, 'ch2_take_n') >= 1; } },
       { name: '取出来的记回到身上', hint: '身上 +1 段，格空着、号还留着',
-        done: function (s) { return carryN(s) >= 1; } }
+        done: function (s) { return carryN(s) >= 1; } },
+      /* 2026-10-19 中枢接的剧情单（§15-3 验物 V1 落码）：当票架上客人报三样，你在 A–Z 里认物 */
+      { name: '当票架：凭客人报的三样，在 A–Z 里验中一回', hint: '柜台里那排当票架 —— 日名 / 封条色 / 轻重档，对上两样就算验中',
+        done: function (s) { return fnum(s, 'ch2_verify_n') >= 1; } }
     ];
     if (act === 4) return [
       { name: '柜台上再接一位客人（他还会来）', hint: '回柜台 · 门口，再开一次秤',
@@ -333,7 +338,7 @@
     return [
       { name: '在册过六格', hint: '柜台上一直有生意',
         done: function (s) { return jarUsed(s) >= 6; } },
-      { name: '十三只罐都上过货', hint: '库房 A–Z 里挑十三格',
+      { name: '一整排（A–M 十三格）都上过货', hint: '库房 A–Z，先挑满第一排 —— 十三格是一只架的容量',
         done: function (s) { return jarUsed(s) >= 13; } },
       { name: '收口：待上架清空、身上清空', hint: '账要平 —— 东西都在格子里',
         done: function (s) { return pendingN(s) === 0 && carryN(s) === 0; } }
